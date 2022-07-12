@@ -31,12 +31,15 @@ def config_logger():
 
 config_logger()
 
+LASER_TAG = 'wavelength [nm]'
+POWER_TAG = 'laser power [mW]'
+
 default_config = {
     'database': '../power_database.xlsx',
     'index': {
         'name': 'DefaultMicroscope',
-        'wavelength [nm]': 488,
-        'laser_power [mW]': 100},
+        LASER_TAG: 488,
+        POWER_TAG: 100},
     'powermeter': {
         'classpath': 'monet.powermeter.ThorlabsPowerMeter',
         'init_kwargs': {
@@ -60,8 +63,8 @@ test_config = {
     'database': 'power_database.xlsx',
     'index': {
         'name': 'DefaultMicroscope',
-        'wavelength [nm]': 488,
-        'laser_power [mW]': 100},
+        LASER_TAG: 488,
+        POWER_TAG: 100},
     'powermeter': {
         'classpath': 'monet.powermeter.TestPowerMeter',
         'init_kwargs': {
@@ -83,6 +86,56 @@ test_config = {
             'step': 5,}
         }
 }
+
+calibration_protocol = {
+    '488': [100, 200, 500, 1000],
+    '561': [200, 500, 1000, 2000],
+    '640': [200, 500, 1000, 2000],
+}
+
+test_config_2d = {
+    'database': 'power_database.xlsx',
+    'dest_calibration_plot': './'
+    'index': {
+        'name': 'DefaultMicroscope',
+        },
+    'powermeter': {
+        'classpath': 'monet.powermeter.TestPowerMeter',
+        'init_kwargs': {
+            'address': 'find connection',}
+        },
+    'attenuation' : {
+        'classpath': 'monet.attenuation.TestAttenuator',
+        'init_kwargs': {
+            'bkg': 0,
+            'amp': 50,
+            'phi': 30,
+            'start': 10,
+            'step': 5},
+        'analysis': {
+            'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
+            'init_kwargs': {
+                'min': 30,
+                'max': 100,
+                'step': 5,}
+            },
+        },
+    'lasers' : {
+        '488': {
+            'classpath': 'monet.laser.Toptica',
+            'init_kwargs': {'port': 'COM4'},
+            },
+        '561': {
+            'classpath': 'monet.laser.MPBVFL',
+            'init_kwargs': {'port': 'COM7'},
+            },
+        '640': {
+            'classpath': 'monet.laser.MPBVFL',
+            'init_kwargs': {'port': 'COM8'},
+            },
+        },
+}
+
 
 CONFIGS = {}
 CONFIGS_PATH = ''

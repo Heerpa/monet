@@ -60,6 +60,10 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
         """
         pass
 
+    @abc.abstractmethod
+    def output_range(self):
+        pass
+
     def fit(self, x, y):
         """Fit a model from calibration data
 
@@ -232,6 +236,10 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         self.model.set_param_hint('phi', min=0)
         return pars
 
+    def output_range(self):
+        params = self.get_model()
+        return [params['bkg'], params['bkg']+params['amp']]
+
     def plot(self, fname, xlabel=None, ylabel=None, title=None):
         """Plot the outcome of the analysis
 
@@ -242,6 +250,96 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         """
         if xlabel is None:
             xlabel = 'angle [deg]'
+        print('plotting with', xlabel, ylabel, title)
+        super().plot(fname, xlabel, ylabel, title)
+
+
+class LinearCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
+    """Model is linear:
+    P(x) = bkg + amp * x
+
+    In- and Output
+    P : power
+    x: set point
+
+    Model Parameters:
+    bkg : background power
+    amp : amplitude
+    """
+    def __init__(self, analysis_parameters):
+        """
+        Args:
+            analysis_parameters : dict
+                min : float
+                    minimum control parameter
+                max : float
+                    maximum control parameter
+        """
+        super().__init__(analysis_parameters)
+
+    def _model_function(self, x, bkg, amp):
+        """linear function with background and offset
+
+        P(x) = bkg + amp * x
+
+        Args:
+            x : float or array
+                input value
+            bkg : float
+                background
+            amp : float
+                amplitude
+        Returns:
+            result : float or array
+                the output value.
+        """
+        return bkg + amp * x
+
+    def _model_function_inv(self, y, bkg, amp, mini, maxi):
+        """calculate the inverse
+        """
+        if np.any(y < bkg + amp * mini) or np.any(y > bkg + amp * maxi):
+            raise ValueError(
+                'Desired value y={:s} out of range. '.format(str(y)) +
+                'Should be between {:s} and {:s}'.format(
+                    str(bkg + amp * mini), str(bkg + amp * maxi)))
+        x = (y-bkg)/amp
+        return x
+
+    def _model_function_estinit(self, y, x):
+        """Estimate initial parameters of data given to a squared sinusoidal
+
+        Args:
+            y : array (N)
+                the result data
+            x : array (N)
+                the input data
+        Returns:
+            pars : dict
+                keys: bkg, amp
+        """
+        pars = {
+            'bkg': np.min(y),
+            'amp': np.max(y)-np.min(y),
+        }
+        self.model.make_params(pars)
+        self.model.set_param_hint('bkg', min=0)
+        self.model.set_param_hint('amp', min=0)
+        return pars
+
+    def output_range(self):
+        raise NotImplementedError()
+
+    def plot(self, fname, xlabel=None, ylabel=None, title=None):
+        """Plot the outcome of the analysis
+
+        Args:
+            fname : string
+                the file name to save the plot at.
+
+        """
+        if xlabel is None:
+            xlabel = 'x'
         print('plotting with', xlabel, ylabel, title)
         super().plot(fname, xlabel, ylabel, title)
 

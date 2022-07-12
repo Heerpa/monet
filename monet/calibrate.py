@@ -19,10 +19,27 @@ import numpy as np
 import pandas as pd
 from importlib import import_module
 
+import monet.io as io
 
 
 logger = logging.getLogger(__name__)
 # ic.configureOutput(outputFunction=logger.debug)
+
+
+def load_class(classpath, init_kwargs={}):
+    """Load a class by classpath string
+
+    Args:
+        classpath : str
+            the path in the package.
+            E.g. 'monet.attenuation.KinesisAttenuator'
+        init_kwargs : dict
+            the arguments to __init__ of the class
+    """
+    p, m = classpath.rsplit('.', 1)
+    mod = import_module(p)
+    Met = getattr(mod, m)
+    return Met(init_kwargs)
 
 
 class PowerCalibrator():
@@ -41,34 +58,19 @@ class PowerCalibrator():
 
         self.config = config
         anaconfig = config['analysis']
-        self.analyzer = self.load_class(
+        self.analyzer = load_class(
             anaconfig['classpath'], anaconfig['init_kwargs'])
 
         attconfig = config['attenuation']
-        self.attenuator = self.load_class(
+        self.attenuator = load_class(
             attconfig['classpath'], attconfig['init_kwargs'])
 
         pwrconfig = config['powermeter']
-        self.powermeter = self.load_class(
+        self.powermeter = load_class(
             pwrconfig['classpath'], pwrconfig['init_kwargs'])
 
         if do_load_cal:
             self.load_calibration()
-
-    def load_class(self, classpath, init_kwargs={}):
-        """Load a class by classpath string
-
-        Args:
-            classpath : str
-                the path in the package.
-                E.g. 'monet.attenuation.KinesisAttenuator'
-            init_kwargs : dict
-                the arguments to __init__ of the class
-        """
-        p, m = classpath.rsplit('.', 1)
-        mod = import_module(p)
-        Met = getattr(mod, m)
-        return Met(init_kwargs)
 
     def calibrate(self, wait_time=0.1):
         """Calibrate power, with parameters according to the
@@ -113,28 +115,16 @@ class PowerCalibrator():
         cali_pars = self.analyzer.get_model()
 
         fname = self.config['database']
-        indexnames = list(self.config['index'].keys()) + ['date', 'time']
-        datim = [datetime.now().strftime('%Y-%m-%d'),
-                 datetime.now().strftime('%H:%M')]
-        indexvals = tuple(list(self.config['index'].values()) + datim)
-        try:
-            db = pd.read_excel(fname, index_col=list(range(len(indexvals))))
-        except Exception as e:
-            logger.debug('error loading database: ', str(e))
-            # print('error loading database: ', str(e))
-            midx = pd.MultiIndex.from_tuples(
-                [indexvals], names=list(indexnames))
-            db = pd.DataFrame(
-                index=midx, columns=list(cali_pars.keys()))
-
-        db.loc[indexvals, :] = list(cali_pars.values())
-        db.to_excel(fname)
+        io.save_calibration(fname, self.config['index'], cali_pars)
 
         if save_plot:
+            folder = self.config.get('dest_calibration_plot')
+            if folder is None:
+                folder = os.path.split(fname)[0]
             fnplot = os.path.join(
-                os.path.split(fname)[0],
-                '_'.join([str(k)+'-'+str(v)
-                    for k, v in zip(indexnames, indexvals)]) + '.png')
+                folder, '_'.join(
+                    [str(k)+'-'+str(v)
+                     for k, v in zip(indexnames, indexvals)]) + '.png')
             fnplot = fnplot.replace(':', '-')
             fnplot = fnplot.replace('[', '(')
             fnplot = fnplot.replace(']', ')')
@@ -143,7 +133,7 @@ class PowerCalibrator():
                 ylabel='Power [{:s}]'.format(self.powermeter.unit),
                 title='power calibration curve')
 
-    def load_calibration(self, idx='latest'):
+    def load_calibration(self, time_idx='latest'):
         """Load a calibration from the database, and set the analyzer
         model accordingly
 
@@ -153,29 +143,51 @@ class PowerCalibrator():
                 or a specific date and time
         """
         fname = self.config['database']
-        indexnames = list(self.config['index'].keys()) + ['date', 'time']
-
-        if idx==None or isinstance(idx, str):
-            datim = [slice(None), slice(None)]
-        elif (isinstance(idx, list) or isinstance(idx, tuple) and len(idx)==2):
-            datim = list(idx)
-        indexvals = tuple(list(self.config['index'].values()) + datim)
-
-        try:
-            db = pd.read_excel(fname, index_col=list(range(len(indexvals))))
-        except:
-            return
-
-        try:
-            db_select = db.loc[indexvals, :].sort_index().iloc[-1, :]
-        except:
-            # indexvals nto present
-            return
-
-        cali_pars = {col: val
-                     for col, val
-                     in zip(db_select.index, db_select.values)
-                     if not np.isnan(val)}
+        cali_pars = io.load_calibration(
+            fname, self.config['index'], time_idx=time_idx)
 
         self.analyzer.load_model(cali_pars)
         self.is_calibrated = True
+
+
+class CalibrationProtocol2D:
+    """Calibrates different lasers at different power settings
+    """
+    def __init__(self, config, protocol):
+        """
+        Args:
+            config : dict
+                the configuration, with keys
+                    'analysis', 'attenuation', 'powermeter'
+                        dicts with sub-keys: 'classpath', and 'init_kwargs'
+                    'lasers'
+                        dict with keys: laser name (e.g. '561') and vals:
+                        dict with sub-keys 'classpath', and 'init_kwargs'
+            protocol : dict
+                keys: laser names
+                vals: list of power values
+        """
+        self.protocol = protocol
+        self.config = config
+
+        self.calibrator = PowerCalibrator(config)
+        self.lasers = {}
+        for laser, lconf in config['lasers'].items():
+            self.lasers[laser] = load_class(
+                    lconf['classpath'], lconf['init_kwargs'])
+            self.lasers[laser].enabled = False
+
+    def run_protocol(self):
+        """Run a protocol: loop through lasers and respective power settings,
+        doing calibrations, and saving them for every combination.
+        """
+        for laser, powers in self.protocol.items():
+            self.lasers[laser].enabled=True
+            self.calibrator.config['index'][LASER_TAG] = laser
+            for pwr in powers:
+                self.lasers[laser].power = pwr
+                self.calibrator.config['index'][POWER_TAG] = pwr
+                self.calibrator.calibrate()
+                self.calibrator.save_calibration()
+            self.lasers[laser].power = min(powers)
+            self.lasers[laser].enabled = False

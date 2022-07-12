@@ -28,6 +28,16 @@ class AbstractPowerMeter(abc.ABC):
     def read(self):
         return
 
+    @property
+    @abc.abstractmethod
+    def wavelength(self):
+        return
+
+    @wavelength.setter
+    @abc.abstractmethod
+    def wavelength(self, value):
+        pass
+
 
 class TestPowerMeter(AbstractPowerMeter):
     """A powermeter for testing purposes
@@ -74,6 +84,14 @@ class TestPowerMeter(AbstractPowerMeter):
         return bkg + amp * (1+np.sin(4*np.pi/180*(x+phi)))
 
     @property
+    def wavelength(self):
+        return 488
+
+    @wavelength.setter
+    def wavelength(self, value):
+        pass
+
+    @property
     def unit(self):
         return 'mW'
 
@@ -115,6 +133,14 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
 
     def read(self):
         return self.pm.read * 1000
+
+    @property
+    def wavelength(self):
+        return self.pm.sense.correction.wavelength
+
+    @wavelength.setter
+    def wavelength(self, value):
+        self.pm.sense.correction.wavelength = value
 
     @property
     def unit(self):
