@@ -34,7 +34,7 @@ class TestCalibration(unittest.TestCase):
 
         config = {
             'database': 'monet/tests/TestData/calibrate/power_database.xlsx',
-            'setup': {
+            'index': {
                 'name': 'DefaultMicroscope',
                 'wavelength [nm]': 488,
                 'laser_power [mW]': 100},

@@ -95,7 +95,7 @@ calibration_protocol = {
 
 test_config_2d = {
     'database': 'power_database.xlsx',
-    'dest_calibration_plot': './'
+    'dest_calibration_plot': './',
     'index': {
         'name': 'DefaultMicroscope',
         },

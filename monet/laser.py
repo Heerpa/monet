@@ -17,7 +17,6 @@ import serial
 from microscope.light.toptica import TopticaiBeam
 
 import time
-from datetime import datetime
 import numpy as np
 import pandas as pd
 from importlib import import_module

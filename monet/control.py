@@ -58,10 +58,19 @@ class IlluminationController():
 
     @property
     def laser(self):
+        """Returns the list of laser names present
+        Returns:
+            lasers : list of str
+        """
         return list(self.lasers.keys())
 
     @laser.setter
     def laser(self, laser):
+        """Set the current laser by name
+        Args:
+            laser : str
+                must be one of the keys in self.lasers
+        """
         if laser in self.lasers.keys():
             self.lasers[self.curr_laser].enabled = False
             self.curr_laser = laser
@@ -82,4 +91,4 @@ class IlluminationController():
              pwr < self._power_ranges.loc[self.curr_laserpower, 'max']):
             self.lasers[self.curr_laser].power = pwr
         else:
-            raise NotImplementedERror
+            raise NotImplementedError()

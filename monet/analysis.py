@@ -237,8 +237,36 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         return pars
 
     def output_range(self):
+        """calculate the power output range within the polarizer angle range
+
+        Returns:
+            output_range : list, len 2
+                [min power, max power]
+        """
         params = self.get_model()
-        return [params['bkg'], params['bkg']+params['amp']]
+        phi_max = 180/8  # =22,5°; period 90°
+        phi_min = 3/8*180
+        phi_period = 90
+        phi_range = [self.analysis_parameters['min'], self.analysis_parameters['max']]
+        # check whether maximum is between the angle range
+        next_maxphi_from_min = (
+            (((phi_range[0]-phi_max)//phi_period)+1) *
+             phi_period+phi_max)
+        next_minphi_from_min = (
+            (((phi_range[0]-phi_min)//phi_period)+1) *
+             phi_period+phi_min)
+        output_range = [0, 0]
+        if next_maxphi_from_min < phi_range[1]:
+            output_range[1] = params['bkg']+params['amp']
+        else:
+            output_range[1] = max([self.estimate_power(phi_range[0]),
+                                   self.estimate_power(phi_range[1])])
+        if next_minphi_from_min < phi_range[1]:
+            output_range[0] = params['bkg']
+        else:
+            output_range[0] = min([self.estimate_power(phi_range[0]),
+                                   self.estimate_power(phi_range[1])])
+        return output_range
 
     def plot(self, fname, xlabel=None, ylabel=None, title=None):
         """Plot the outcome of the analysis

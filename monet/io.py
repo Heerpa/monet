@@ -9,6 +9,12 @@
     :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
 import pandas as pd
+import numpy as np
+from datetime import datetime
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 def save_calibration(fname, index, cali_pars):
@@ -21,6 +27,12 @@ def save_calibration(fname, index, cali_pars):
                 e.g. microscope name, wavelength, laser power
         cali_pars : dict
             keys: parameter names, vals: calibration parameters
+
+    Returns:
+        indexnames : list of str
+            the names of indices in the database
+        indexvals : list of str
+            the values of indices in the database
     """
     indexnames = list(index.keys()) + ['date', 'time']
     datim = [datetime.now().strftime('%Y-%m-%d'),
@@ -29,7 +41,7 @@ def save_calibration(fname, index, cali_pars):
     try:
         db = pd.read_excel(fname, index_col=list(range(len(indexvals))))
     except Exception as e:
-        logger.debug('error loading database: ', str(e))
+        logger.debug('Problem loading database: ' + str(e) + ' Creating file.')
         # print('error loading database: ', str(e))
         midx = pd.MultiIndex.from_tuples(
             [indexvals], names=list(indexnames))
@@ -38,6 +50,8 @@ def save_calibration(fname, index, cali_pars):
 
     db.loc[indexvals, :] = list(cali_pars.values())
     db.to_excel(fname)
+
+    return indexnames, indexvals
 
 
 def load_calibration(fname, index, time_idx='latest'):
@@ -59,7 +73,7 @@ def load_calibration(fname, index, time_idx='latest'):
         cali_pars : dict
             keys: parameter names, vals: calibration parameters
     """
-    sb_select = load_database(fname, index, time_idx=time_idx)
+    db_select = load_database(fname, index, time_idx=time_idx)
 
     cali_pars = {col: val
                  for col, val
@@ -98,14 +112,14 @@ def load_database(fname, index, time_idx='last date'):
     try:
         db = pd.read_excel(fname, index_col=list(range(len(indexnames))))
     except:
-        return
+        raise FileNotFoundError('Problem loading file ' + fname)
 
     # select for the index values
     try:
         db = db.loc[indexvals, :]
     except:
         # indexvals not present
-        return
+        raise KeyError('index ' + str(indexvals) + ' not found in database.')
 
     # date selection
     if time_idx==None or time_idx=='latest':

@@ -115,7 +115,8 @@ class PowerCalibrator():
         cali_pars = self.analyzer.get_model()
 
         fname = self.config['database']
-        io.save_calibration(fname, self.config['index'], cali_pars)
+        indexnames, indexvals = io.save_calibration(
+            fname, self.config['index'], cali_pars)
 
         if save_plot:
             folder = self.config.get('dest_calibration_plot')
