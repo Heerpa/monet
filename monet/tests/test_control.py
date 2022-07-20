@@ -1,8 +1,8 @@
 """
-    monet/tests/test_calibration.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    monet/tests/test_control.py
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test the calibration module of monet.
+    Test the control module of monet.
 
     :authors: Heinrich Grabmayr, 2022
     :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
@@ -13,8 +13,10 @@ import numpy as np
 import os
 import shutil
 
+import monet.control as mco
 
-class TestCalibration(unittest.TestCase):
+
+class TestControl(unittest.TestCase):
 
     def setUp(self):
         pass
@@ -22,22 +24,18 @@ class TestCalibration(unittest.TestCase):
     def tearDown(self):
         pass
 
-    def test_01_Calibrator(self):
-        try:
-            shutil.rmtree('monet/tests/TestData/calibrate')
-        except:
-            pass
+    def test_01_IlluminationController(self):
         try:
             os.mkdir('monet/tests/TestData/calibrate')
         except:
             pass
 
         config = {
-            'database': 'monet/tests/TestData/calibrate/power_database.xlsx',
+            'database': 'monet/tests/TestData/control/power_database.xlsx',
+            'dest_calibration_plot': 'monet/tests/TestData/control/',
             'index': {
                 'name': 'DefaultMicroscope',
-                'wavelength [nm]': 488,
-                'laser_power [mW]': 100},
+                },
             'powermeter': {
                 'classpath': 'monet.powermeter.TestPowerMeter',
                 'init_kwargs': {
@@ -62,24 +60,29 @@ class TestCalibration(unittest.TestCase):
                     'min': 30,
                     'max': 100,
                     'step': 5,}
-                }
+                },
+        'lasers' : {
+            '488': {
+                'classpath': 'monet.laser.TestLaser',
+                'init_kwargs': {'port': 'COM4'},
+                },
+            '561': {
+                'classpath': 'monet.laser.TestLaser',
+                'init_kwargs': {'port': 'COM7'},
+                },
+            '640': {
+                'classpath': 'monet.laser.TestLaser',
+                'init_kwargs': {'port': 'COM8'},
+                },
+            },
         }
-        pc = mca.PowerCalibrator(config, do_load_cal=False)
+        ctrl = mco.IlluminationController(config)
 
-        # if not calibrated yet, setting power should yield a Value error
-        with self.assertRaises(ValueError) as context:
-            pc.set_power(5)
-        self.assertTrue('No calibration present' in str(context.exception))
+        print(ctrl.laser)
 
-        # remove the database to test creating a new one
-        try:
-            os.remove(config['database'])
-        except:
-            pass
-        pc.calibrate(wait_time=0)
-        # test saving into an existing database
-        pc.save_calibration()
+        ctrl.laser = '561'
 
-        pc.load_calibration()
+        ctrl.power = 50
+        ctrl.power = 200
 
-        # assert False
+        assert False

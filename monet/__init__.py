@@ -32,7 +32,7 @@ def config_logger():
 config_logger()
 
 LASER_TAG = 'wavelength [nm]'
-POWER_TAG = 'laser power [mW]'
+POWER_TAG = 'laser_power [mW]'
 
 default_config = {
     'database': '../power_database.xlsx',

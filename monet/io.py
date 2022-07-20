@@ -75,6 +75,13 @@ def load_calibration(fname, index, time_idx='latest'):
     """
     db_select = load_database(fname, index, time_idx=time_idx)
 
+    logger.debug('db_select')
+    logger.debug(db_select)
+    logger.debug('db_select.index')
+    logger.debug(db_select.index)
+    logger.debug('db_select.values')
+    logger.debug(db_select.values)
+
     cali_pars = {col: val
                  for col, val
                  in zip(db_select.index, db_select.values)
@@ -114,6 +121,9 @@ def load_database(fname, index, time_idx='last date'):
     except:
         raise FileNotFoundError('Problem loading file ' + fname)
 
+    logger.debug('db')
+    logger.debug(str(db))
+
     # select for the index values
     try:
         db = db.loc[indexvals, :]
@@ -131,11 +141,15 @@ def load_database(fname, index, time_idx='last date'):
         # for every non-time index, only one entry should remain (time
         # index should be redundant)
         newdb = pd.DataFrame(
-            index=pd.MultiIndex(levels=indexnames), columns=db.columns)
-        for dfidx, subdf in db.groupby(index.keys()):
+            index=pd.MultiIndex.from_product([[0]]*len(list(index.keys())),
+                                             names=list(index.keys())),
+            columns=db.columns)
+        for dfidx, subdf in db.groupby(list(index.keys())):
             if len(subdf.index)>0:
                 keepentry = subdf.iloc[-1, :]
-                newdb.loc[keepentry.index, :] = keepentry
+                # does this keep working if there are multiple entries?
+                newdb.loc[dfidx, :] = keepentry
+        newdb.drop(index=tuple([0]*len(list(index.keys()))), inplace=True)
         db = newdb
 
     return db

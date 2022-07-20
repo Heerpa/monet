@@ -14,7 +14,7 @@ import os
 import abc
 
 import serial
-from microscope.light.toptica import TopticaiBeam
+from microscope.lights.toptica import TopticaiBeam
 
 import time
 import numpy as np
@@ -64,9 +64,38 @@ class AbstractLaser(abc.ABC):
         pass
 
 
+class TestLaser(AbstractLaser):
+    def __init__(self, connection_parameters, warmup_delay=0):
+        super().__init__(warmup_delay)
+        logger.debug('Simulating Test laser with connection parameters ' + str(connection_parameters))
+        self._enabled = False
+        self._power = 0
+
+    @property
+    def enabled(self):
+        logger.debug('Querying enabled state. It is {:s}'.format(
+            str(self._enabled)))
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value):
+        logger.debug('Setting enabled state to {:s}.'.format(str(value)))
+        self._enabled = value
+
+    @property
+    def power(self):
+        logger.debug('Querying power. It is {:s}'.format(str(self._power)))
+        return self._power
+
+    @power.setter
+    def power(self, power):
+        logger.debug('Setting power to {:s}.'.format(str(power)))
+        self._power = power
+
+
 class MPBVFL(AbstractLaser):
     def __init__(self, connection_parameters, warmup_delay=10):
-        __super__().__init__(warmup_delay)
+        super().__init__(warmup_delay)
         self.laser = MPBVFL_lowelevel(**connection_parameters)
 
     @property
@@ -344,7 +373,7 @@ class Toptica(AbstractLaser):
         Args:
             connection_parameters
         """
-        __super__().__init__(warmup_delay)
+        super().__init__(warmup_delay)
         self.las = TopticaiBeam(**connection_parameters)
         # enable the channels, switch off laser, just to be safe
         self.las._conn.command(b'en 1')

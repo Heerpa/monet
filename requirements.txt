@@ -1,6 +1,7 @@
 pyvisa
 https://github.com/MSLNZ/msl-equipment/archive/main.zip
 ThorlabsPM100==1.2.2
+microscope==0.6.0
 icecream==2.1.2
 lmfit==1.0.3
 pandas==1.4

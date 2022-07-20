@@ -9,6 +9,17 @@
     :authors: Heinrich Grabmayr, 2022
     :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
+import pandas as pd
+import logging
+from icecream import ic
+
+import monet.calibrate as mca
+import monet.io as io
+from monet import LASER_TAG, POWER_TAG
+
+
+logger = logging.getLogger(__name__)
+ic.configureOutput(outputFunction=logger.debug)
 
 
 class IlluminationController():
@@ -17,14 +28,18 @@ class IlluminationController():
         """
         self.config = config
 
-        self.calibrator = PowerCalibrator(config)
+        # here, all lasers (wavelengths) and powers are loaded
+        config['index'][LASER_TAG] = slice(None)
+        config['index'][POWER_TAG] = slice(None)
+
+        self.calibrator = mca.PowerCalibrator(config)
         self.lasers = {}
         for laser, lconf in config['lasers'].items():
-            self.lasers[laser] = load_class(
+            self.lasers[laser] = mca.load_class(
                     lconf['classpath'], lconf['init_kwargs'])
             self.lasers[laser].enabled = False
 
-        self.curr_laser = self.lasers.keys()[0]
+        self.curr_laser = list(self.lasers.keys())[0]
 
         self.cali_db = io.load_database(
             self.config['database'], self.config['index'], 'last combinations')
@@ -45,7 +60,7 @@ class IlluminationController():
                 columns: 'min', 'max'
         """
         subdb = db.loc[db.index.get_level_values(LASER_TAG)==laser]
-        anaconfig = self.config['analyze']
+        anaconfig = self.config['analysis']
         analyzers = {}
         power_ranges = pd.DataFrame(columns=['min', 'max'])
         for pwr, cali_pars in subdb.groupby(POWER_TAG):
@@ -78,7 +93,7 @@ class IlluminationController():
             self._analyzers, self._power_ranges = (
                 self._populate_analyzers(self.cali_db, self.curr_laser))
         else:
-            raise KeyError('Laser {:s} is not available'.format(laser))
+            raise KeyError('Laser {:s} is not available'.format(str(laser)))
 
     @property
     def power(self):
@@ -88,7 +103,9 @@ class IlluminationController():
     def power(self, pwr):
         # find correct power setting
         if ((pwr > self._power_ranges.loc[self.curr_laserpower, 'min'] &
-             pwr < self._power_ranges.loc[self.curr_laserpower, 'max']):
+             pwr < self._power_ranges.loc[self.curr_laserpower, 'max'])):
+            # if current power setting can supply desired power, set it
             self.lasers[self.curr_laser].power = pwr
         else:
-            raise NotImplementedError()
+            # if not, look for the best laser power setting
+            raise NotImplementedError('work in progress')
