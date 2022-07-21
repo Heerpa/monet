@@ -53,7 +53,7 @@ class IlluminationController():
             laser : str
                 the laser to choose
         Returns:
-            analyzers :
+            analyzers : dict
                 the analyzers to evaluate the calibrated model for each power setting
             power_ranges : pandas DataFrame
                 index: laser power settings
@@ -95,17 +95,43 @@ class IlluminationController():
         else:
             raise KeyError('Laser {:s} is not available'.format(str(laser)))
 
+    def set_laserpower(self, laserpower):
+        """Change the laser power output
+        """
+        self.curr_laserpower = laserpwr_best
+        self.lasers[self.curr_laser].power = laserpwr_best
+        self.calibrator.analyzer = self._analyzers[self.curr_laserpower]
+
     @property
     def power(self):
         return self.lasers[self.curr_laser].power
 
     @power.setter
     def power(self, pwr):
-        # find correct power setting
-        if ((pwr > self._power_ranges.loc[self.curr_laserpower, 'min'] &
-             pwr < self._power_ranges.loc[self.curr_laserpower, 'max'])):
-            # if current power setting can supply desired power, set it
-            self.lasers[self.curr_laser].power = pwr
-        else:
-            # if not, look for the best laser power setting
-            raise NotImplementedError('work in progress')
+        """Set the power in the sample. If possible with current laser output
+        power setting, use this, otherwise change laser output power, and
+        in any case, adjust attenuator to get correct sample power.
+
+        Args:
+            pwr : float
+                laser power in the sample
+        """
+        if ((pwr < self._power_ranges.loc[self.curr_laserpower, 'min'] or
+             pwr > self._power_ranges.loc[self.curr_laserpower, 'max'])):
+            # necessary to change laser output power setting - find best
+            powerrange_centerdistance = {}
+            for laserpwr, row in self.curr_laserpower.iterrows():
+                range = row['max'] - row['min']
+                quantile = (pwr-row['min'])/range
+                if quantile > 0 and quantile < 1:
+                    powerrange_centerdistance[laserpwr] = (quantile - .5)**2
+            if len(powerrange_centerdistance.keys()) == 0:
+                raise KeyError('Power setting {:.2f} is out of range.'.format(pwr))
+            # find quantile closest to the center of the range (0.5)
+            mindist = np.min(np.array(powerrange_centerdistance.values()))
+            laserpwr_best = [
+                k for k, v in powerrange_centerdistance.items()
+                if v==mindist][0]
+            self.set_laserpower(laserpwr_best)
+
+        self.calibrator.set_power(pwr)
