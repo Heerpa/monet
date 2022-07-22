@@ -64,11 +64,11 @@ class TestCalibration(unittest.TestCase):
                     'step': 5,}
                 }
         }
-        pc = mca.PowerCalibrator(config, do_load_cal=False)
+        pc = mca.CalibrationProtocol1D(config)
 
         # if not calibrated yet, setting power should yield a Value error
         with self.assertRaises(ValueError) as context:
-            pc.set_power(5)
+            pc.instrument.power = 5
         self.assertTrue('No calibration present' in str(context.exception))
 
         # remove the database to test creating a new one
@@ -80,6 +80,6 @@ class TestCalibration(unittest.TestCase):
         # test saving into an existing database
         pc.save_calibration()
 
-        pc.load_calibration()
+        pc.instrument.load_calibration()
 
         # assert False

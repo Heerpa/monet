@@ -107,7 +107,10 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
             y : numeric, same shape as y
                 estimated power output
         """
-        return self.model.eval(self.curr_params, x=x)
+        if isinstance(self.curr_params, dict):
+            return self.model.eval(**self.curr_params, x=x)
+        else:
+            return self.model.eval(self.curr_params, x=x)
 
     def get_model(self):
         """Return current model parameters
@@ -116,7 +119,10 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
             model_parameters : dict
                 the model parameters
         """
-        return self.fit_result.params.valuesdict()
+        if hasattr(self, 'fit_result'):
+            return self.fit_result.params.valuesdict()
+        else:
+            return self.curr_params
 
     def load_model(self, model_parameters):
         """Load a model from parameters

@@ -13,6 +13,7 @@ import numpy as np
 from datetime import datetime
 import logging
 
+from monet import DATABASE_INDEXLEVELS
 
 logger = logging.getLogger(__name__)
 
@@ -100,21 +101,33 @@ def load_database(fname, index, time_idx='last date'):
                 e.g. microscope name, wavelength, laser power
                 keys: category names
                 values: single values, or slice(None)
-        time_idx : None, 'latest', 'last date', or list, len 2
+        time_idx : None, 'latest', 'last date', or list, len 1 or 2
             loads either the latest (if time_idx is None or a string)
-            or a specific date and time
+            or a specific date (and time)
 
     Returns:
         cali_pars : dict
             keys: parameter names, vals: calibration parameters
     """
-    indexnames = list(index.keys()) + ['date', 'time']
+    # indexnames = list(index.keys()) + ['date', 'time']
+    indexnames = DATABASE_INDEXLEVELS
+    index_full = {name: slice(None) for name in indexnames}
+    for n, v in index.items():
+        index_full[n] = v
+    index = index_full
 
-    if time_idx==None or isinstance(time_idx, str):
-        datim = [slice(None), slice(None)]
-    elif (isinstance(time_idx, list) or isinstance(time_idx, tuple) and len(time_idx)==2):
-        datim = list(time_idx)
-    indexvals = tuple(list(index.values()) + datim)
+    if isinstance(time_idx, list) or isinstance(time_idx, tuple):
+        if len(time_idx) > 2:
+            pass
+        index['date'] = time_idx[0]
+        if len(time_idx) > 1:
+            index['time'] = time_idx[1]
+    indexvals = tuple(list(index.values()))
+    # if time_idx==None or isinstance(time_idx, str):
+    #     datim = [slice(None), slice(None)]
+    # elif (isinstance(time_idx, list) or isinstance(time_idx, tuple) and len(time_idx)==2):
+    #     datim = list(time_idx)
+    # indexvals = tuple(list(index.values()) + datim)
 
     try:
         db = pd.read_excel(fname, index_col=list(range(len(indexnames))))

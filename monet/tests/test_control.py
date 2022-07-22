@@ -10,9 +10,12 @@
 import unittest
 import monet.calibrate as mca
 import numpy as np
+import pandas as pd
 import os
 import shutil
+from datetime import datetime
 
+from monet import DATABASE_INDEXLEVELS
 import monet.control as mco
 
 
@@ -30,8 +33,19 @@ class TestControl(unittest.TestCase):
         except:
             pass
 
+        datim = [datetime.now().strftime('%Y-%m-%d'),
+                 datetime.now().strftime('%H:%M')]
+        db = pd.DataFrame(
+            index=pd.MultiIndex.from_product(
+                [['DefaultMicroscope'], ['488', '561'], [50, 100], [datim[0]], [datim[1]]],
+                names=tuple(DATABASE_INDEXLEVELS)),
+            data={'bkg': [0]*4, 'amp': [50, 100, 40, 80], 'phi': [30, 30, 25, 25]}
+        )
+        db_path = 'monet/tests/TestData/control/power_database.xlsx'
+        db.to_excel(db_path)
+
         config = {
-            'database': 'monet/tests/TestData/control/power_database.xlsx',
+            'database': db_path,
             'dest_calibration_plot': 'monet/tests/TestData/control/',
             'index': {
                 'name': 'DefaultMicroscope',
@@ -76,7 +90,7 @@ class TestControl(unittest.TestCase):
                 },
             },
         }
-        ctrl = mco.IlluminationController(config)
+        ctrl = mco.IlluminationLaserControl(config)
 
         print(ctrl.laser)
 
@@ -85,4 +99,4 @@ class TestControl(unittest.TestCase):
         ctrl.power = 50
         ctrl.power = 200
 
-        assert False
+        assert True

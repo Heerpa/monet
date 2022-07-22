@@ -31,8 +31,12 @@ def config_logger():
 
 config_logger()
 
+DEVICE_TAG = 'name'
 LASER_TAG = 'wavelength [nm]'
 POWER_TAG = 'laser_power [mW]'
+DATABASE_INDEXLEVELS = [
+    DEVICE_TAG, LASER_TAG, POWER_TAG, 'date', 'time'
+]
 
 default_config = {
     'database': '../power_database.xlsx',

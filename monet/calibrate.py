@@ -17,33 +17,29 @@ import time
 from datetime import datetime
 import numpy as np
 import pandas as pd
-from importlib import import_module
 
+from monet.util import load_class
 import monet.io as io
+from monet.control import IlluminationControl, IlluminationLaserControl
 
 
 logger = logging.getLogger(__name__)
 # ic.configureOutput(outputFunction=logger.debug)
 
 
-def load_class(classpath, init_kwargs={}):
-    """Load a class by classpath string
+class CalibrationProtocol1D():
+    """Calibrates the power of an instrument with one laser power input,
+    varying the attenuator.
 
-    Args:
-        classpath : str
-            the path in the package.
-            E.g. 'monet.attenuation.KinesisAttenuator'
-        init_kwargs : dict
-            the arguments to __init__ of the class
+    Additional entries of the config, compared to IlluminationControl:
+    'powermeter': {
+        'classpath': 'monet.powermeter.TestPowerMeter',
+        'init_kwargs': {
+            'address': 'find connection',}
+        },
+
     """
-    p, m = classpath.rsplit('.', 1)
-    mod = import_module(p)
-    Met = getattr(mod, m)
-    return Met(init_kwargs)
-
-
-class PowerCalibrator():
-    def __init__(self, config, do_load_cal=True):
+    def __init__(self, config, load_instrument=True):
         """Initialize the analyzer, powermeter, and attenuator classes
         defined in the configuration file.
 
@@ -51,75 +47,54 @@ class PowerCalibrator():
             config : dict
                 keys: 'analysis', 'attenuation', 'powermeter'
                 with sub-keys each: 'classpath', and 'init_kwargs'
-            do_load_cal : bool
-                whether or not to load the latest calibration
+            load_instrument : bool
+                whether to load the instrument hardware. For inheriting
+                classes this option should be disabled.
         """
-        self.is_calibrated = False
-
-        self.config = config
-        anaconfig = config['analysis']
-        self.analyzer = load_class(
-            anaconfig['classpath'], anaconfig['init_kwargs'])
-
-        attconfig = config['attenuation']
-        self.attenuator = load_class(
-            attconfig['classpath'], attconfig['init_kwargs'])
+        # load analysis and attenuation
+        if load_instrument:
+            self.instrument = IlluminationControl(config, do_load_cal=False)
 
         pwrconfig = config['powermeter']
         self.powermeter = load_class(
             pwrconfig['classpath'], pwrconfig['init_kwargs'])
 
-        if do_load_cal:
-            self.load_calibration()
-
     def calibrate(self, wait_time=0.1):
         """Calibrate power, with parameters according to the
         configuration file.
         """
-        minval = self.config['analysis']['init_kwargs']['min']
-        maxval = self.config['analysis']['init_kwargs']['max']
-        step = self.config['analysis']['init_kwargs']['step']
+        minval = self.instrument.config['analysis']['init_kwargs']['min']
+        maxval = self.instrument.config['analysis']['init_kwargs']['max']
+        step = self.instrument.config['analysis']['init_kwargs']['step']
 
         # acquire power data
         control_par_vals = np.arange(minval, maxval+step, step)
         powers = np.zeros_like(control_par_vals, dtype=np.float64)
         for i, ctrlval in enumerate(control_par_vals):
-            self.attenuator.set(ctrlval)
+            self.instrument.attenuator.set(ctrlval)
             time.sleep(wait_time)
             powers[i] = self.powermeter.read()
             print('Position: {:.1f}, Power: {:f}'.format(ctrlval, powers[i]))
 
 
         # analyze
-        self.analyzer.fit(control_par_vals, powers)
-        print(self.analyzer.fit_result.fit_report())
-        self.is_calibrated = True
+        self.instrument.analyzer.fit(control_par_vals, powers)
+        print(self.instrument.analyzer.fit_result.fit_report())
+        self.instrument.is_calibrated = True
 
         self.save_calibration()
-
-    def set_power(self, power):
-        """Set a power level once the power has been calibrated.
-
-        Args:
-            power : float
-                the power to set in mW
-        """
-        if not self.is_calibrated:
-            raise ValueError('No calibration present. Please calibrate first.')
-        ctrlval = self.analyzer.estimate(power)
-        self.attenuator.set(ctrlval)
 
     def save_calibration(self, save_plot=True):
         """Save the calibration to the database
         """
-        cali_pars = self.analyzer.get_model()
+        cali_pars = self.instrument.analyzer.get_model()
 
-        fname = self.config['database']
+        fname = self.instrument.config['database']
         indexnames, indexvals = io.save_calibration(
-            fname, self.config['index'], cali_pars)
+            fname, self.instrument.config['index'], cali_pars)
 
         if save_plot:
-            folder = self.config.get('dest_calibration_plot')
+            folder = self.instrument.config.get('dest_calibration_plot')
             if folder is None:
                 folder = os.path.split(fname)[0]
             fnplot = os.path.join(
@@ -129,49 +104,30 @@ class PowerCalibrator():
             fnplot = fnplot.replace(':', '-')
             fnplot = fnplot.replace('[', '(')
             fnplot = fnplot.replace(']', ')')
-            self.analyzer.plot(
+            self.instrument.analyzer.plot(
                 fnplot,
                 ylabel='Power [{:s}]'.format(self.powermeter.unit),
                 title='power calibration curve')
 
-    def load_calibration(self, time_idx='latest'):
-        """Load a calibration from the database, and set the analyzer
-        model accordingly
 
-        Args:
-            idx : None, 'latest', or list, len 2
-                loads either the latest (if idx is None or a string)
-                or a specific date and time
-        """
-        fname = self.config['database']
-        cali_pars = io.load_calibration(
-            fname, self.config['index'], time_idx=time_idx)
-
-        self.analyzer.load_model(cali_pars)
-        self.is_calibrated = True
-
-
-class CalibrationProtocol2D:
+class CalibrationProtocol2D(CalibrationProtocol1D):
     """Calibrates different lasers at different power settings
     """
     def __init__(self, config, protocol):
         """
         Args:
             config : dict
-                the configuration, with keys
-                    'analysis', 'attenuation', 'powermeter'
-                        dicts with sub-keys: 'classpath', and 'init_kwargs'
-                    'lasers'
-                        dict with keys: laser name (e.g. '561') and vals:
-                        dict with sub-keys 'classpath', and 'init_kwargs'
+                the configuration, with entries the union of those necessary
+                for CalibrationProtocol1D and IlluminationLaserControl
             protocol : dict
                 keys: laser names
                 vals: list of power values
         """
         self.protocol = protocol
-        self.config = config
 
-        self.calibrator = PowerCalibrator(config)
+        self.instrument = IlluminationLaserControl(config, do_load_cal=False)
+        super().__init__(config, load_instrument=False)
+
         self.lasers = {}
         for laser, lconf in config['lasers'].items():
             self.lasers[laser] = load_class(
@@ -184,11 +140,11 @@ class CalibrationProtocol2D:
         """
         for laser, powers in self.protocol.items():
             self.lasers[laser].enabled=True
-            self.calibrator.config['index'][LASER_TAG] = laser
+            self.instrument.config['index'][LASER_TAG] = laser
             for pwr in powers:
                 self.lasers[laser].power = pwr
-                self.calibrator.config['index'][POWER_TAG] = pwr
-                self.calibrator.calibrate()
-                self.calibrator.save_calibration()
+                self.instrument.config['index'][POWER_TAG] = pwr
+                self.calibrate()
+                self.save_calibration()
             self.lasers[laser].power = min(powers)
             self.lasers[laser].enabled = False
