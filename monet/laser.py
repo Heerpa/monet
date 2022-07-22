@@ -89,7 +89,7 @@ class TestLaser(AbstractLaser):
 
     @power.setter
     def power(self, power):
-        logger.debug('Setting power to {:s}.'.format(str(power)))
+        logger.debug('Setting laser power to {:s}.'.format(str(power)))
         self._power = power
 
 

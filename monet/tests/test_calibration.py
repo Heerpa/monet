@@ -22,7 +22,7 @@ class TestCalibration(unittest.TestCase):
     def tearDown(self):
         pass
 
-    def test_01_Calibrator(self):
+    def test_01_Calibrator1D(self):
         try:
             shutil.rmtree('monet/tests/TestData/calibrate')
         except:
@@ -83,3 +83,87 @@ class TestCalibration(unittest.TestCase):
         pc.instrument.load_calibration()
 
         # assert False
+
+    def test_01_Calibrator2D(self):
+        try:
+            shutil.rmtree('monet/tests/TestData/calibrate')
+        except:
+            pass
+        try:
+            os.mkdir('monet/tests/TestData/calibrate')
+        except:
+            pass
+
+        config = {
+            'database': 'monet/tests/TestData/calibrate/power_database.xlsx',
+            'index': {
+                'name': 'DefaultMicroscope',},
+            'powermeter': {
+                'classpath': 'monet.powermeter.TestPowerMeter',
+                'init_kwargs': {
+                    'bkg': 0,
+                    'amp': 50,
+                    'phi': 30,
+                    'start': 10,
+                    'step': 5,
+                    'noise': 3}
+                },
+            'attenuation' : {
+                'classpath': 'monet.attenuation.TestAttenuator',
+                'init_kwargs': {
+                    'bkg': 0,
+                    'amp': 50,
+                    'phi': 30,
+                    'start': 10,
+                    'step': 5},},
+            'analysis': {
+                'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
+                'init_kwargs': {
+                    'min': 30,
+                    'max': 100,
+                    'step': 5,}
+                },
+            'lasers' : {
+                488: {
+                    'classpath': 'monet.laser.TestLaser',
+                    'init_kwargs': {'port': 'COM4'},
+                    },
+                561: {
+                    'classpath': 'monet.laser.TestLaser',
+                    'init_kwargs': {'port': 'COM7'},
+                    },
+                640: {
+                    'classpath': 'monet.laser.TestLaser',
+                    'init_kwargs': {'port': 'COM8'},
+                    },
+                },
+        }
+        calibration_protocol = {
+            488: [100, 200, 500],
+            561: [200, 500, 1000],
+        }
+        pc = mca.CalibrationProtocol2D(config, calibration_protocol)
+
+        # if not calibrated yet, setting power should yield a Value error
+        with self.assertRaises(ValueError) as context:
+            pc.instrument.power = 5
+        self.assertTrue('Not calibrated' in str(context.exception))
+
+        # remove the database to test creating a new one
+        try:
+            os.remove(config['database'])
+        except:
+            pass
+        pc.run_protocol(wait_time=0)
+
+        pc.instrument.load_calibration_database()
+
+        pc.instrument.power = 5
+
+        pc.instrument.power = 89
+
+        pc.instrument.power = 300
+
+        pc.instrument.power = 2000
+
+        assert False

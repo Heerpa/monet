@@ -18,13 +18,14 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from monet import LASER_TAG, POWER_TAG
 from monet.util import load_class
 import monet.io as io
 from monet.control import IlluminationControl, IlluminationLaserControl
 
 
 logger = logging.getLogger(__name__)
-# ic.configureOutput(outputFunction=logger.debug)
+ic.configureOutput(outputFunction=logger.debug)
 
 
 class CalibrationProtocol1D():
@@ -128,23 +129,25 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         self.instrument = IlluminationLaserControl(config, do_load_cal=False)
         super().__init__(config, load_instrument=False)
 
-        self.lasers = {}
-        for laser, lconf in config['lasers'].items():
-            self.lasers[laser] = load_class(
-                    lconf['classpath'], lconf['init_kwargs'])
-            self.lasers[laser].enabled = False
-
-    def run_protocol(self):
+    def run_protocol(self, wait_time=0):
         """Run a protocol: loop through lasers and respective power settings,
         doing calibrations, and saving them for every combination.
         """
-        for laser, powers in self.protocol.items():
-            self.lasers[laser].enabled=True
-            self.instrument.config['index'][LASER_TAG] = laser
-            for pwr in powers:
-                self.lasers[laser].power = pwr
-                self.instrument.config['index'][POWER_TAG] = pwr
-                self.calibrate()
+        for laser, laserpowers in self.protocol.items():
+            self.instrument.laser = laser
+            # self.instrument.config['index'][LASER_TAG] = laser
+            for lpwr in laserpowers:
+                self.instrument.laserpower = lpwr
+
+                if 'amp' in self.powermeter.config.keys():
+                    # this is a test powermeter. set amplitude
+                    self.powermeter.config['amp'] = lpwr
+
+                self.calibrate(wait_time=wait_time)
                 self.save_calibration()
-            self.lasers[laser].power = min(powers)
-            self.lasers[laser].enabled = False
+                # calibration state is always set True in each 1D calibration
+                self.instrument.is_calibrated = False
+            self.instrument.laserpower = min(laserpowers)
+            self.instrument.laser_enabled = False
+        # self.instrument.is_calibrated = True
+        # self.instrument.load_calibration_database()

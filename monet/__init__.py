@@ -92,9 +92,9 @@ test_config = {
 }
 
 calibration_protocol = {
-    '488': [100, 200, 500, 1000],
-    '561': [200, 500, 1000, 2000],
-    '640': [200, 500, 1000, 2000],
+    488: [100, 200, 500, 1000],
+    561: [200, 500, 1000, 2000],
+    640: [200, 500, 1000, 2000],
 }
 
 test_config_2d = {
@@ -125,15 +125,15 @@ test_config_2d = {
             },
         },
     'lasers' : {
-        '488': {
+        488: {
             'classpath': 'monet.laser.Toptica',
             'init_kwargs': {'port': 'COM4'},
             },
-        '561': {
+        561: {
             'classpath': 'monet.laser.MPBVFL',
             'init_kwargs': {'port': 'COM7'},
             },
-        '640': {
+        640: {
             'classpath': 'monet.laser.MPBVFL',
             'init_kwargs': {'port': 'COM8'},
             },

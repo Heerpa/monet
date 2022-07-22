@@ -16,7 +16,7 @@ from icecream import ic
 
 from monet.util import load_class
 import monet.io as io
-from monet import LASER_TAG, POWER_TAG
+from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 
 
 logger = logging.getLogger(__name__)
@@ -132,14 +132,16 @@ class IlluminationLaserControl(IlluminationControl):
             },
         },
     """
-    def __init__(self, config):
+    def __init__(self, config, do_load_cal=True):
         """
         Args:
             config : dict
                 keys: 'analysis', 'attenuation'
                 with sub-keys each: 'classpath', and 'init_kwargs'
+            do_load_cal : bool
+                whether or not to load the latest calibration
         """
-        super().__init__(config, do_load_cal=True)
+        super().__init__(config, do_load_cal=do_load_cal)
 
         # here, all lasers (wavelengths) and powers are loaded
         config['index'][LASER_TAG] = slice(None)
@@ -147,15 +149,18 @@ class IlluminationLaserControl(IlluminationControl):
 
         self.lasers = {}
         for laser, lconf in config['lasers'].items():
+            try:
+                laser = int(laser)
+            except:
+                pass
             self.lasers[laser] = load_class(
                     lconf['classpath'], lconf['init_kwargs'])
             self.lasers[laser].enabled = False
 
         self.curr_laser = list(self.lasers.keys())[0]
 
-        self.cali_db = io.load_database(
-            self.config['database'], self.config['index'], 'last combinations')
-        self.curr_laserpower = min(self.cali_db.index.get_level_values(POWER_TAG))
+        if do_load_cal:
+            self.load_calibration_database()
 
     def _populate_analyzers(self, db, laser):
         """from the database, create analyzers for various power settings
@@ -171,27 +176,23 @@ class IlluminationLaserControl(IlluminationControl):
                 index: laser power settings
                 columns: 'min', 'max'
         """
+        if not self.is_calibrated:
+            raise KeyError('Cannot populate analyzers: no calibration present.')
         laser = int(laser)
-        logger.debug('database')
-        logger.debug(db)
-        logger.debug('selecting laser' + str(laser))
-        logger.debug('laser index levels' + str(db.index.get_level_values(LASER_TAG)))
+        ic(db)
         subdb = db.loc[db.index.get_level_values(LASER_TAG)==laser]
-        logger.debug('laser-filtered database')
-        logger.debug(subdb)
+        ic(subdb)
         anaconfig = self.config['analysis']
         analyzers = {}
         power_ranges = pd.DataFrame(columns=['min', 'max'])
         for pwr, cali_pars in subdb.groupby(POWER_TAG):
             pars = {col: cali_pars[col].to_numpy()[0] for col in cali_pars.columns}
-            logger.debug('cali params: ' + str(pars))
             analyzers[pwr] = load_class(
                 anaconfig['classpath'], anaconfig['init_kwargs'])
             analyzers[pwr].load_model(pars)
 
             power_ranges.loc[pwr, :] = sorted(analyzers[pwr].output_range())
-        logger.debug('power ranges')
-        logger.debug(str(power_ranges))
+        ic(power_ranges)
         return analyzers, power_ranges
 
     @property
@@ -209,12 +210,21 @@ class IlluminationLaserControl(IlluminationControl):
             laser : str
                 must be one of the keys in self.lasers
         """
+        try:
+            laser = int(laser)
+        except:
+            pass
         if laser in self.lasers.keys():
             self.lasers[self.curr_laser].enabled = False
             self.curr_laser = laser
+            self.config['index'][LASER_TAG] = laser
             self.lasers[self.curr_laser].enabled = True
-            self._analyzers, self._power_ranges = (
-                self._populate_analyzers(self.cali_db, self.curr_laser))
+            if self.is_calibrated:
+                ic(self.cali_db)
+                self._analyzers, self._power_ranges = (
+                    self._populate_analyzers(self.cali_db, self.curr_laser))
+            else:
+                logger.debug('Calibration not available, not setting analyzers.')
         else:
             raise KeyError('Laser {:s} is not available'.format(str(laser)))
 
@@ -226,9 +236,23 @@ class IlluminationLaserControl(IlluminationControl):
     def laserpower(self, laserpower):
         """Change the laser power output
         """
+        try:
+            laserpower = int(laserpower)
+        except:
+            pass
         self.curr_laserpower = laserpower
+        self.config['index'][POWER_TAG] = laserpower
         self.lasers[self.curr_laser].power = laserpower
-        self.analyzer = self._analyzers[self.curr_laserpower]
+        if self.is_calibrated:
+            self.analyzer = self._analyzers[self.curr_laserpower]
+
+    @property
+    def laser_enabled(self):
+        return self.lasers[self.curr_laser].enabled
+
+    @laser_enabled.setter
+    def laser_enabled(self, value):
+        self.lasers[self.curr_laser].enabled = value
 
     @property
     def power(self):
@@ -244,7 +268,11 @@ class IlluminationLaserControl(IlluminationControl):
             pwr : float
                 laser power in the sample
         """
-        logger.debug(self._power_ranges)
+        if not self.is_calibrated:
+            raise ValueError('Not calibrated. Cannot set power.')
+
+        newpwr = pwr
+
         if ((pwr < self._power_ranges.loc[self.curr_laserpower, 'min'] or
              pwr > self._power_ranges.loc[self.curr_laserpower, 'max'])):
             # necessary to change laser output power setting - find best
@@ -265,15 +293,35 @@ class IlluminationLaserControl(IlluminationControl):
             if min(list(powerrange_centerdistance.values())) >.5:
                 range = self._power_ranges.loc[laserpwr_best, :]
                 if pwr <= range['min']:
-                    pwr = range['min']
+                    newpwr = range['min']
                 else:
-                    pwr = range['max']
+                    newpwr = range['max']
                 logger.debug(
                     'Power setting {:.2f} is out of range. '.format(pwr) +
-                    'Setting closest power = {:.2f}.'.format(pwr))
+                    'Setting closest power = {:.2f}.'.format(newpwr))
 
+            logger.debug('setting laser power to {:s}'.format(str(laserpwr_best)))
             self.laserpower = laserpwr_best
 
         # super().power = pwr
-        super(self.__class__, self.__class__).power.__set__(self, pwr)
+        super(self.__class__, self.__class__).power.__set__(self, newpwr)
         # IlluminationControl.power.fset(self, pwr)
+
+    def load_calibration_database(self):
+        load_index = {DEVICE_TAG: self.config['index'][DEVICE_TAG]}
+        self.cali_db = io.load_database(
+            self.config['database'], load_index, 'last combinations')
+        logger.debug('loaded latest calibrations for every combination')
+        ic(self.cali_db)
+        index_combi = self.cali_db.index.to_frame(index=False)
+        ic(index_combi)
+        ic(self.curr_laser)
+        logger.debug(index_combi.loc[index_combi[LASER_TAG]==self.curr_laser,
+                        :])
+        self.curr_laserpower = min(
+            index_combi.loc[index_combi[LASER_TAG]==self.curr_laser,
+                            POWER_TAG])
+        self.is_calibrated = True
+
+        self.laser = self.curr_laser  # to populate the analyzers
+        self.laserpower = self.curr_laserpower

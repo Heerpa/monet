@@ -12,10 +12,12 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import logging
+from icecream import ic
 
 from monet import DATABASE_INDEXLEVELS
 
 logger = logging.getLogger(__name__)
+ic.configureOutput(outputFunction=logger.debug)
 
 
 def save_calibration(fname, index, cali_pars):
@@ -44,6 +46,8 @@ def save_calibration(fname, index, cali_pars):
     except Exception as e:
         logger.debug('Problem loading database: ' + str(e) + ' Creating file.')
         # print('error loading database: ', str(e))
+        ic(indexnames)
+        ic(indexvals)
         midx = pd.MultiIndex.from_tuples(
             [indexvals], names=list(indexnames))
         db = pd.DataFrame(
@@ -123,6 +127,7 @@ def load_database(fname, index, time_idx='last date'):
         if len(time_idx) > 1:
             index['time'] = time_idx[1]
     indexvals = tuple(list(index.values()))
+    ic(index)
     # if time_idx==None or isinstance(time_idx, str):
     #     datim = [slice(None), slice(None)]
     # elif (isinstance(time_idx, list) or isinstance(time_idx, tuple) and len(time_idx)==2):
@@ -134,8 +139,7 @@ def load_database(fname, index, time_idx='last date'):
     except:
         raise FileNotFoundError('Problem loading file ' + fname)
 
-    logger.debug('db')
-    logger.debug(str(db))
+    ic(db)
 
     # select for the index values
     try:
