@@ -15,7 +15,7 @@ import cmd
 import copy
 import os
 
-from monet import CONFIGS, CONFIGS_PATH
+from monet import CONFIGS, CONFIGS_PATH, PROTOCOLS, PROTOCOLS_PATH
 
 
 # configure logger and log that this shouldn't be done here
@@ -44,16 +44,35 @@ def main():
     # Main parser
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
+        '-m', '--mode', type=str, required=True,
+        help='mode. One of "set" and "calibrate".')
+    parser.add_argument(
         '-n', '--name', type=str, required=True,
         help='Microscope Name, as specified in config.')
     parser.add_argument(
         '-c', '--configs-file', type=str, required=False,
         default=None,
-        help='path to the configurations yaml file.')
+        help='''
+            path to the configurations yaml file.
+            - Only for calibration mode''')
+    parser.add_argument(
+        '-p', '--protocol-file', type=str, required=False,
+        default=None,
+        help='''
+            path to the protocol yaml file (if not supplied, only attenuation
+            will be controlled, no laser control).
+            - Only for calibration mode''')
 
     # Parse
     args = parser.parse_args()
-    MonetInteractive(args.name, args.configs_file).cmdloop()
+    if args.mode == 'calibrate':
+        MonetCalibrateInteractive(
+            args.name, args.configs_file, args.protocol_file).cmdloop():
+    elif args.mode == 'set':
+        MonetSetInteractive(
+            args.name).cmdloop():
+    else:
+        raise KeyError('monet mode has to be one of "set" and "calibrate".')
 
 
 # def monet_interactive(CONFIG):
@@ -112,16 +131,24 @@ def main():
 #         time.sleep(.2)
 
 
-class MonetInteractive(cmd.Cmd):
+class MonetCalibrateInteractive(cmd.Cmd):
     """Command-line interactive power calibration and setting.
     """
-    intro = 'Welcome to interactive monet.'
+    intro = '''Welcome to interactive monet. Here, Microscope
+        illumination can be calibrated and set. Two modes are
+        available:
+            * only modulate the attenuator (e.g. HWP/Polarizator)
+
+            * modulate laser type, laser power and attenuator
+        '''
     prompt = '(monet)'
     file = None
 
-    def __init__(self, config_name, configs_file=None):
+    def __init__(self, config_name, configs_file=None, protocol_file=None):
         super().__init__()
         import monet.calibrate as mca
+
+
         if configs_file is not None:
             with open(configs_file, 'r') as cf:
                 CONFGIS = _yaml.full_load(cf)
@@ -135,14 +162,36 @@ class MonetInteractive(cmd.Cmd):
             pp.pprint(CONFIGS)
             raise e
 
-        self.pc = mca.PowerCalibrator(config)
+        if protocol_file is not None:
+            with open(protocol_file, 'r') as pf:
+                PROTOCOLS = _yaml.full_load(pf)
+        try:
+            protocol = PROTOCOLS[config_name]
+        except KeyError as e:
+            print('Could not find ' +
+                  config_name + ' in protocols. Not using laser control.')
+            print('All protocols:')
+            pp = pprint.PrettyPrinter(indent=2)
+            pp.pprint(PROTOCOLS)
+            protocol = None
+            # raise e
+
+        if protocol is None:
+            self.pc = mca.CalibrationProtocol1D(config)
+            self.run_2d = False
+        else:
+            self.pc = mca.CalibrationProtocol1D(config, protocol)
+            self.run_2d = True
         self.config_name = config_name
 
     def do_calibrate(self, args):
         """Perform a power calibration with the settings as described
         in the configuration.
         """
-        self.pc.calibrate()
+        if not self.run_2d:
+            self.pc.calibrate()
+        else:
+            self.pc.run_protocol()
 
     def do_set(self, power):
         """Set the power to a specified level.
@@ -155,7 +204,7 @@ class MonetInteractive(cmd.Cmd):
         else:
             try:
                 print('Setting power for settings {:s}'.format('\n'.join([str(k)+': '+str(v) for k, v in self.config['index'].items()])))
-                self.pc.set_power(int(power))
+                self.pc.instrument.power = int(power)
             except ValueError as e:
                 print(str(e))
 
@@ -177,11 +226,11 @@ class MonetInteractive(cmd.Cmd):
             pp.pprint(self.config)
 
         if 'database' in kwargs.keys():
-            self.pc.config['database'] = kwargs['database']
+            self.pc.instrument.config['database'] = kwargs['database']
 
         config_items = [
-            self.pc.config['index'],
-            self.pc.config['analysis']['init_kwargs'],
+            self.pc.instrument.config['index'],
+            self.pc.instrument.config['analysis']['init_kwargs'],
         ]
         config_cmds = []
         for item in config_items:
@@ -196,14 +245,14 @@ class MonetInteractive(cmd.Cmd):
                     except:
                         item[cmd] = v
                     print('Setting {:s} to '.format(cmd), v)
-                    pp.pprint(self.pc.config)
+                    pp.pprint(self.pc.instrument.config)
                     break
 
     def help_config(self):
         helplines = ['--database : str', '   the path to the database (ends in .xlsx)' ]
         config_items = [
-            self.pc.config['index'],
-            self.pc.config['analysis']['init_kwargs'],
+            self.pc.instrument.config['index'],
+            self.pc.instrument.config['analysis']['init_kwargs'],
         ]
         for it in config_items:
             for k, v in it.items():
@@ -219,19 +268,43 @@ class MonetInteractive(cmd.Cmd):
                 the microscope name
         """
         self.config_name = name.strip()
-        self.pc.config['index']['name'] = self.config_name
+        self.pc.instrument.config['index']['name'] = self.config_name
 
-    def do_load(self, fname):
+    def do_load_config(self, fname):
         """Load configuration from file.
         Args:
             fname : str
-                the filie name
+                the file name
         """
         with open(fname, 'r') as f:
-            self.pc.config = _yaml.full_load(f)
-        self.pc = mca.PowerCalibrator(self.pc.config)
+            self.pc.instrument.config = _yaml.full_load(f)
+        if not self.run_2d:
+            self.pc = mca.CalibrationProtocol1D(self.pc.instrument.config)
+        else:
+            self.pc = mca.CalibrationProtocol2D(
+                self.pc.instrument.config, self.pc.protocol)
 
-    def do_save(self, fname=''):
+    def do_load_protocol(self, fname=None):
+        """Load protocol from file. If no file name is given, load
+        from default protocols.
+
+        Args:
+            fname : str
+                the file name
+        """
+        if fname is not None:
+            with open(fname, 'r') as f:
+                self.pc.protocol = _yaml.full_load(f)
+        else:
+            self.pc.protocol = PROTOCOLS[self.config_name]
+
+        if not self.run_2d:
+            print('Protocol files are only used in with laser control. Switching mode.')
+            self.run_2d = True
+        self.pc = mca.CalibrationProtocol2D(
+                self.pc.instrument.config, self.pc.protocol)
+
+    def do_save_config(self, fname=''):
         """Save configuration to file.
         Args:
             fname : str
@@ -240,12 +313,30 @@ class MonetInteractive(cmd.Cmd):
         """
         if not fname:
             fname = CONFIGS_PATH
-        if fname:
-            cfgs = CONFIGS
-            cfgs[self.config_name] = copy.deepcopy(self.pc.config)
-            with open(CONFIGS_PATH, 'w') as f:
-                _yaml.dump(cfgs, f)
 
+        cfgs = CONFIGS
+        cfgs[self.config_name] = copy.deepcopy(self.pc.instrument.config)
+        with open(fname, 'w') as f:
+            _yaml.dump(cfgs, f)
+
+    def do_save_protocol(self, fname=''):
+        """Save configuration to file.
+        Args:
+            fname : str
+                The filename to save the yaml file. If empty, save to
+                the location loaded during init in __init__.
+        """
+        if not self.run_2d:
+            print('Not in laser modulation mode. No protocol available for saving.')
+            return
+
+        if not fname:
+            fname = PROTOCOLS_PATH
+
+        prts = PROTOCOLS
+        prts[self.config_name] = copy.deepcopy(self.pc.protocol)
+        with open(fname, 'w') as f:
+            _yaml.dump(prts, f)
     # def do_EOF(self, line):
     #     return True
     #
@@ -259,6 +350,95 @@ class MonetInteractive(cmd.Cmd):
 
     def close(self):
         pass
+
+
+class MonetSetInteractive(cmd.Cmd):
+    """Command-line interactive power setting.
+    """
+    intro = '''Welcome to interactive monet - set. Here, Microscope
+        illumination power can be set if calibrations exist.
+        '''
+    prompt = '(monet)'
+    file = None
+
+    def __init__(self, config_name):
+        super().__init__()
+        import monet.calibrate as mca
+
+        try:
+            config = CONFIGS[config_name]
+        except KeyError as e:
+            print('Could not find ' +
+                  config_name + ' in configurations. Aborting.')
+            print('All configurations:')
+            pp = pprint.PrettyPrinter(indent=2)
+            pp.pprint(CONFIGS)
+            raise e
+
+        try:
+            protocol = PROTOCOLS[config_name]
+        except KeyError as e:
+            print('Could not find ' +
+                  config_name + ' in protocols. Not using laser control.')
+            print('All protocols:')
+            pp = pprint.PrettyPrinter(indent=2)
+            pp.pprint(PROTOCOLS)
+            protocol = None
+            # raise e
+
+        if protocol is None:
+            self.pc = mca.CalibrationProtocol1D(config)
+            self.run_2d = False
+        else:
+            self.pc = mca.CalibrationProtocol1D(config, protocol)
+            self.run_2d = True
+        self.config_name = config_name
+
+    def do_set_laser(self, laser):
+        """Activate a laser.
+        Args:
+            laser : str
+                the laser to activate
+        """
+        if not self.run_2d:
+            print('Cannot switch lasers automatically in non-laser control mode.')
+            return
+
+        if not laser:
+            print('Please specify a laser.')
+        else:
+            try:
+                print('Setting laser {:s}.'.format(str(laser)))
+                self.pc.instrument.laser = laser
+            except ValueError as e:
+                print(str(e))
+
+    def do_set_power(self, power):
+        """Set the power to a specified level.
+        Args:
+            power : float
+                the power to set to [mW]
+        """
+        if not power:
+            print('Please specify a power value.')
+        else:
+            try:
+                print('Setting power for settings {:s}'.format('\n'.join([str(k)+': '+str(v) for k, v in self.config['index'].items()])))
+                self.pc.instrument.power = int(power)
+            except ValueError as e:
+                print(str(e))
+
+    def do_exit(self, line):
+        """Exit the interaction
+        """
+        return True
+
+    def precmd(self, line):
+        return line
+
+    def close(self):
+        pass
+
 
 def get_most_similar(input, options):
     equals = [input==opt for opt in options]

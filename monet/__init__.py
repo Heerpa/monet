@@ -38,6 +38,14 @@ DATABASE_INDEXLEVELS = [
     DEVICE_TAG, LASER_TAG, POWER_TAG, 'date', 'time'
 ]
 
+
+###########################################################
+#
+# Example configurations and protocols are defined in the
+# following section.
+#
+###########################################################
+
 default_config = {
     'database': '../power_database.xlsx',
     'index': {
@@ -137,25 +145,25 @@ test_config_2d = {
             'classpath': 'monet.laser.MPBVFL',
             'init_kwargs': {'port': 'COM8'},
             },
-        },
-}
+        },}
+
+###########################################################
+#
+# Configs and protocols used by default in the interactive
+# command line mode are loaded from default file in the
+# following. If this is not possible, the example and test
+# protocols defined above are used.
+#
+###########################################################
+
+default_config_paths = [
+    'Z:/users/grabmayr/test_powerbase/configs.yaml']
+default_protocol_paths = [
+    'Z:/users/grabmayr/test_powerbase/protocols.yaml']
 
 
 CONFIGS = {}
 CONFIGS_PATH = ''
-
-default_config_paths = [
-    'Z:/users/grabmayr/test_powerbase/configs.yaml']
-
-# _this_file = _ospath.abspath(__file__)
-# _this_dir = _ospath.dirname(_this_file)
-# try:
-#     with open(_ospath.join(_this_dir, "config.yaml"), "r") as config_file:
-#         CONFIG = _yaml.full_load(config_file)
-#     if CONFIG is None:
-#         CONFIG = default_config
-# except FileNotFoundError:
-#     CONFIG = default_config
 
 # load configs from file
 for defpath in default_config_paths:
@@ -169,4 +177,23 @@ for defpath in default_config_paths:
     except:
         pass
 if CONFIGS =={}:
-    CONFIGS = {'default': default_config, 'test': test_config}
+    CONFIGS = {
+        'default': default_config,
+        'test': test_config,
+        'test_2D': test_config_2d}
+
+
+# load protocols from file
+for defpath in default_protocol_paths:
+    try:
+        with open(defpath, 'r') as protocols_file:
+            PROTOCOLS = _yaml.full_load(protocols_file)
+        if PROTOCOLS is not None:
+            print('Loaded protocols from ' + defpath)
+            PROTOCOLS_PATH = defpath
+            break
+    except:
+        pass
+if PROTOCOLS =={}:
+    PROTOCOLS = {
+        'test_2D': calibration_protocol}
