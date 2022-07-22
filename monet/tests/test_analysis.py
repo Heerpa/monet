@@ -76,3 +76,14 @@ class TestAnalysis(unittest.TestCase):
         print(initpars)
         print('config with init pars', model)
         assert True
+
+    def test_02_PointAnalyzer(self):
+        config = {}
+        att = man.PointCurveAnalyzer(config)
+
+        power = 8
+        att.fit(0, power)
+
+        assert att.estimate_power(0) == power
+        assert att.estimate_power(9) == power
+        assert att.estimate(9) == 0

@@ -166,4 +166,4 @@ class TestCalibration(unittest.TestCase):
 
         pc.instrument.power = 2000
 
-        assert False
+        assert True

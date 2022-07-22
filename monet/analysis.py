@@ -11,6 +11,7 @@
 import logging
 from icecream import ic
 import abc
+from collections.abc import Iterable
 import time
 
 import lmfit
@@ -376,6 +377,116 @@ class LinearCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             xlabel = 'x'
         print('plotting with', xlabel, ylabel, title)
         super().plot(fname, xlabel, ylabel, title)
+
+
+class PointCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
+    """If not attenuator is connected, use this point analyzer, which
+    will always return the one calibrated value.
+
+    model: P(x) = amp
+    """
+    def __init__(self, analysis_parameters):
+        analysis_parameters['min'] = np.nan
+        analysis_parameters['min'] = np.nan
+        super().__init__(analysis_parameters)
+
+    def fit(self, x, y):
+        """Fit a model from calibration data
+
+        Args:
+            y : scalar or 1d array
+                desired power output
+            x : numeric, same shape as y
+                For a PointCurveAnalyzer, the x value does not make sense
+                and is ignored. It is only kept for consistency of use
+                of different analyzers.
+        """
+        if isinstance(y, Iterable):
+            y = np.mean(y)
+        self.curr_params = {'amp': y}
+
+    def output_range(self):
+        return [self.curr_params['amp'], self.curr_params['amp']]
+
+    def estimate(self, y):
+        """Estimate control parameter needed to reach a given power.
+        For the PointCurveAnalyzer, there is no relevant control
+        parameter, so return zeros.
+
+        Args:
+            y : scalar or 1d array
+                desired power output
+
+        Returns:
+            x : numeric, same shape as y
+                the control parameters (e.g. angle) corresponding to y
+                using the current model
+        """
+        if isinstance(y, Iterable):
+            x = np.zeros_like(y)
+        else:
+            x = 0
+        return x
+
+    def estimate_power(self, x):
+        """Estimate power for a given control parameter.
+
+        Args:
+            x : scalar or 1d array
+                angular value
+
+        Returns:
+            y : numeric, same shape as y
+                estimated power output
+        """
+        if isinstance(x, Iterable):
+            return self.curr_params['amp'] * np.ones_like(x)
+        else:
+            return self.curr_params['amp']
+
+    def plot(self, **kwargs):
+        logger.debug('PointCurveAnalyzer does not plot.')
+
+    def _model_function(self, x, bkg, amp):
+        """constant function
+
+        P(x) = amp
+
+        Args:
+            x : float or array
+                input value
+            amp : float
+                amplitude
+        Returns:
+            result : float or array
+                the output value.
+        """
+        if isinstance(x, Iterable):
+            return amp + np.ones_like(x)
+        else:
+            return amp
+
+    def _model_function_inv(self, y, amp):
+        """calculate the inverse
+        """
+        return y
+
+    def _model_function_estinit(self, y, x):
+        """Estimate initial parameters of data given to a squared sinusoidal
+
+        Args:
+            y : array (N)
+                the result data
+            x : array (N)
+                the input data
+        Returns:
+            pars : dict
+                keys: bkg, amp
+        """
+        pars = {
+            'amp': np.mean(y),
+        }
+        return pars
 
 
 class SplineAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
