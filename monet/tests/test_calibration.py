@@ -137,10 +137,24 @@ class TestCalibration(unittest.TestCase):
                     'init_kwargs': {'port': 'COM8'},
                     },
                 },
+            'beampath': {
+                'shutter01': {
+                    'classpath': 'monet.beampath.TestShutter',
+                    'init_kwargs': {'SN': 234}},
+                'shutter02': {
+                    'classpath': 'monet.beampath.TestShutter',
+                    'init_kwargs': {'SN': 456}},
+            }
         }
         calibration_protocol = {
-            488: [100, 200, 500],
-            561: [200, 500, 1000],
+            'laser_sequence': [488, 561],
+            'laser_powers': {
+                488: [100, 200, 500],
+                561: [200, 500, 1000],},
+            'beampath': {
+                488: {'shutter01': True, 'shutter02': True},
+                561: {'shutter01': True, 'shutter02': False},
+            }
         }
         pc = mca.CalibrationProtocol2D(config, calibration_protocol)
 

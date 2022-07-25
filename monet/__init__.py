@@ -104,6 +104,19 @@ calibration_protocol = {
     561: [200, 500, 1000, 2000],
     640: [200, 500, 1000, 2000],
 }
+calibration_protocol = {
+    'laser_sequence': [488, 561, 640],
+    'laser_powers': {
+        488: [100, 200, 500, 1000],
+        561: [200, 500, 1000, 2000],
+        640: [200, 500, 1000, 2000],},
+    'beampath': {
+        488: {'DC': 'Ti488setting', 'shutter': True},
+        561: {'DC': 'Ti561setting', 'shutter': True},
+        640: {'DC': 'Ti640setting', 'shutter': True},
+        'end': {'DC': 'Ti488setting', 'shutter': False},
+    }
+}
 
 test_config_2d = {
     'database': 'power_database.xlsx',
@@ -145,7 +158,15 @@ test_config_2d = {
             'classpath': 'monet.laser.MPBVFL',
             'init_kwargs': {'port': 'COM8'},
             },
-        },}
+        },
+    'beampath': {
+        'DC': {
+            'classpath': 'monet.beampath.NikonFilterWheel',
+            'init_kwargs': {'SN': 1234},},
+        'shutter': {
+            'classpath': 'monet.beampath.NikonShutter',
+            'init_kwargs': {'SN': 123456},},},
+    }
 
 ###########################################################
 #
@@ -164,6 +185,8 @@ default_protocol_paths = [
 
 CONFIGS = {}
 CONFIGS_PATH = ''
+PROTOCOLS = {}
+PROTOCOLS_PATH = ''
 
 # load configs from file
 for defpath in default_config_paths:

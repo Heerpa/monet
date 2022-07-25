@@ -19,7 +19,6 @@ from microscope.lights.toptica import TopticaiBeam
 import time
 import numpy as np
 import pandas as pd
-from importlib import import_module
 
 
 logger = logging.getLogger(__name__)

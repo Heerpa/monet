@@ -22,6 +22,7 @@ from monet import LASER_TAG, POWER_TAG
 from monet.util import load_class
 import monet.io as io
 from monet.control import IlluminationControl, IlluminationLaserControl
+from monet.beampath import BeamPath
 
 
 logger = logging.getLogger(__name__)
@@ -121,20 +122,39 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 the configuration, with entries the union of those necessary
                 for CalibrationProtocol1D and IlluminationLaserControl
             protocol : dict
-                keys: laser names
-                vals: list of power values
+                keys:
+                    required: 'laser_sequence', 'laser_powers',
+                    optional: 'beapath'
+                values:
+                    'laser_sequence': list of lasers matching 'laser' keys
+                        in config
+                    'laser_powers': dict of laser keys and
+                        list of respective laser powers
+                    'beampath': dict of laser keys and dict of respective
+                        beampath object settings for object ids as set in
+                        'beampath' section of config
         """
         self.protocol = protocol
 
         self.instrument = IlluminationLaserControl(config, do_load_cal=False)
+
+        if 'beampath' in config.keys() and 'beampath' in protocol.keys():
+            self.beampath = BeamPath(config['beampath'])
+            self.use_beampath = True
+        else:
+            self.use_beampath = False
+
         super().__init__(config, load_instrument=False)
 
     def run_protocol(self, wait_time=0):
         """Run a protocol: loop through lasers and respective power settings,
         doing calibrations, and saving them for every combination.
         """
-        for laser, laserpowers in self.protocol.items():
+        for laser in self.protocol['laser_sequence']:
             self.instrument.laser = laser
+            laserpowers = self.protocol['laser_powers'][laser]
+            if self.use_beampath:
+                self.beampath.positions = self.protocol['beampath'][laser]
             # self.instrument.config['index'][LASER_TAG] = laser
             for lpwr in laserpowers:
                 self.instrument.laserpower = lpwr
@@ -147,7 +167,11 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 self.save_calibration()
                 # calibration state is always set True in each 1D calibration
                 self.instrument.is_calibrated = False
+
             self.instrument.laserpower = min(laserpowers)
             self.instrument.laser_enabled = False
+        # post-actions
+        if self.use_beampath and 'end' in self.protocol['beampath'].keys():
+            self.beampath.positions = self.protocol['beampath']['end']
         # self.instrument.is_calibrated = True
         # self.instrument.load_calibration_database()
