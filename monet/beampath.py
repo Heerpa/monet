@@ -16,7 +16,7 @@ import os
 import abc
 
 from pycromanager import Core
-import pymmcore
+# import pymmcore
 
 import time
 import numpy as np
@@ -44,23 +44,33 @@ def get_pycromgr(pycore_config=None):
     """
     global pycrocore
     if pycrocore is not None:
-        logger.debug('Pycromanager Core already initialized. Returning.')
+        # logger.debug('Pycromanager Core already initialized. Returning.')
         return pycrocore
 
     if pycore_config is None:
-        pycrocore = Core.core()
-        logger.warning('TODO: Check pycromanger.Core.core() does the same as pymmcore.CMMCore()')
+        try:
+            pycrocore = Core.core()
+        except TimeoutError as e:
+            raise e
     else:
-        pycrocore = pymmcore.CMMCore()
-        pycrocore.setDeviceAdapterSearchPaths(
-            [pycore_config['micromanager_path']])
-        pycrocore.loadSystemConfiguration(
-            os.path.join(pycore_config['micromanager_path'],
-                         pycore_config['mmconfig_name']))
+        # no need to specifically load the config
+        logger.debug('Ignoring pycromanager configuration {:s}.'.format(str(pycore_config)))
+        try:
+            pycrocore = Core.core()
+        except TimeoutError as e:
+            raise e
+        # raise NotImplementedError('Loading pycromanager from pymmcore is not implemented.')
+        # pycrocore = pymmcore.CMMCore()
+        # pycrocore.setDeviceAdapterSearchPaths(
+        #     [pycore_config['micromanager_path']])
+        # pycrocore.loadSystemConfiguration(
+        #     os.path.join(pycore_config['micromanager_path'],
+        #                  pycore_config['mmconfig_name']))
 
-        logger.debug(pycrocore.getAvailablePropertyBlocks())
-        logger.debug(pycrogore.getChannelGroup())
+        # logger.debug(pycrocore.getAvailablePropertyBlocks())
+        # logger.debug(pycrogore.getChannelGroup())
     return pycrocore
+
 
 class BeamPath():
     """A class holding all objects in the beam path that can be opened
@@ -174,13 +184,11 @@ class NikonShutter(AbstractBeamPathObject):
                 ...
         """
         super().__init__(config)
-        self.device = self._connect(config)
+        self._connect(config)
 
     def _connect(self, config):
-        device = None
-        core = get_pycromgr()
-        core.set_property('Core', 'AutoShutter', 0)
-        return device
+        self.core = get_pycromgr()
+        self.core.set_property('Core', 'AutoShutter', 0)
 
     @property
     def position(self):
@@ -195,8 +203,7 @@ class NikonShutter(AbstractBeamPathObject):
         # else:
         #     self.device.close()
         # core.set_property('Core', 'ShutterOpen', pos)
-        core = get_pycromgr()
-        core.set_shutter_open(pos)
+        self.core.set_shutter_open(pos)
         super(self.__class__, self.__class__).position.__set__(self, pos)
 
 
@@ -212,18 +219,53 @@ class NikonFilterWheel(AbstractBeamPathObject):
                 ...
         """
         super().__init__(config)
-        self.device = self._connect(config)
+        self._connect(config)
 
     def _connect(self, config):
-        device = None
-        return device
+        self.core = get_pycromgr()
+        # find the correct filter config name
+        filter_config_name = 'Filter turret'
+        config_names = [
+            strvec.get(i)
+            for i in range(core.get_available_config_groups().size())]
+        if filter_config_name not in config_names:
+            config_names_upper = [it.upper() for it in config_names]
+            if filter_config_name.upper() in config_names_upper:
+                filter_config_name = config_names[
+                    config_names_upper.index(filter_config_name.upper())]
+            else:
+                # try the parts
+                name_candidates = []
+                for test_cn in filter_config_name.split(' '):
+                    found = [test_cn.upper() in cn for cn in config_names_upper]
+                    if sum(found) > 0:
+                        name_candidates.append(config_names[found.index(True)])
+                if len(name_candidates) == 1:
+                    filter_config_name = name_candidates[0]
+                elif len(name_candidates) > 1:
+                    logger.debug(
+                        'Multiple configs could be the ' + filter_config_name +
+                        ': ' + ', '.join(name_candidates) + '. Choosing the first.')
+                    filter_config_name = name_candidates[0]
+                else:
+                    raise KeyError(
+                        'Cannot find configuration for ' + filter_config_name +
+                        '.')
+        self.filter_config_name = filter_config_name
+        # load the options
+        configopts = self.core.get_available_configs(filter_config_name)
+        self.filter_options = [configopts.get(i) for i in range(configopts.size())]
 
     @property
     def position(self):
+        curr_pos = self.core.get_current_config(self.filter_config_name)
+        return curr_pos
         return super().position
 
     @position.setter
     def position(self, pos):
         assert(isinstance(pos, str))
-        self.device.set_pos(pos)
+        assert(pos in self.filter_options)
+        self.core.set_config(self.filter_config_name, pos)
+
         super(self.__class__, self.__class__).position.__set__(self, pos)
