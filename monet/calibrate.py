@@ -81,7 +81,7 @@ class CalibrationProtocol1D():
 
         # analyze
         self.instrument.analyzer.fit(control_par_vals, powers)
-        print(self.instrument.analyzer.fit_result.fit_report())
+        # print(self.instrument.analyzer.fit_result.fit_report())
         self.instrument.is_calibrated = True
 
         self.save_calibration()

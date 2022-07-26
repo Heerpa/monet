@@ -288,7 +288,7 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         """
         if xlabel is None:
             xlabel = 'angle [deg]'
-        print('plotting with', xlabel, ylabel, title)
+        # print('plotting with', xlabel, ylabel, title)
         super().plot(fname, xlabel, ylabel, title)
 
 
