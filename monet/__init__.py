@@ -217,6 +217,6 @@ for defpath in default_protocol_paths:
             break
     except:
         pass
-if PROTOCOLS =={}:
+if PROTOCOLS == {}:
     PROTOCOLS = {
         'test_2D': calibration_protocol}

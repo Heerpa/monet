@@ -92,6 +92,8 @@ class CalibrationProtocol1D():
         cali_pars = self.instrument.analyzer.get_model()
 
         fname = self.instrument.config['database']
+        # print('saving calibration into index', self.instrument.config['index'])
+        # print('calibration pars: ', cali_pars)
         indexnames, indexvals = io.save_calibration(
             fname, self.instrument.config['index'], cali_pars)
 
@@ -103,7 +105,8 @@ class CalibrationProtocol1D():
                 folder, '_'.join(
                     [str(k)+'-'+str(v)
                      for k, v in zip(indexnames, indexvals)]) + '.png')
-            fnplot = fnplot.replace(':', '-')
+            # colons are allowed in second position
+            fnplot = fnplot[:2] + fnplot[2:].replace(':', '-')
             fnplot = fnplot.replace('[', '(')
             fnplot = fnplot.replace(']', ')')
             self.instrument.analyzer.plot(
@@ -155,6 +158,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             laserpowers = self.protocol['laser_powers'][laser]
             if self.use_beampath:
                 self.beampath.positions = self.protocol['beampath'][laser]
+            # set powermeter setting
+            self.powermeter.wavelength = int(laser)
             # self.instrument.config['index'][LASER_TAG] = laser
             for lpwr in laserpowers:
                 self.instrument.laserpower = lpwr

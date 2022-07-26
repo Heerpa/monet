@@ -39,7 +39,7 @@ def main():
     """Function called from the command line.
     """
     import argparse
-    os.chdir(os.path.split(CONFIGS_PATH)[0])
+    # os.chdir(os.path.split(CONFIGS_PATH)[0])
 
     # Main parser
     parser = argparse.ArgumentParser("monet")
@@ -67,10 +67,10 @@ def main():
     args = parser.parse_args()
     if args.mode == 'calibrate':
         MonetCalibrateInteractive(
-            args.name, args.configs_file, args.protocol_file).cmdloop():
+            args.name, args.configs_file, args.protocol_file).cmdloop()
     elif args.mode == 'set':
         MonetSetInteractive(
-            args.name).cmdloop():
+            args.name).cmdloop()
     else:
         raise KeyError('monet mode has to be one of "set" and "calibrate".')
 
@@ -147,7 +147,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
     def __init__(self, config_name, configs_file=None, protocol_file=None):
         super().__init__()
         import monet.calibrate as mca
-
+        global CONFIGS, PROTOCOLS
 
         if configs_file is not None:
             with open(configs_file, 'r') as cf:
@@ -180,7 +180,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
             self.pc = mca.CalibrationProtocol1D(config)
             self.run_2d = False
         else:
-            self.pc = mca.CalibrationProtocol1D(config, protocol)
+            self.pc = mca.CalibrationProtocol2D(config, protocol)
             self.run_2d = True
         self.config_name = config_name
 

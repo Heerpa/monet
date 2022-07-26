@@ -143,9 +143,12 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
                 the file name to save the plot at.
 
         """
+        # there was a QT error on voyager (220726) - avoid it by using tkagg
+        import matplotlib
+        matplotlib.use('tkagg')
         # fig, ax = plt.subplots()
-        print('abstract plotting with', xlabel, ylabel, title)
-        print('filename', fname)
+        # print('abstract plotting with', xlabel, ylabel, title)
+        # print('filename', fname)
         fig = self.fit_result.plot(
             show_init=False, xlabel=xlabel, ylabel=ylabel, title=title)
         fig.savefig(fname)

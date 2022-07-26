@@ -95,7 +95,7 @@ class TestLaser(AbstractLaser):
 class MPBVFL(AbstractLaser):
     def __init__(self, connection_parameters, warmup_delay=10):
         super().__init__(warmup_delay)
-        self.laser = MPBVFL_lowelevel(**connection_parameters)
+        self.laser = MPBVFL_lowlevel(**connection_parameters)
 
     @property
     def enabled(self):
@@ -165,7 +165,7 @@ class MPBVFL_lowlevel(serial.Serial):
             2: serial.STOPBITS_TWO,
             1.5: serial.STOPBITS_ONE_POINT_FIVE
         }
-        super().__init__(port=portname, baudrate=baudrate,
+        super().__init__(port=port, baudrate=baudrate,
                          bytesize=bytesizedict[bytesize],
                          parity=paritydict[parity],
                          stopbits=stopbitsdict[stopbits], timeout=timeout)
@@ -377,7 +377,7 @@ class Toptica(AbstractLaser):
         # enable the channels, switch off laser, just to be safe
         self.las._conn.command(b'en 1')
         self.las._conn.command(b'en 2')
-        self.disable()
+        self.enabled = False
 
     @property
     def enabled(self):
@@ -405,12 +405,12 @@ class Toptica(AbstractLaser):
 
     def _set_power(self, power):
         self.curr_power_set = power
-        return self.las._get_power_mw(power)
+        return self.las._set_power_mw(power)
 
     def _get_power(self):
         '''Get the power in mW
         '''
-        self.las._set_power_mw(power)
+        self.las._get_power_mw(power)
 
     def close(self):
         self.las._conn._serial._serial.close()
