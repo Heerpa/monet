@@ -49,14 +49,14 @@ def get_pycromgr(pycore_config=None):
 
     if pycore_config is None:
         try:
-            pycrocore = Core.core()
+            pycrocore = Core()
         except TimeoutError as e:
             raise e
     else:
         # no need to specifically load the config
         logger.debug('Ignoring pycromanager configuration {:s}.'.format(str(pycore_config)))
         try:
-            pycrocore = Core.core()
+            pycrocore = Core()
         except TimeoutError as e:
             raise e
         # raise NotImplementedError('Loading pycromanager from pymmcore is not implemented.')
@@ -225,9 +225,10 @@ class NikonFilterWheel(AbstractBeamPathObject):
         self.core = get_pycromgr()
         # find the correct filter config name
         filter_config_name = 'Filter turret'
+        cfg_groups = self.core.get_available_config_groups()
         config_names = [
-            strvec.get(i)
-            for i in range(core.get_available_config_groups().size())]
+            cfg_groups.get(i)
+            for i in range(cfg_groups.size())]
         if filter_config_name not in config_names:
             config_names_upper = [it.upper() for it in config_names]
             if filter_config_name.upper() in config_names_upper:
