@@ -44,7 +44,7 @@ def main():
     # Main parser
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
-        '-m', '--mode', type=str, required=True,
+        'mode', type=str, required=True,
         help='mode. One of "set" and "calibrate".')
     parser.add_argument(
         '-n', '--name', type=str, required=True,
