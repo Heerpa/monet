@@ -447,7 +447,7 @@ class PointCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         else:
             return self.curr_params['amp']
 
-    def plot(self, **kwargs):
+    def plot(self, fname, xlabel=None, ylabel=None, title=None):
         logger.debug('PointCurveAnalyzer does not plot.')
 
     def _model_function(self, x, bkg, amp):

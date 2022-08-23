@@ -66,6 +66,8 @@ class CalibrationProtocol1D():
         configuration file.
         """
         minval = self.instrument.config['analysis']['init_kwargs']['min']
+        if np.isnan(minval):
+            minval = 0
         maxval = self.instrument.config['analysis']['init_kwargs']['max']
         step = self.instrument.config['analysis']['init_kwargs']['step']
 

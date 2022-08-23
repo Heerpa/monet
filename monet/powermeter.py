@@ -99,6 +99,7 @@ class TestPowerMeter(AbstractPowerMeter):
 class ThorlabsPowerMeter(AbstractPowerMeter):
     def __init__(self, config):
         self.pm = self._open_powermeter(config['address'])
+        self.config = config
 
     def _open_powermeter(self, address=''):
         """Open the communication with the power meter.

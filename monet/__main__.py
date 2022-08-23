@@ -44,7 +44,7 @@ def main():
     # Main parser
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
-        'mode', type=str, required=True,
+        'mode', type=str,
         help='mode. One of "set" and "calibrate".')
     parser.add_argument(
         '-n', '--name', type=str, required=True,
@@ -66,6 +66,9 @@ def main():
     # Parse
     args = parser.parse_args()
     if args.mode == 'calibrate':
+        MonetCalibrateInteractive(
+            args.name, args.configs_file, args.protocol_file).do_calibrate(args={})
+    elif args.mode == 'interactiveexpert':
         MonetCalibrateInteractive(
             args.name, args.configs_file, args.protocol_file).cmdloop()
     elif args.mode == 'set':
@@ -390,7 +393,8 @@ class MonetSetInteractive(cmd.Cmd):
             self.pc = mca.CalibrationProtocol1D(config)
             self.run_2d = False
         else:
-            self.pc = mca.CalibrationProtocol1D(config, protocol)
+            self.pc = mca.CalibrationProtocol2D(config, protocol)
+            self.pc.instrument.load_calibration_database()
             self.run_2d = True
         self.config_name = config_name
 
@@ -423,7 +427,9 @@ class MonetSetInteractive(cmd.Cmd):
             print('Please specify a power value.')
         else:
             try:
-                print('Setting power for settings {:s}'.format('\n'.join([str(k)+': '+str(v) for k, v in self.config['index'].items()])))
+                print('Setting power for settings {:s}'.format('\n'.join(
+                    [str(k)+': '+str(v)
+                     for k, v in self.pc.instrument.config['index'].items()])))
                 self.pc.instrument.power = int(power)
             except ValueError as e:
                 print(str(e))

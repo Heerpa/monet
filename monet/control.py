@@ -279,7 +279,10 @@ class IlluminationLaserControl(IlluminationControl):
             powerrange_centerdistance = {}
             for laserpwr, row in self._power_ranges.iterrows():
                 range = row['max'] - row['min']
-                quantile = (pwr-row['min'])/range
+                if range > 0:
+                    quantile = (pwr-row['min'])/range
+                else:
+                    quantile = (pwr-row['min'])/1
                 powerrange_centerdistance[laserpwr] = np.sqrt((quantile - .5)**2)
 
             # find quantile closest to the center of the range (0.5)
