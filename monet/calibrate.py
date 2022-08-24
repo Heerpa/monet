@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from monet import LASER_TAG, POWER_TAG
 from monet.util import load_class
@@ -156,14 +157,17 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         doing calibrations, and saving them for every combination.
         """
         for laser in self.protocol['laser_sequence']:
+            print('switching to laser', laser)
             self.instrument.laser = laser
             laserpowers = self.protocol['laser_powers'][laser]
             if self.use_beampath:
                 self.beampath.positions = self.protocol['beampath'][laser]
+            modelpars = pd.DataFrame(index=laserpowers)
             # set powermeter setting
             self.powermeter.wavelength = int(laser)
             # self.instrument.config['index'][LASER_TAG] = laser
             for lpwr in laserpowers:
+                print('setting laser power to', lpwr, 'mW')
                 self.instrument.laserpower = lpwr
 
                 if 'amp' in self.powermeter.config.keys():
@@ -172,13 +176,36 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
                 self.calibrate(wait_time=wait_time)
                 self.save_calibration()
+
+                # get model parameters for plotting
+                model_dict = self.instrument.analyzer.get_model()
+                for k, v in model_dict.items():
+                    modelpars.loc[lpwr, k] = v
                 # calibration state is always set True in each 1D calibration
                 self.instrument.is_calibrated = False
 
             self.instrument.laserpower = min(laserpowers)
             self.instrument.laser_enabled = False
+            self.plot_model(modelpars, laser)
         # post-actions
         if self.use_beampath and 'end' in self.protocol['beampath'].keys():
             self.beampath.positions = self.protocol['beampath']['end']
         # self.instrument.is_calibrated = True
         # self.instrument.load_calibration_database()
+
+    def plot_model(self, modeldf, laser):
+        fig, ax = plt.subplots(nrows=len(modeldf.columns), sharex=True, squeeze=False)
+        for i, col in enumerate(modeldf.columns):
+            ax[i, 0].plot(modeldf.index.to_numpy(), modeldf[col].to_numpy(),
+                          marker='x')
+            ax[i, 0].set_ylabel(str(col))
+        ax[-1, 0].set_xlabel('laser power [mW]')
+        fig.suptitle('laser {:d} nm'.format(int(laser)))
+
+        fname = self.instrument.config['database']
+        folder = self.instrument.config.get('dest_calibration_plot')
+        if folder is None:
+            folder = os.path.split(fname)[0]
+        fnplot = os.path.join(
+            folder, '{:d}nm'.format(int(laser)) + '.png')
+        fig.savefig(fnplot)
