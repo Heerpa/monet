@@ -62,6 +62,14 @@ class AbstractLaser(abc.ABC):
     def power(self, power):
         pass
 
+    @property
+    def min_power(self):
+        pass
+
+    @property
+    def max_power(self):
+        pass
+
 
 class TestLaser(AbstractLaser):
     def __init__(self, connection_parameters, warmup_delay=0):
@@ -116,6 +124,14 @@ class MPBVFL(AbstractLaser):
         self.curr_power_set = power
         self.laser.power_sp = power
         time.sleep(self.warmup_delay)
+
+    @property
+    def min_power(self):
+        return self.laser.power_sp_lim[0]
+
+    @property
+    def max_power(self):
+        return self.laser.power_sp_lim[1]
 
 
 class MPBVFL_lowlevel(serial.Serial):
@@ -238,6 +254,14 @@ class MPBVFL_lowlevel(serial.Serial):
     @power_sp.setter
     def power_sp(self, value):
         self.query('SETPOWER 0 {:.0f}'.format(value), expectanswer=False)
+
+    @property  # @Feat(units='mW')
+    def power_sp_lim(self):
+        """The power set point limits
+        """
+        return [
+            float(self.query('GETPOWERSETPTLIM 1')),
+            float(self.query('GETPOWERSETPTLIM 2'))]
 
     # LASER'S CURRENT STATUS
 
@@ -411,6 +435,14 @@ class Toptica(AbstractLaser):
         '''Get the power in mW
         '''
         self.las._get_power_mw(power)
+
+    @property
+    def min_power(self):
+        return 0
+
+    @property
+    def max_power(self):
+        return self.las._max_power
 
     def close(self):
         self.las._conn._serial._serial.close()

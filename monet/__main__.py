@@ -45,9 +45,9 @@ def main():
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
         'mode', type=str,
-        help='mode. One of "set" and "calibrate".')
+        help='mode. One of "set", "adjust", or "calibrate".')
     parser.add_argument(
-        '-n', '--name', type=str, required=True,
+        'name', type=str,
         help='Microscope Name, as specified in config.')
     parser.add_argument(
         '-c', '--configs-file', type=str, required=False,
@@ -68,8 +68,8 @@ def main():
     if args.mode == 'calibrate':
         MonetCalibrateInteractive(
             args.name, args.configs_file, args.protocol_file).do_calibrate(args={})
-    elif args.mode == 'interactiveexpert':
-        MonetCalibrateInteractive(
+    elif args.mode == 'adjust':
+        MonetAdjustInteractive(
             args.name, args.configs_file, args.protocol_file).cmdloop()
     elif args.mode == 'set':
         MonetSetInteractive(
@@ -144,7 +144,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
 
             * modulate laser type, laser power and attenuator
         '''
-    prompt = '(monet)'
+    prompt = '(monet calibrate)'
     file = None
 
     def __init__(self, config_name, configs_file=None, protocol_file=None):
@@ -346,6 +346,128 @@ class MonetCalibrateInteractive(cmd.Cmd):
     def do_exit(self, line):
         """Exit the interaction
         """
+        return True
+
+    def precmd(self, line):
+        return line
+
+    def close(self):
+        pass
+
+
+class MonetAdjustInteractive(cmd.Cmd):
+    """Command-line interactive power calibration and setting.
+    """
+    intro = '''Welcome to interactive monet adjust. Here, Microscope
+        illumination can be aligned and adjusted. To that end, all configured
+        lasers can be switched on and off, laser powers set, and power
+        limits queried.
+        '''
+    prompt = '(monet adjust)'
+    file = None
+
+    def __init__(self, config_name, configs_file=None, protocol_file=None):
+        super().__init__()
+        import monet.calibrate as mca
+        global CONFIGS, PROTOCOLS
+
+        if configs_file is not None:
+            with open(configs_file, 'r') as cf:
+                CONFGIS = _yaml.full_load(cf)
+        try:
+            config = CONFIGS[config_name]
+        except KeyError as e:
+            print('Could not find ' +
+                  config_name + ' in configurations. Aborting.')
+            print('All configurations:')
+            pp = pprint.PrettyPrinter(indent=2)
+            pp.pprint(CONFIGS)
+            raise e
+
+        if protocol_file is not None:
+            with open(protocol_file, 'r') as pf:
+                PROTOCOLS = _yaml.full_load(pf)
+        try:
+            protocol = PROTOCOLS[config_name]
+        except KeyError as e:
+            print('Could not find ' +
+                  config_name + ' in protocols. Not using laser control.')
+            print('All protocols:')
+            pp = pprint.PrettyPrinter(indent=2)
+            pp.pprint(PROTOCOLS)
+            protocol = None
+            # raise e
+
+        if protocol is None:
+            self.pc = mca.CalibrationProtocol1D(config)
+            self.run_2d = False
+        else:
+            self.pc = mca.CalibrationProtocol2D(config, protocol)
+            self.run_2d = True
+        self.config_name = config_name
+
+    def do_laser(self, laser):
+        """Set the laser to use, enable it and switch beam path accordingly.
+        Args:
+            laser : int
+                laser to set to (specified by wavelength in nm)
+        """
+        if not laser:
+            print('Please specify a laser.')
+        else:
+            laser = int(laser)
+            try:
+                # print('Setting laser')
+                self.pc.instrument.laser = laser
+            except Exception as e:
+                print(str(e))
+                print('Available lasers: ', str(self.pc.instrument.laser))
+                return
+            try:
+                self.pc.instrument.laser_enabled = True
+            except Exception as e:
+                print(str(e))
+                return
+            try:
+                self.pc.beampath.positions = self.pc.protocol['beampath'][laser]
+            except Exception as e:
+                print(str(e))
+                return
+            self.pc.powermeter.wavelength = int(laser)
+
+    def do_laser_power(self, power):
+        """Set the power to a specified level.
+        Args:
+            power : float
+                the power to set to [mW]
+        """
+        if not power:
+            print('Please specify a power value.')
+        else:
+            try:
+                self.pc.instrument.laserpower = int(power)
+            except ValueError as e:
+                print(str(e))
+
+    def do_min_power(self, line):
+        """Query the minimum power of the current laser"""
+        laser = self.pc.instrument.lasers[self.pc.instrument.curr_laser]
+        print('Minimum power of laser: ', laser.min_power)
+
+    def do_max_power(self, line):
+        """Query the maximum power of the current laser"""
+        laser = self.pc.instrument.lasers[self.pc.instrument.curr_laser]
+        print('Maximum power of laser: ', laser.max_power)
+
+    def do_py(self, line):
+        """Execute a line of code"""
+        print(exec(line))
+
+    def do_exit(self, line):
+        """Exit the interaction
+        """
+        laser = self.pc.instrument.lasers[self.pc.instrument.curr_laser]
+        laser.enabled=False
         return True
 
     def precmd(self, line):

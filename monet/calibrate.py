@@ -156,6 +156,14 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         """Run a protocol: loop through lasers and respective power settings,
         doing calibrations, and saving them for every combination.
         """
+        # delete previous calibration plots
+        plotfolder = self.instrument.config.get('dest_calibration_plot')
+        for f in os.listdir(plotfolder):
+            try:
+                os.remove(os.path.join(plotfolder, f))
+            except:
+                pass
+        # now start calibration
         for laser in self.protocol['laser_sequence']:
             print('switching to laser', laser)
             self.instrument.laser = laser
