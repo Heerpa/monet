@@ -152,7 +152,7 @@ class KinesisAttenuator(AbstractAttenuator):
         # start polling at 200 ms
         motor.start_polling(200)
 
-        ic(motor.settings)
+        # ic(motor.settings)
 
         return motor
 
@@ -168,7 +168,7 @@ class KinesisAttenuator(AbstractAttenuator):
             position = self.device.get_position()
             real = self.device.get_real_value_from_device_unit(
                 position, 'DISTANCE')
-            logger.debug('  at position {} [device units] {:.3f} [real-world units]'.format(position, real))
+            # logger.debug('  at position {} [device units] {:.3f} [real-world units]'.format(position, real))
             # time.sleep(.2)
 
     def _home(self):
@@ -197,12 +197,12 @@ class KinesisAttenuator(AbstractAttenuator):
             pos : int
                 the position to move to in internal steps
         """
-        logger.debug('Moving to {:d}...'.format(pos))
+        # logger.debug('Moving to {:d}...'.format(pos))
         pos_devu = self.device.get_device_unit_from_real_value(
             pos, 'DISTANCE')
         self.device.move_to_position(pos_devu)
         self._wait()
-        logger.debug('Moving done.')
+        # logger.debug('Moving done.')
         self._log_pos()
 
     def _move_relative(self, step):
@@ -212,12 +212,12 @@ class KinesisAttenuator(AbstractAttenuator):
             step : int
                 the step in internal units
         """
-        logger.debug('Moving by {:d}...'.format(step))
+        # logger.debug('Moving by {:d}...'.format(step))
         step_devu = self.device.get_device_unit_from_real_value(
             step, 'DISTANCE')
         self.device.move_relative(step_devu)
         self._wait()
-        logger.debug('Moving done.')
+        # logger.debug('Moving done.')
         self._log_pos()
 
     def set(self, val):
