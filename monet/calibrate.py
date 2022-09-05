@@ -217,3 +217,4 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         fnplot = os.path.join(
             folder, '{:d}nm'.format(int(laser)) + '.png')
         fig.savefig(fnplot)
+        fig.close()
