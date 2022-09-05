@@ -462,6 +462,7 @@ class MonetAdjustInteractive(cmd.Cmd):
         print('Maximum power of laser: ', laser.max_power)
 
     def do_attenuate(self, pos):
+        """Set the attenuation device to a position (float)"""
         pos = float(pos)
         self.pc.instrument.attenuator.set(pos)
 

@@ -152,7 +152,7 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
         fig = self.fit_result.plot(
             show_init=False, xlabel=xlabel, ylabel=ylabel, title=title)
         fig.savefig(fname)
-        fig.close()
+        plt.close(fig)
 
 
 class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):

@@ -82,12 +82,12 @@ def load_calibration(fname, index, time_idx='latest'):
     """
     db_select = load_database(fname, index, time_idx=time_idx)
 
-    logger.debug('db_select')
-    logger.debug(db_select)
-    logger.debug('db_select.index')
-    logger.debug(db_select.index)
-    logger.debug('db_select.values')
-    logger.debug(db_select.values)
+    # logger.debug('db_select')
+    # logger.debug(db_select)
+    # logger.debug('db_select.index')
+    # logger.debug(db_select.index)
+    # logger.debug('db_select.values')
+    # logger.debug(db_select.values)
 
     cali_pars = {col: val
                  for col, val
