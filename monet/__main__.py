@@ -508,9 +508,6 @@ class MonetSetInteractive(cmd.Cmd):
         import monet.control as mco
         global CONFIGS, PROTOCOLS
 
-        if configs_file is not None:
-            with open(configs_file, 'r') as cf:
-                CONFGIS = _yaml.full_load(cf)
         try:
             config = CONFIGS[config_name]
         except KeyError as e:
@@ -521,9 +518,6 @@ class MonetSetInteractive(cmd.Cmd):
             pp.pprint(CONFIGS)
             raise e
 
-        if protocol_file is not None:
-            with open(protocol_file, 'r') as pf:
-                PROTOCOLS = _yaml.full_load(pf)
         try:
             protocol = PROTOCOLS[config_name]
         except KeyError as e:
