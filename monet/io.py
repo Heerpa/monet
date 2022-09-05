@@ -100,7 +100,7 @@ def load_calibration(fname, index, time_idx='latest'):
     return cali_pars
 
 
-def load_database(fname, index, time_idx='last date'):
+def load_database(fname, index, time_idx='last combinations'):
     """Load the database
 
     Args:
@@ -158,21 +158,30 @@ def load_database(fname, index, time_idx='last date'):
     if time_idx==None or time_idx=='latest':
         db = db.sort_index().iloc[-1, :]
     elif time_idx=='last date':
-        last_date = db['date'].max()
-        db = db.loc[db['date']==last_date, :]
+        last_date = db.index.get_level_values('date').max()
+        db = db.loc[db.index.get_level_values('date')==last_date, :]
     elif time_idx == 'last combinations':
         # for every non-time index, only one entry should remain (time
         # index should be redundant)
-        newdb = pd.DataFrame(
-            index=pd.MultiIndex.from_product([[0]]*len(list(index.keys())),
-                                             names=list(index.keys())),
-            columns=db.columns)
-        for dfidx, subdf in db.groupby(list(index.keys())):
-            if len(subdf.index)>0:
-                keepentry = subdf.iloc[-1, :]
-                # does this keep working if there are multiple entries?
-                newdb.loc[dfidx, :] = keepentry
-        newdb.drop(index=tuple([0]*len(list(index.keys()))), inplace=True)
+        nontimedateidx = [k for k in index.keys() if k not in ['date', 'time']]
+        # idxlvls = {lvl: db.index.get_level_values(lvl) for lvl in nontimedateidx}
+        # newdb = pd.DataFrame(
+        #     index=pd.MultiIndex.from_product([[0]]*len(list(index.keys())),
+        #                                      names=nontimedateidx),
+        #     columns=db.columns)
+        # ic(newdb)
+        newdb = db.copy()
+        for dfidx, subdf in db.groupby(nontimedateidx):
+            idxlen = len(subdf.index)
+            for i, (idx, row) in enuemrate(subdf.iterrows()):
+                if i < idxlen-1:
+                    newdb.drop(idx, inplace=True)
+            # if len(subdf.index)>0:
+                # keepentry = subdf.iloc[-1, :]
+                # # does this keep working if there are multiple entries?
+                # ic(newdb)
+                # newdb.loc[dfidx, :] = keepentry
+        # newdb.drop(index=tuple([0]*len(list(index.keys()))), inplace=True)
         db = newdb
     elif time_idx == 'all':
         pass

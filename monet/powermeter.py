@@ -132,8 +132,9 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
 
         return power_meter
 
-    def read(self):
-        return self.pm.read * 1000
+    def read(self, averaging=10):
+        power = np.mean(np.array([self.pm.read for i in range(averaging)]))
+        return power * 1000
 
     @property
     def wavelength(self):

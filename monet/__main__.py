@@ -512,6 +512,7 @@ class MonetSetInteractive(cmd.Cmd):
     def __init__(self, config_name):
         super().__init__()
         import monet.control as mco
+        from monet.util import load_class
         global CONFIGS, PROTOCOLS
 
         try:
@@ -574,9 +575,9 @@ class MonetSetInteractive(cmd.Cmd):
             print('Please specify a power value.')
         else:
             try:
-                print('Setting power for settings \n {:s}'.format('\n'.join(
-                    [str(k)+': '+str(v)
-                     for k, v in self.instrument.config['index'].items()])))
+                # print('Setting power for settings \n {:s}'.format('\n'.join(
+                #     [str(k)+': '+str(v)
+                #      for k, v in self.instrument.config['index'].items()])))
                 self.instrument.power = int(power)
             except ValueError as e:
                 print(str(e))
@@ -599,10 +600,20 @@ class MonetSetInteractive(cmd.Cmd):
             print(str(e))
             return
 
-    def do_measure(self, line):
-        """Measure the power if a powermeter is connected"""
+    def do_measure(self, averaging):
+        """Measure the power if a powermeter is connected.
+        Args:
+            averaging : int
+                the number of measurements to average
+        """
+        try:
+            averaging = int(averaging)
+        except:
+            averaging = 10
+
+        from monet import POWER_TAG
         if self.use_powermeter:
-            print(self.powermeter.read)
+            print(POWER_TAG + ': ' + str(self.powermeter.read(averaging)))
         else:
             print('No powermeter is connected. Cannot measure.')
 

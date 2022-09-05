@@ -321,8 +321,12 @@ class IlluminationLaserControl(IlluminationControl):
                 logger.debug(
                     'Power setting {:.2f} is out of range. '.format(pwr) +
                     'Setting closest power = {:.2f}.'.format(newpwr))
+                print(
+                    'Power setting {:.2f} is out of range. '.format(pwr) +
+                    'Setting closest power = {:.2f}.'.format(newpwr))
 
             logger.debug('setting laser power to {:s}'.format(str(laserpwr_best)))
+            print('setting laser power to {:s}'.format(str(laserpwr_best)))
             self.laserpower = laserpwr_best
 
         # super().power = pwr
