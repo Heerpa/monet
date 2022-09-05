@@ -572,7 +572,10 @@ class MonetSetInteractive(cmd.Cmd):
         line = 'print(' + line + ')'
         f = StringIO()
         with redirect_stdout(f):
-            exec(line)
+            try:
+                exec(line)
+            except Exception as e:
+                print(str(e))
         print(f.getvalue())
 
     def do_exit(self, line):
