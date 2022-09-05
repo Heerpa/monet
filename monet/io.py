@@ -38,9 +38,11 @@ def save_calibration(fname, index, cali_pars):
             the values of indices in the database
     """
     indexnames = list(index.keys()) + ['date', 'time']
-    datim = [datetime.now().strftime('%Y-%m-%d'),
-             datetime.now().strftime('%H:%M')]
-    indexvals = tuple(list(index.values()) + datim)
+    indexnames = DATABASE_INDEXLEVELS + list(set(indexnames) -
+                                             set(DATABASE_INDEXLEVELS))
+    index['date'] = datetime.now().strftime('%Y-%m-%d')
+    index['time'] = datetime.now().strftime('%H:%M')
+    indexvals = tuple([index[k] for k in indexnames])
     try:
         db = pd.read_excel(fname, index_col=list(range(len(indexvals))))
     except Exception as e:
