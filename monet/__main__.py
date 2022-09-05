@@ -505,7 +505,7 @@ class MonetSetInteractive(cmd.Cmd):
 
     def __init__(self, config_name):
         super().__init__()
-        import monet.calibrate as mca
+        import monet.control as mco
 
         try:
             config = CONFIGS[config_name]

@@ -17,6 +17,7 @@ from icecream import ic
 from monet.util import load_class
 import monet.io as io
 from monet.beampath import BeamPath
+import monet.laser as mlas
 from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 
 
@@ -161,8 +162,15 @@ class IlluminationLaserControl(IlluminationControl):
                 laser = int(laser)
             except:
                 pass
-            self.lasers[laser] = load_class(
+            try:
+                self.lasers[laser] = load_class(
                     lconf['classpath'], lconf['init_kwargs'])
+            except Exception as e:
+                logger.debug('could not load laser {:s}.'.format(str(laser)))
+                logger.debug(e)
+                print('Could not laod laser {:s}. Using dummy.'.format(
+                    str(laser)))
+                self.lasers[laser] = mlas.TestLaser({})
             self.lasers[laser].enabled = False
 
         self.curr_laser = list(self.lasers.keys())[0]
