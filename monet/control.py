@@ -69,8 +69,9 @@ class IlluminationControl():
             anaconfig['classpath'], anaconfig['init_kwargs'])
 
         attconfig = config['attenuation']
+        settgs = attconfig.get('settings', None)
         self.attenuator = load_class(
-            attconfig['classpath'], attconfig['init_kwargs'])
+            attconfig['classpath'], attconfig['init_kwargs'], settgs)
 
         if do_load_cal:
             self.load_calibration()
@@ -158,8 +159,9 @@ class IlluminationLaserControl(IlluminationControl):
             except:
                 pass
             try:
+                settgs = lconf.get('settings', None)
                 self.lasers[laser] = load_class(
-                    lconf['classpath'], lconf['init_kwargs'])
+                    lconf['classpath'], lconf['init_kwargs'], settgs)
             except Exception as e:
                 logger.debug('could not load laser {:s}.'.format(str(laser)))
                 logger.debug(e)

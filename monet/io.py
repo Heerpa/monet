@@ -173,7 +173,7 @@ def load_database(fname, index, time_idx='last combinations'):
         newdb = db.copy()
         for dfidx, subdf in db.groupby(nontimedateidx):
             idxlen = len(subdf.index)
-            for i, (idx, row) in enuemrate(subdf.iterrows()):
+            for i, (idx, row) in enumerate(subdf.iterrows()):
                 if i < idxlen-1:
                     newdb.drop(idx, inplace=True)
             # if len(subdf.index)>0:

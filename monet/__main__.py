@@ -582,6 +582,11 @@ class MonetSetInteractive(cmd.Cmd):
             except ValueError as e:
                 print(str(e))
 
+    def do_attenuate(self, pos):
+        """Set the attenuation device to a position (float)"""
+        pos = float(pos)
+        self.pc.instrument.attenuator.set(pos)
+
     def do_open(self, line):
         """open shutter and set the correct light path positions"""
         try:

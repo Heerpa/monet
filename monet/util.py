@@ -11,7 +11,7 @@
 from importlib import import_module
 
 
-def load_class(classpath, init_kwargs={}):
+def load_class(classpath, init_kwargs={}, settings=None):
     """Load a class by classpath string
 
     Args:
@@ -19,9 +19,15 @@ def load_class(classpath, init_kwargs={}):
             the path in the package.
             E.g. 'monet.attenuation.KinesisAttenuator'
         init_kwargs : dict
-            the arguments to __init__ of the class
+            the first argument to __init__ of the class, being a dict
+        settings : dict
+            keyword arguments to __init__ of the class
     """
     p, m = classpath.rsplit('.', 1)
     mod = import_module(p)
     Met = getattr(mod, m)
-    return Met(init_kwargs)
+    if settings:
+        met = Met(init_kwargs, **settings)
+    else:
+        met = Met(init_kwargs)
+    return met

@@ -112,8 +112,9 @@ class KinesisAttenuator(AbstractAttenuator):
     rotation mount, rotating a half-wave plate followed in the beam path
     by a polarizing beam splitter cube to modulate the laser power output.
     """
-    def __init__(self, attenuation_config):
+    def __init__(self, attenuation_config, wait_after_move=.5):
         super().__init__(attenuation_config)
+        self.wait_after_move = wait_after_move
 
     def _connect(self):
         """Connect to a Thorlabs Kinesis rotary stage.
@@ -202,6 +203,7 @@ class KinesisAttenuator(AbstractAttenuator):
             pos, 'DISTANCE')
         self.device.move_to_position(pos_devu)
         self._wait()
+        time.sleep(self.wait_after_move)
         # logger.debug('Moving done.')
         # self._log_pos()
 
@@ -217,6 +219,7 @@ class KinesisAttenuator(AbstractAttenuator):
             step, 'DISTANCE')
         self.device.move_relative(step_devu)
         self._wait()
+        time.sleep(self.wait_after_move)
         # logger.debug('Moving done.')
         # self._log_pos()
 
