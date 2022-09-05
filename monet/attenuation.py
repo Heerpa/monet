@@ -203,7 +203,7 @@ class KinesisAttenuator(AbstractAttenuator):
         self.device.move_to_position(pos_devu)
         self._wait()
         # logger.debug('Moving done.')
-        self._log_pos()
+        # self._log_pos()
 
     def _move_relative(self, step):
         """Move by a relative step
@@ -218,7 +218,7 @@ class KinesisAttenuator(AbstractAttenuator):
         self.device.move_relative(step_devu)
         self._wait()
         # logger.debug('Moving done.')
-        self._log_pos()
+        # self._log_pos()
 
     def set(self, val):
         """Set a value. Called from outside, calls a specific function.

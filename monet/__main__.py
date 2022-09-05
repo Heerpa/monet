@@ -468,6 +468,7 @@ class MonetAdjustInteractive(cmd.Cmd):
 
     def do_py(self, line):
         """Execute a line of code"""
+        line = 'print(' + line + ')'
         f = StringIO()
         with redirect_stdout(f):
             exec(line)
@@ -530,7 +531,7 @@ class MonetSetInteractive(cmd.Cmd):
             self.run_2d = True
         self.config_name = config_name
 
-    def do_set_laser(self, laser):
+    def do_laser(self, laser):
         """Activate a laser.
         Args:
             laser : str
@@ -549,7 +550,7 @@ class MonetSetInteractive(cmd.Cmd):
             except ValueError as e:
                 print(str(e))
 
-    def do_set_power(self, power):
+    def do_power(self, power):
         """Set the power to a specified level.
         Args:
             power : float
@@ -565,6 +566,14 @@ class MonetSetInteractive(cmd.Cmd):
                 self.pc.instrument.power = int(power)
             except ValueError as e:
                 print(str(e))
+
+    def do_py(self, line):
+        """Execute a line of code"""
+        line = 'print(' + line + ')'
+        f = StringIO()
+        with redirect_stdout(f):
+            exec(line)
+        print(f.getvalue())
 
     def do_exit(self, line):
         """Exit the interaction
