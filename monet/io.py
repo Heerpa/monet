@@ -191,9 +191,9 @@ def plot_device_history(db_fname, device, plot_dir):
             the directory to save the plots in.
     """
     index = {DEVICE_TAG: device}
-    db = io.load_calibration(db_fname, index)
+    db = load_database(db_fname, index, 'all')
     for laser, laser_df in db.groupby(LASER_TAG):
-        powers = laser_df.get_level_values(POWER_TAG)
+        powers = laser_df.index.get_level_values(POWER_TAG).unique()
         fig, ax = plt.subplots(nrows=len(powers), sharex=True)
         for i, param in enumerate(laser_df.columns):
             for (power, power_df) in enumerate(laser_df.groupby(POWER_TAG)):

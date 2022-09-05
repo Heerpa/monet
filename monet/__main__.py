@@ -14,6 +14,7 @@ import yaml as _yaml
 import cmd
 import copy
 import os
+import traceback
 from io import StringIO
 from contextlib import redirect_stdout
 
@@ -431,7 +432,8 @@ class MonetAdjustInteractive(cmd.Cmd):
                 print(str(e))
                 return
             try:
-                self.pc.beampath.positions = self.pc.protocol['beampath'][laser]
+                self.pc.instrument.beampath.positions = self.pc.protocol[
+                    'beampath'][laser]
             except Exception as e:
                 print(str(e))
                 return
@@ -471,7 +473,11 @@ class MonetAdjustInteractive(cmd.Cmd):
         line = 'print(' + line + ')'
         f = StringIO()
         with redirect_stdout(f):
-            exec(line)
+            try:
+                exec(line)
+            except Exception as e:
+                print(str(e))
+                print(traceback.format_exc())
         print(f.getvalue())
 
     def do_restartdb(self, line):
@@ -579,7 +585,7 @@ class MonetSetInteractive(cmd.Cmd):
     def do_close():
         """close shutter"""
         try:
-            self.intrument.beampath.positions = self.protocol[
+            self.instrument.beampath.positions = self.protocol[
                 'beampath']['end']
         except Exception as e:
             print(str(e))

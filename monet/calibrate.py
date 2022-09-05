@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from monet import LASER_TAG, POWER_TAG
+from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 from monet.util import load_class
 import monet.io as io
 from monet.control import IlluminationControl, IlluminationLaserControl
@@ -216,7 +216,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
     def plot_device_history(self):
         """Plot the historic evolution of model parameters
         """
-        device = self.instrument.config['index']['DEVICE_TAG']
+        device = self.instrument.config['index'][DEVICE_TAG]
         plot_dir = self.instrument.config.get('dest_calibration_plot')
         db_fname = self.instrument.config['database']
         io.plot_device_history(db_fname, device, plot_dir)

@@ -259,9 +259,11 @@ class MPBVFL_lowlevel(serial.Serial):
     def power_sp_lim(self):
         """The power set point limits
         """
+        setptlims = self.query('GETPOWERSETPTLIM 1').split(' ')
+        # setptlims = self.query('GETPOWERSETPTLIM 2').split(' ')
         return [
-            float(self.query('GETPOWERSETPTLIM 1')),
-            float(self.query('GETPOWERSETPTLIM 2'))]
+            float(setptlims[0]),
+            float(setptlims[1])]
 
     # LASER'S CURRENT STATUS
 

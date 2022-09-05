@@ -176,7 +176,7 @@ class IlluminationLaserControl(IlluminationControl):
         self.curr_laser = list(self.lasers.keys())[0]
 
 
-        if 'beampath' in config.keys() and 'beampath' in protocol.keys():
+        if 'beampath' in config.keys():
             self.beampath = BeamPath(config['beampath'])
             self.use_beampath = True
         else:
