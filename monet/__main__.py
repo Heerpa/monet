@@ -14,6 +14,8 @@ import yaml as _yaml
 import cmd
 import copy
 import os
+from io import StringIO
+from contextlib import redirect_stdout
 
 from monet import CONFIGS, CONFIGS_PATH, PROTOCOLS, PROTOCOLS_PATH
 
@@ -459,9 +461,16 @@ class MonetAdjustInteractive(cmd.Cmd):
         laser = self.pc.instrument.lasers[self.pc.instrument.curr_laser]
         print('Maximum power of laser: ', laser.max_power)
 
+    def do_attenuate(self, pos):
+        pos = float(pos)
+        self.pc.instrument.attenuator.set(pos)
+
     def do_py(self, line):
         """Execute a line of code"""
-        print(exec(line))
+        f = StringIO()
+        with redirect_stdout(f):
+            exec(line)
+        print(f.getvalue())
 
     def do_exit(self, line):
         """Exit the interaction
