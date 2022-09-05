@@ -545,6 +545,7 @@ class MonetSetInteractive(cmd.Cmd):
             self.use_powermeter = True
         except:
             self.use_powermeter = False
+            print(traceback.format_exc())
 
         self.config_name = config_name
 
@@ -584,7 +585,7 @@ class MonetSetInteractive(cmd.Cmd):
         """open shutter and set the correct light path positions"""
         try:
             self.instrument.beampath.positions = self.protocol[
-                'beampath'][self.curr_laser]
+                'beampath'][self.instrument.curr_laser]
         except Exception as e:
             print(str(e))
             return
