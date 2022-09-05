@@ -535,9 +535,16 @@ class MonetSetInteractive(cmd.Cmd):
             protocol = None
         self.protocol = protocol
 
-        self.instrument = mco.IlluminationLaserControl(
-            config, ignore_powermeter=True)
+        self.instrument = mco.IlluminationLaserControl(config)
         self.instrument.load_calibration_database()
+
+        try:
+            pwrconfig = config['powermeter']
+            self.powermeter = load_class(
+                pwrconfig['classpath'], pwrconfig['init_kwargs'])
+            self.use_powermeter = True
+        except:
+            self.use_powermeter = False
 
         self.config_name = config_name
 
@@ -573,7 +580,7 @@ class MonetSetInteractive(cmd.Cmd):
             except ValueError as e:
                 print(str(e))
 
-    def do_open():
+    def do_open(self, line):
         """open shutter and set the correct light path positions"""
         try:
             self.instrument.beampath.positions = self.protocol[
@@ -582,7 +589,7 @@ class MonetSetInteractive(cmd.Cmd):
             print(str(e))
             return
 
-    def do_close():
+    def do_close(self, line):
         """close shutter"""
         try:
             self.instrument.beampath.positions = self.protocol[
@@ -590,6 +597,13 @@ class MonetSetInteractive(cmd.Cmd):
         except Exception as e:
             print(str(e))
             return
+
+    def do_measure(self, line):
+        """Measure the power if a powermeter is connected"""
+        if self.use_powermeter:
+            print(self.powermeter.read)
+        else:
+            print('No powermeter is connected. Cannot measure.')
 
     def do_py(self, line):
         """Execute a line of code"""

@@ -134,7 +134,7 @@ class IlluminationLaserControl(IlluminationControl):
             },
         },
     """
-    def __init__(self, config, do_load_cal=True, ignore_powermeter=False):
+    def __init__(self, config, do_load_cal=True):
         """
         Args:
             config : dict
@@ -145,11 +145,6 @@ class IlluminationLaserControl(IlluminationControl):
             ignore_powermeter : bool
                 if True, the powermeter is not loaded
         """
-        if ignore_powermeter:
-            try:
-                config.pop('powermeter')
-            except:
-                pass
         super().__init__(config, do_load_cal=do_load_cal)
 
         # here, all lasers (wavelengths) and powers are loaded
