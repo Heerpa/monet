@@ -16,6 +16,7 @@ from icecream import ic
 
 from monet.util import load_class
 import monet.io as io
+from monet.beampath import BeamPath
 from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 
 
@@ -132,7 +133,7 @@ class IlluminationLaserControl(IlluminationControl):
             },
         },
     """
-    def __init__(self, config, do_load_cal=True):
+    def __init__(self, config, do_load_cal=True, ignore_powermeter=False):
         """
         Args:
             config : dict
@@ -140,7 +141,14 @@ class IlluminationLaserControl(IlluminationControl):
                 with sub-keys each: 'classpath', and 'init_kwargs'
             do_load_cal : bool
                 whether or not to load the latest calibration
+            ignore_powermeter : bool
+                if True, the powermeter is not loaded
         """
+        if ignore_powermeter:
+            try:
+                config.pop('powermeter')
+            except:
+                pass
         super().__init__(config, do_load_cal=do_load_cal)
 
         # here, all lasers (wavelengths) and powers are loaded
@@ -158,6 +166,13 @@ class IlluminationLaserControl(IlluminationControl):
             self.lasers[laser].enabled = False
 
         self.curr_laser = list(self.lasers.keys())[0]
+
+
+        if 'beampath' in config.keys() and 'beampath' in protocol.keys():
+            self.beampath = BeamPath(config['beampath'])
+            self.use_beampath = True
+        else:
+            self.use_beampath = False
 
         if do_load_cal:
             self.load_calibration_database()

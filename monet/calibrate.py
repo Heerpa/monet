@@ -23,7 +23,6 @@ from monet import LASER_TAG, POWER_TAG
 from monet.util import load_class
 import monet.io as io
 from monet.control import IlluminationControl, IlluminationLaserControl
-from monet.beampath import BeamPath
 
 
 logger = logging.getLogger(__name__)
@@ -144,12 +143,6 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
         self.instrument = IlluminationLaserControl(config, do_load_cal=False)
 
-        if 'beampath' in config.keys() and 'beampath' in protocol.keys():
-            self.beampath = BeamPath(config['beampath'])
-            self.use_beampath = True
-        else:
-            self.use_beampath = False
-
         super().__init__(config, load_instrument=False)
 
     def run_protocol(self, wait_time=0):
@@ -168,8 +161,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             print('switching to laser', laser)
             self.instrument.laser = laser
             laserpowers = self.protocol['laser_powers'][laser]
-            if self.use_beampath:
-                self.beampath.positions = self.protocol['beampath'][laser]
+            if self.instrument.use_beampath:
+                self.instrument.beampath.positions = self.protocol['beampath'][laser]
             modelpars = pd.DataFrame(index=laserpowers)
             # set powermeter setting
             self.powermeter.wavelength = int(laser)
@@ -195,9 +188,10 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             self.instrument.laserpower = min(laserpowers)
             self.instrument.laser_enabled = False
             self.plot_model(modelpars, laser)
+        self.plot_device_history()
         # post-actions
-        if self.use_beampath and 'end' in self.protocol['beampath'].keys():
-            self.beampath.positions = self.protocol['beampath']['end']
+        if self.instrument.use_beampath and 'end' in self.protocol['beampath'].keys():
+            self.instrument.beampath.positions = self.protocol['beampath']['end']
         # self.instrument.is_calibrated = True
         # self.instrument.load_calibration_database()
 
@@ -218,3 +212,11 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             folder, '{:d}nm'.format(int(laser)) + '.png')
         fig.savefig(fnplot)
         plt.close(fig)
+
+    def plot_device_history(self):
+        """Plot the historic evolution of model parameters
+        """
+        device = self.instrument.config['index']['DEVICE_TAG']
+        plot_dir = self.instrument.config.get('dest_calibration_plot')
+        db_fname = self.instrument.config['database']
+        io.plot_device_history(db_fname, device, plot_dir)

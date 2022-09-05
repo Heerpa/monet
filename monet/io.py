@@ -14,6 +14,7 @@ from datetime import datetime
 import logging
 from icecream import ic
 
+from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 from monet import DATABASE_INDEXLEVELS
 
 logger = logging.getLogger(__name__)
@@ -170,5 +171,59 @@ def load_database(fname, index, time_idx='last date'):
                 newdb.loc[dfidx, :] = keepentry
         newdb.drop(index=tuple([0]*len(list(index.keys()))), inplace=True)
         db = newdb
+    elif time_idx == 'all':
+        pass
 
     return db
+
+
+def plot_device_history(db_fname, device, plot_dir):
+    """Plot the historic evolution of model parameters. For each
+    laser, a plot with subplots for each parameter is generated, with
+    laser powers as different plots in the subplot.
+
+    Args:
+        db_fname : str
+            the filename of the database
+        device : str
+            the device name to plot (eg. 'Voyager')
+        plot_dir : str
+            the directory to save the plots in.
+    """
+    index = {DEVICE_TAG: device}
+    db = io.load_calibration(db_fname, index)
+    for laser, laser_df in db.groupby(LASER_TAG):
+        powers = laser_df.get_level_values(POWER_TAG)
+        fig, ax = plt.subplots(nrows=len(powers), sharex=True)
+        for i, param in enumerate(laser_df.columns):
+            for (power, power_df) in enumerate(laser_df.groupby(POWER_TAG)):
+                dates = power_df.get_level_values('date')
+                times = power_df.get_level_values('time')
+
+                dt = [datetime.strptime(date+';'+time, '%Y-%m-%d;%H:%M')
+                      for date, time in zip(dates, times)]
+                ax[i].plot(
+                    dt, power_df[param], marker='x',
+                    label='power={:.1f}'.format(power))
+            ax[i].set_ylabel(str(param))
+        ax[-1].set_xlabel('datetime')
+        plot_fname = os.path.join(
+            plot_dir, 'history_{:s}.png'.format(str(laser)))
+        fig.savefig(plot_fname)
+        plt.close(fig)
+
+
+def restart_database(db_fname):
+    """Save a backup of the current database and restart with the
+    latest parameters
+    """
+    whole_db = load_database(db_fname, index={}, time_idx='all')
+    today = datetime.now().strftime('%Y-%m-%d')
+    root, ext = os.path.splitext(db_fname)
+    bkup_fname = os.path.join(root+'_'+today, ext)
+    if os.path.exists(bkup_fname):
+        raise ValueError('File already exists: {:s}'.format(bkup_fname))
+    whole_db.to_excel(bkup_fname)
+    last_entries = load_database(
+        db_fname, index={}, time_idx='last combinations')
+    last_entries.to_excel(db_fname)

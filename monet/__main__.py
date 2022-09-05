@@ -474,6 +474,11 @@ class MonetAdjustInteractive(cmd.Cmd):
             exec(line)
         print(f.getvalue())
 
+    def do_restartdb(self, line):
+        """Restart the database with the last entries and save a backup"""
+        fname = self.pc.config['database']
+        io.restart_database(fname)
+
     def do_exit(self, line):
         """Exit the interaction
         """
@@ -492,9 +497,10 @@ class MonetSetInteractive(cmd.Cmd):
     """Command-line interactive power setting.
     """
     intro = '''Welcome to interactive monet - set. Here, Microscope
-        illumination power can be set if calibrations exist.
+        illumination power can be set if calibrations exist. A powermeter
+        does not need to be plugged in.
         '''
-    prompt = '(monet)'
+    prompt = '(monet set)'
     file = None
 
     def __init__(self, config_name):
@@ -520,15 +526,12 @@ class MonetSetInteractive(cmd.Cmd):
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(PROTOCOLS)
             protocol = None
-            # raise e
+        self.protocol = protocol
 
-        if protocol is None:
-            self.pc = mca.CalibrationProtocol1D(config)
-            self.run_2d = False
-        else:
-            self.pc = mca.CalibrationProtocol2D(config, protocol)
-            self.pc.instrument.load_calibration_database()
-            self.run_2d = True
+        self.instrument = mco.IlluminationLaserControl(
+            config, ignore_powermeter=True)
+        self.instrument.load_calibration_database()
+
         self.config_name = config_name
 
     def do_laser(self, laser):
@@ -537,16 +540,12 @@ class MonetSetInteractive(cmd.Cmd):
             laser : str
                 the laser to activate
         """
-        if not self.run_2d:
-            print('Cannot switch lasers automatically in non-laser control mode.')
-            return
-
         if not laser:
             print('Please specify a laser.')
         else:
             try:
                 print('Setting laser {:s}.'.format(str(laser)))
-                self.pc.instrument.laser = laser
+                self.instrument.laser = laser
             except ValueError as e:
                 print(str(e))
 
@@ -562,10 +561,28 @@ class MonetSetInteractive(cmd.Cmd):
             try:
                 print('Setting power for settings \n {:s}'.format('\n'.join(
                     [str(k)+': '+str(v)
-                     for k, v in self.pc.instrument.config['index'].items()])))
-                self.pc.instrument.power = int(power)
+                     for k, v in self.instrument.config['index'].items()])))
+                self.instrument.power = int(power)
             except ValueError as e:
                 print(str(e))
+
+    def do_open():
+        """open shutter and set the correct light path positions"""
+        try:
+            self.instrument.beampath.positions = self.protocol[
+                'beampath'][self.curr_laser]
+        except Exception as e:
+            print(str(e))
+            return
+
+    def do_close():
+        """close shutter"""
+        try:
+            self.intrument.beampath.positions = self.protocol[
+                'beampath']['end']
+        except Exception as e:
+            print(str(e))
+            return
 
     def do_py(self, line):
         """Execute a line of code"""
