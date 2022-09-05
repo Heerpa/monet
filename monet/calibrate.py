@@ -216,6 +216,9 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
     def plot_device_history(self):
         """Plot the historic evolution of model parameters
         """
+        # there was a QT error on voyager (220726) - avoid it by using tkagg
+        import matplotlib
+        matplotlib.use('tkagg')
         device = self.instrument.config['index'][DEVICE_TAG]
         plot_dir = self.instrument.config.get('dest_calibration_plot')
         db_fname = self.instrument.config['database']

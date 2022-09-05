@@ -10,9 +10,11 @@
 """
 import pandas as pd
 import numpy as np
+import os
 from datetime import datetime
 import logging
 from icecream import ic
+import matplotlib.pyplot as plt
 
 from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 from monet import DATABASE_INDEXLEVELS
@@ -190,15 +192,20 @@ def plot_device_history(db_fname, device, plot_dir):
         plot_dir : str
             the directory to save the plots in.
     """
+    # there was a QT error on voyager (220726) - avoid it by using tkagg
+    import matplotlib
+    matplotlib.use('tkagg')
+
     index = {DEVICE_TAG: device}
     db = load_database(db_fname, index, 'all')
     for laser, laser_df in db.groupby(LASER_TAG):
         powers = laser_df.index.get_level_values(POWER_TAG).unique()
-        fig, ax = plt.subplots(nrows=len(powers), sharex=True)
-        for i, param in enumerate(laser_df.columns):
-            for (power, power_df) in enumerate(laser_df.groupby(POWER_TAG)):
-                dates = power_df.get_level_values('date')
-                times = power_df.get_level_values('time')
+        params = laser_df.columns
+        fig, ax = plt.subplots(nrows=len(params), sharex=True)
+        for i, param in enumerate(params):
+            for power, power_df in laser_df.groupby(POWER_TAG):
+                dates = power_df.index.get_level_values('date')
+                times = power_df.index.get_level_values('time')
 
                 dt = [datetime.strptime(date+';'+time, '%Y-%m-%d;%H:%M')
                       for date, time in zip(dates, times)]
@@ -206,7 +213,9 @@ def plot_device_history(db_fname, device, plot_dir):
                     dt, power_df[param], marker='x',
                     label='power={:.1f}'.format(power))
             ax[i].set_ylabel(str(param))
-        ax[-1].set_xlabel('datetime')
+        ax[0].legend()
+        # ax[-1].set_xlabel('datetime')
+        ax[-1].set_xticklabels(ax[-1].get_xticks(), rotation=30)
         plot_fname = os.path.join(
             plot_dir, 'history_{:s}.png'.format(str(laser)))
         fig.savefig(plot_fname)
