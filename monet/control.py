@@ -223,7 +223,7 @@ class IlluminationLaserControl(IlluminationControl):
                 ic(self.cali_db)
                 self._analyzers, self._power_ranges = (
                     self._populate_analyzers(self.cali_db, self.curr_laser))
-                self.curr_laserpower = self._power_ranges.index.min()
+                self.laserpower = self._power_ranges.index.min()
             else:
                 logger.debug('Calibration not available, not setting analyzers.')
         else:

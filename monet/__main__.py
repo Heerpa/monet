@@ -560,7 +560,7 @@ class MonetSetInteractive(cmd.Cmd):
             print('Please specify a power value.')
         else:
             try:
-                print('Setting power for settings {:s}'.format('\n'.join(
+                print('Setting power for settings \n {:s}'.format('\n'.join(
                     [str(k)+': '+str(v)
                      for k, v in self.pc.instrument.config['index'].items()])))
                 self.pc.instrument.power = int(power)
