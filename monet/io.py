@@ -15,6 +15,7 @@ from datetime import datetime
 import logging
 from icecream import ic
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 from monet import DATABASE_INDEXLEVELS
@@ -215,7 +216,12 @@ def plot_device_history(db_fname, device, plot_dir):
             ax[i].set_ylabel(str(param))
         ax[0].legend()
         # ax[-1].set_xlabel('datetime')
-        ax[-1].set_xticklabels(ax[-1].get_xticks(), rotation=30)
+        ax[-1].xaxis.set_major_locator(mdates.MonthLocator())
+        ax[-1].xaxis.set_minor_locator(mdates.WeekdayLocator(
+            byweekday=mdates.MO))
+        ax[-1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%b'))
+        for label in ax[-1].get_xticklabels(which='major'):
+            label.set(rotation=30, horizontalalignment='right')
         plot_fname = os.path.join(
             plot_dir, 'history_{:s}.png'.format(str(laser)))
         fig.savefig(plot_fname)
