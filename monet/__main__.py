@@ -194,6 +194,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
         """Perform a power calibration with the settings as described
         in the configuration.
         """
+        self.pc.instrument.attenuator.home()
         if not self.run_2d:
             self.pc.calibrate()
         else:
@@ -584,8 +585,11 @@ class MonetSetInteractive(cmd.Cmd):
 
     def do_attenuate(self, pos):
         """Set the attenuation device to a position (float)"""
-        pos = float(pos)
-        self.pc.instrument.attenuator.set(pos)
+        if pos.upper() == 'HOME':
+            self.instrument.attenuator.home()
+        else:
+            pos = float(pos)
+            self.instrument.attenuator.set(pos)
 
     def do_open(self, line):
         """open shutter and set the correct light path positions"""

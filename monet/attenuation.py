@@ -47,6 +47,10 @@ class AbstractAttenuator(abc.ABC):
     def set(self, val):
         pass
 
+    @abc.abstractmethod
+    def home(self):
+        pass
+
 
 class TestAttenuator(AbstractAttenuator):
     """Implementation of a Attenuator for testing purposes
@@ -65,7 +69,7 @@ class TestAttenuator(AbstractAttenuator):
         """
         logger.debug('simulate waiting.')
 
-    def _home(self):
+    def home(self):
         """Home the device
         """
         logger.debug('Simulate homing...')
@@ -172,7 +176,7 @@ class KinesisAttenuator(AbstractAttenuator):
             # logger.debug('  at position {} [device units] {:.3f} [real-world units]'.format(position, real))
             # time.sleep(.2)
 
-    def _home(self):
+    def home(self):
         """Home the device
         """
         logger.debug('Homing...')
