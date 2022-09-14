@@ -466,8 +466,11 @@ class MonetAdjustInteractive(cmd.Cmd):
 
     def do_attenuate(self, pos):
         """Set the attenuation device to a position (float)"""
-        pos = float(pos)
-        self.pc.instrument.attenuator.set(pos)
+        if pos.upper() == 'HOME':
+            self.pc.instrument.attenuator.home()
+        else:
+            pos = float(pos)
+            self.pc.instrument.attenuator.set(pos)
 
     def do_py(self, line):
         """Execute a line of code"""
@@ -563,6 +566,18 @@ class MonetSetInteractive(cmd.Cmd):
             try:
                 print('Setting laser {:s}.'.format(str(laser)))
                 self.instrument.laser = laser
+                if self.use_powermeter:
+                    self.powermeter.wavelength = int(laser)
+            except ValueError as e:
+                print(str(e))
+
+    def do_laser_power(self, power):
+        """Set the laser power of the current laser"""
+        if not power:
+            print('Please specify a laser power value.')
+        else:
+            try:
+                self.instrument.laserpower = int(power)
             except ValueError as e:
                 print(str(e))
 
