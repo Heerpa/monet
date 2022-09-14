@@ -563,13 +563,16 @@ class MonetSetInteractive(cmd.Cmd):
         if not laser:
             print('Please specify a laser.')
         else:
-            try:
-                print('Setting laser {:s}.'.format(str(laser)))
-                self.instrument.laser = laser
-                if self.use_powermeter:
-                    self.powermeter.wavelength = int(laser)
-            except ValueError as e:
-                print(str(e))
+            if laser.upper() == 'OFF':
+                self.instrument.lasers[self.instrument.laser].enabled = False
+            else:
+                try:
+                    print('Setting laser {:s}.'.format(str(laser)))
+                    self.instrument.laser = laser
+                    if self.use_powermeter:
+                        self.powermeter.wavelength = int(laser)
+                except ValueError as e:
+                    print(str(e))
 
     def do_laser_power(self, power):
         """Set the laser power of the current laser"""
@@ -655,6 +658,8 @@ class MonetSetInteractive(cmd.Cmd):
     def do_exit(self, line):
         """Exit the interaction
         """
+        self.do_laser('off')
+        self.do_close()
         return True
 
     def precmd(self, line):
