@@ -178,9 +178,12 @@ test_config_2d = {
 ###########################################################
 
 default_config_paths = [
-    'Z:/users/grabmayr/test_powerbase/configs.yaml']
+    'Z:/users/grabmayr/test_powerbase/configs.yaml',
+    'V:/users/grabmayr/test_powerbase/configs.yaml',
+    ]
 default_protocol_paths = [
-    'Z:/users/grabmayr/test_powerbase/protocols.yaml']
+    'Z:/users/grabmayr/test_powerbase/protocols.yaml',
+    'V:/users/grabmayr/test_powerbase/protocols.yaml']
 
 
 CONFIGS = {}
