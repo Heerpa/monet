@@ -130,19 +130,6 @@ class AbstractBeamPathObject(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def autoshutter(self):
-        """Get the whether shutter is on autoshutter
-        """
-        return self._autoshutter
-
-    @autoshutter.setter
-    @abc.abstractmethod
-    def autoshutter(self, pos):
-        """Set the autoshutter state"""
-        self._autoshutter = pos
-
-    @property
-    @abc.abstractmethod
     def position(self):
         """Get the position of the beam path object
         """

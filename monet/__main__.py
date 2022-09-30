@@ -495,7 +495,7 @@ class MonetAdjustInteractive(cmd.Cmd):
         try:
             line = int(line)
         except:
-            if line.upper() = 'TRUE':
+            if line.upper() == 'TRUE':
                 line = 1
             else:
                 line = 0
@@ -504,7 +504,7 @@ class MonetAdjustInteractive(cmd.Cmd):
         else:
             line = False
         try:
-            self.pc.instrument.beampath.objects['shutter'].autoshutter = val
+            self.pc.instrument.beampath.objects['shutter'].autoshutter = line
         except Exception as e:
             print(str(e))
             return
@@ -670,7 +670,7 @@ class MonetSetInteractive(cmd.Cmd):
         try:
             line = int(line)
         except:
-            if line.upper() = 'TRUE':
+            if line.upper() == 'TRUE':
                 line = 1
             else:
                 line = 0
@@ -679,7 +679,7 @@ class MonetSetInteractive(cmd.Cmd):
         else:
             line = False
         try:
-            self.pc.instrument.beampath.objects['shutter'].autoshutter = val
+            self.instrument.beampath.objects['shutter'].autoshutter = line
         except Exception as e:
             print(str(e))
             return

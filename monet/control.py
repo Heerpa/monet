@@ -169,7 +169,7 @@ class IlluminationLaserControl(IlluminationControl):
             except Exception as e:
                 logger.debug('could not load laser {:s}.'.format(str(laser)))
                 logger.debug(e)
-                print('Could not laod laser {:s}. Using dummy.'.format(
+                print('Could not load laser {:s}. Leaving this one out.'.format(
                     str(laser)))
                 # self.lasers[laser] = mlas.TestLaser({})
                 lasers_missing.append(laser)
