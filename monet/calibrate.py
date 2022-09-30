@@ -143,6 +143,18 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
         self.instrument = IlluminationLaserControl(config, do_load_cal=False)
 
+        # if not all lasers are present
+        lasers_present = list(self.instrument.lasers.keys())
+        self.protocol['laser_sequence'] = [
+            it for it in self.protocol['laser_sequence']
+            if it in lasers_present]
+        self.protocol['laser_powers'] = {
+            k: v for k, v in self.protocol['laser_powers'].items()
+            if k in lasers_present}
+        self.protocol['beampath'] = {
+            k: v for k, v in self.protocol['beampath'].items()
+            if k in lasers_present or k=='end'}
+
         super().__init__(config, load_instrument=False)
 
     def run_protocol(self, wait_time=0):

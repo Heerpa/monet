@@ -564,7 +564,7 @@ class MonetSetInteractive(cmd.Cmd):
             print('Please specify a laser.')
         else:
             if laser.upper() == 'OFF':
-                self.instrument.lasers[self.instrument.laser].enabled = False
+                self.instrument.lasers[self.instrument.curr_laser].enabled = False
             else:
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))

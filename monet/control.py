@@ -164,13 +164,14 @@ class IlluminationLaserControl(IlluminationControl):
 #                    lconf['classpath'], lconf['init_kwargs'], **settgs)
                 self.lasers[laser] = load_class(
                     lconf['classpath'], lconf['init_kwargs'])
+                self.lasers[laser].enabled = False
             except Exception as e:
                 logger.debug('could not load laser {:s}.'.format(str(laser)))
                 logger.debug(e)
                 print('Could not laod laser {:s}. Using dummy.'.format(
                     str(laser)))
-                self.lasers[laser] = mlas.TestLaser({})
-            self.lasers[laser].enabled = False
+                # self.lasers[laser] = mlas.TestLaser({})
+                self.config['lasers'].pop(laser)
 
         self.curr_laser = list(self.lasers.keys())[0]
 
