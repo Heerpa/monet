@@ -153,6 +153,7 @@ class IlluminationLaserControl(IlluminationControl):
         config['index'][POWER_TAG] = slice(None)
 
         self.lasers = {}
+        lasers_missing = []
         for laser, lconf in config['lasers'].items():
             try:
                 laser = int(laser)
@@ -171,7 +172,10 @@ class IlluminationLaserControl(IlluminationControl):
                 print('Could not laod laser {:s}. Using dummy.'.format(
                     str(laser)))
                 # self.lasers[laser] = mlas.TestLaser({})
-                self.config['lasers'].pop(laser)
+                lasers_missing.append(laser)
+
+        for laser in lasers_missing:
+            self.config['lasers'].pop(laser)
 
         self.curr_laser = list(self.lasers.keys())[0]
 

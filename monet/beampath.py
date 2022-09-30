@@ -124,7 +124,22 @@ class AbstractBeamPathObject(abc.ABC):
     """
     _position = None
     def __init__(self, config):
+        self._position = 0
+        self._autoshutter = True
         pass
+
+    @property
+    @abc.abstractmethod
+    def autoshutter(self):
+        """Get the whether shutter is on autoshutter
+        """
+        return self._autoshutter
+
+    @autoshutter.setter
+    @abc.abstractmethod
+    def autoshutter(self, pos):
+        """Set the autoshutter state"""
+        self._autoshutter = pos
 
     @property
     @abc.abstractmethod
@@ -154,6 +169,18 @@ class TestShutter(AbstractBeamPathObject):
         super().__init__(config)
         logger.debug('initializing TestShutter')
         self.device = self._connect(config)
+        self._autoshutter = True
+
+    @property
+    def autoshutter(self):
+        """Get the whether shutter is on autoshutter
+        """
+        return self._autoshutter
+
+    @autoshutter.setter
+    def autoshutter(self, pos):
+        """Set the autoshutter state"""
+        self._autoshutter = pos
 
     def _connect(self, config):
         device = None
@@ -189,6 +216,18 @@ class NikonShutter(AbstractBeamPathObject):
     def _connect(self, config):
         self.core = get_pycromgr()
         self.core.set_property('Core', 'AutoShutter', 0)
+
+    @property
+    def autoshutter(self):
+        return self.core.get_property('Core', 'AutoShutter')
+
+    @autoshutter.setter
+    def autoshutter(self, val):
+        if val:
+            val = 1
+        else:
+            val = 0
+        self.core.set_property('Core', 'AutoShutter', val)
 
     @property
     def position(self):

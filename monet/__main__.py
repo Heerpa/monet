@@ -472,6 +472,43 @@ class MonetAdjustInteractive(cmd.Cmd):
             pos = float(pos)
             self.pc.instrument.attenuator.set(pos)
 
+    def do_open(self, line):
+        """open shutter and set the correct light path positions"""
+        try:
+            self.pc.instrument.beampath.positions = self.pc.protocol[
+                'beampath'][self.pc.instrument.curr_laser]
+        except Exception as e:
+            print(str(e))
+            return
+
+    def do_close(self, line):
+        """close shutter"""
+        try:
+            self.pc.instrument.beampath.positions = self.pc.protocol[
+                'beampath']['end']
+        except Exception as e:
+            print(str(e))
+            return
+
+    def do_autoshutter(self, line):
+        """set autoshutter"""
+        try:
+            line = int(line)
+        except:
+            if line.upper() = 'TRUE':
+                line = 1
+            else:
+                line = 0
+        if line == 1:
+            line = True
+        else:
+            line = False
+        try:
+            self.pc.instrument.beampath.objects['shutter'].autoshutter = val
+        except Exception as e:
+            print(str(e))
+            return
+
     def do_py(self, line):
         """Execute a line of code"""
         line = 'print(' + line + ')'
@@ -550,7 +587,8 @@ class MonetSetInteractive(cmd.Cmd):
             self.use_powermeter = True
         except:
             self.use_powermeter = False
-            print(traceback.format_exc())
+            print('Powermeter not connected. Do not use measure function')
+            # print(traceback.format_exc())
 
         self.config_name = config_name
 
@@ -627,6 +665,25 @@ class MonetSetInteractive(cmd.Cmd):
             print(str(e))
             return
 
+    def do_autoshutter(self, line):
+        """set autoshutter"""
+        try:
+            line = int(line)
+        except:
+            if line.upper() = 'TRUE':
+                line = 1
+            else:
+                line = 0
+        if line == 1:
+            line = True
+        else:
+            line = False
+        try:
+            self.pc.instrument.beampath.objects['shutter'].autoshutter = val
+        except Exception as e:
+            print(str(e))
+            return
+
     def do_measure(self, averaging):
         """Measure the power if a powermeter is connected.
         Args:
@@ -659,7 +716,7 @@ class MonetSetInteractive(cmd.Cmd):
         """Exit the interaction
         """
         self.do_laser('off')
-        self.do_close()
+        self.close()
         return True
 
     def precmd(self, line):
