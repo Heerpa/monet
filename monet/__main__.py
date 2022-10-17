@@ -580,6 +580,7 @@ class MonetSetInteractive(cmd.Cmd):
         self.instrument = mco.IlluminationLaserControl(config)
         self.instrument.load_calibration_database()
 
+        # load powermeter if present
         try:
             pwrconfig = config['powermeter']
             self.powermeter = load_class(
@@ -589,6 +590,13 @@ class MonetSetInteractive(cmd.Cmd):
             self.use_powermeter = False
             print('Powermeter not connected. Do not use measure function')
             # print(traceback.format_exc())
+
+        # switch on autoshutter (is switched on in initialization because
+        # that is necessary for calibrate and adjust)
+        try:
+            self.instrument.beampath.objects['shutter'].autoshutter = True
+        except Exception as e:
+            pass
 
         self.config_name = config_name
 
