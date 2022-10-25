@@ -74,7 +74,10 @@ class IlluminationControl():
             attconfig['classpath'], attconfig['init_kwargs'], settgs)
 
         if do_load_cal:
-            self.load_calibration()
+            try:
+                self.load_calibration()
+            except:
+                pass
 
     @property
     def power(self):
@@ -187,7 +190,10 @@ class IlluminationLaserControl(IlluminationControl):
             self.use_beampath = False
 
         if do_load_cal:
-            self.load_calibration_database()
+            try:
+                self.load_calibration_database()
+            except:
+                pass
 
     def _populate_analyzers(self, db, laser):
         """from the database, create analyzers for various power settings

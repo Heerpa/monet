@@ -578,7 +578,12 @@ class MonetSetInteractive(cmd.Cmd):
         self.protocol = protocol
 
         self.instrument = mco.IlluminationLaserControl(config)
-        self.instrument.load_calibration_database()
+        try:
+            self.instrument.load_calibration_database()
+        except:
+            raise KeyError(
+                'Microscope probably not calibrated yet. ' +
+                'Monet Set only works with an existing calibration.')
 
         # load powermeter if present
         try:
@@ -643,6 +648,7 @@ class MonetSetInteractive(cmd.Cmd):
                 # print('Setting power for settings \n {:s}'.format('\n'.join(
                 #     [str(k)+': '+str(v)
                 #      for k, v in self.instrument.config['index'].items()])))
+                print('Setting output power to ', int(power))
                 self.instrument.power = int(power)
             except ValueError as e:
                 print(str(e))

@@ -447,4 +447,7 @@ class Toptica(AbstractLaser):
         return self.las._max_power
 
     def close(self):
-        self.las._conn._serial._serial.close()
+        try:
+            self.las._conn._serial._serial.close()
+        except:
+            pass

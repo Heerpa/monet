@@ -152,6 +152,8 @@ def load_database(fname, index, time_idx='last combinations'):
         db = db.loc[indexvals, :]
     except:
         # indexvals not present
+        # db = pd.DataFrame(
+        #     index=, columns=db.columns)
         raise KeyError('index ' + str(indexvals) + ' not found in database.')
 
     # date selection
