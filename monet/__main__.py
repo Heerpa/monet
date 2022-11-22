@@ -605,21 +605,33 @@ class MonetSetInteractive(cmd.Cmd):
 
         self.config_name = config_name
 
+        self.power_setvalues = {}
+        for las in self.instrument.laser:
+            self.do_laser(las)
+            self.power_setvalues[las] = self.instrument.power
+
     def do_laser(self, laser):
-        """Activate a laser.
+        """Activate a laser. Deactivate current laser with 'OFF', deactivate all with 'ALLOFF'
         Args:
             laser : str
-                the laser to activate
+                the laser to activate (its wavelength in nm)
+                if 'OFF': turn current laser off
+                if 'ALLOFF': turn all lasers off
         """
         if not laser:
-            print('Please specify a laser.')
+            print('Currently active laser: ', self.instrument.curr_laser)
         else:
             if laser.upper() == 'OFF':
                 self.instrument.lasers[self.instrument.curr_laser].enabled = False
+            elif laser.upper() == 'ALLOFF':
+                for las in self.instrument.laser:
+                    self.instrument.lasers[las].enabled = False
             else:
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))
                     self.instrument.laser = laser
+                    # set laser power back to the value for that laser
+                    self.do_power(self.power_setvalues[self.instrument.curr_laser])
                     if self.use_powermeter:
                         self.powermeter.wavelength = int(laser)
                 except ValueError as e:
@@ -628,7 +640,7 @@ class MonetSetInteractive(cmd.Cmd):
     def do_laser_power(self, power):
         """Set the laser power of the current laser"""
         if not power:
-            print('Please specify a laser power value.')
+            print('Current laserpower out of laser: ', self.instrument.laserpower)
         else:
             try:
                 self.instrument.laserpower = int(power)
@@ -642,7 +654,7 @@ class MonetSetInteractive(cmd.Cmd):
                 the power to set to [mW]
         """
         if not power:
-            print('Please specify a power value.')
+            print('Current power at objective:', self.instrument.power)
         else:
             try:
                 # print('Setting power for settings \n {:s}'.format('\n'.join(
@@ -650,6 +662,7 @@ class MonetSetInteractive(cmd.Cmd):
                 #      for k, v in self.instrument.config['index'].items()])))
                 print('Setting output power to ', int(power))
                 self.instrument.power = int(power)
+                self.power_setvalues[self.instrument.curr_laser] = int(power)
             except ValueError as e:
                 print(str(e))
 
@@ -729,7 +742,7 @@ class MonetSetInteractive(cmd.Cmd):
     def do_exit(self, line):
         """Exit the interaction
         """
-        self.do_laser('off')
+        #self.do_laser('off')
         self.close()
         return True
 

@@ -403,7 +403,7 @@ class Toptica(AbstractLaser):
         # enable the channels, switch off laser, just to be safe
         self.las._conn.command(b'en 1')
         self.las._conn.command(b'en 2')
-        self.enabled = False
+        # self.enabled = False
 
     @property
     def enabled(self):
