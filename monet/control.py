@@ -309,36 +309,68 @@ class IlluminationLaserControl(IlluminationControl):
 
         if ((pwr < self._power_ranges.loc[self.curr_laserpower, 'min'] or
              pwr > self._power_ranges.loc[self.curr_laserpower, 'max'])):
-            # necessary to change laser output power setting - find best
-            powerrange_centerdistance = {}
-            for laserpwr, row in self._power_ranges.iterrows():
-                range = row['max'] - row['min']
-                if range > 0:
-                    quantile = (pwr-row['min'])/range
-                else:
-                    quantile = (pwr-row['min'])/1
-                powerrange_centerdistance[laserpwr] = np.sqrt((quantile - .5)**2)
+            # necessary to change laser output power setting
 
-            # find quantile closest to the center of the range (0.5)
-            ic(powerrange_centerdistance)
-            mindist = min(list(powerrange_centerdistance.values()))
-            ic(mindist)
-            laserpwr_best = [
-                k for k, v in powerrange_centerdistance.items()
-                if v==mindist][0]
+            # find best laserpwoer: minimal laserpower of which 95% of max 
+            # is larger than pwr to set 
+            laserpwr_best = list(
+                    self._power_ranges.loc[self.power_ranges['max']*.95 > pwr].index)
+            if len(laserpwr_best) > 0
+                laserpwr_best = min(laserpwr_best)
+            else:
+                laserpwr_best = max(list(self._power_ranges.index))
 
-            if min(list(powerrange_centerdistance.values())) >.5:
-                range = self._power_ranges.loc[laserpwr_best, :]
-                if pwr <= range['min']:
-                    newpwr = range['min']
-                else:
-                    newpwr = range['max']
+            if self._power_ranges.loc[laserpwr_best, 'min'] > pwr:
+                newpwr = self._power_ranges.loc[laserpwr_best, 'min']
                 logger.debug(
                     'Power setting {:.2f} is out of range. '.format(pwr) +
                     'Setting closest power = {:.2f}.'.format(newpwr))
                 print(
                     'Power setting {:.2f} is out of range. '.format(pwr) +
                     'Setting closest power = {:.2f}.'.format(newpwr))
+                pwr = newpwr
+            elif self._power_ranges.loc[laserpwr_best, 'max'] < pwr:
+                newpwr = self._power_ranges.loc[laserpwr_best, 'max']
+                logger.debug(
+                    'Power setting {:.2f} is out of range. '.format(pwr) +
+                    'Setting closest power = {:.2f}.'.format(newpwr))
+                print(
+                    'Power setting {:.2f} is out of range. '.format(pwr) +
+                    'Setting closest power = {:.2f}.'.format(newpwr))
+                pwr = newpwr
+
+            # # ALTERNATIVE SOLUTION
+            # # find best laserpower: that which's center of power range is 
+            # # closest to the power to set
+            # powerrange_centerdistance = {}
+            # for laserpwr, row in self._power_ranges.iterrows():
+            #     range = row['max'] - row['min']
+            #     if range > 0:
+            #         quantile = (pwr-row['min'])/range
+            #     else:
+            #         quantile = (pwr-row['min'])/1
+            #     powerrange_centerdistance[laserpwr] = np.sqrt((quantile - .5)**2)
+
+            # # find quantile closest to the center of the range (0.5)
+            # ic(powerrange_centerdistance)
+            # mindist = min(list(powerrange_centerdistance.values()))
+            # ic(mindist)
+            # laserpwr_best = [
+            #     k for k, v in powerrange_centerdistance.items()
+            #     if v==mindist][0]
+
+            # if min(list(powerrange_centerdistance.values())) >.5:
+            #     range = self._power_ranges.loc[laserpwr_best, :]
+            #     if pwr <= range['min']:
+            #         newpwr = range['min']
+            #     else:
+            #         newpwr = range['max']
+            #     logger.debug(
+            #         'Power setting {:.2f} is out of range. '.format(pwr) +
+            #         'Setting closest power = {:.2f}.'.format(newpwr))
+            #     print(
+            #         'Power setting {:.2f} is out of range. '.format(pwr) +
+            #         'Setting closest power = {:.2f}.'.format(newpwr))
 
             logger.debug('setting laser power to {:s}'.format(str(laserpwr_best)))
             print('setting laser power to {:s}'.format(str(laserpwr_best)))
