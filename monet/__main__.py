@@ -649,7 +649,7 @@ class MonetSetInteractive(cmd.Cmd):
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))
                     self.instrument.laser = laser
-                    self.do_open()
+                    self.do_open('')
                     # set laser power back to the value for that laser
                     try:
                         self.do_power(self.power_setvalues[
@@ -708,12 +708,18 @@ class MonetSetInteractive(cmd.Cmd):
                 enbl = 'off'
             pwr = self.power_setvalues[lsr]
             print('Laser ', lsr,
-                  'is', enbl, 'and set on ', pwr, 'mW.')
+                  'is', enbl, 'and set to ', pwr, 'mW.')
         print('Currently active laser: ',
               self.instrument.curr_laser)
-        print('Beam path positions:', self.instrument.beampath.positions)
-        print('Autoshutter:',
-              self.instrument.beampath.objects['shutter'].autoshutter)
+        try:
+            print('Beam path positions:', self.instrument.beampath.positions)
+        except Exception:
+            pass
+        try:
+            print('Autoshutter:',
+                  self.instrument.beampath.objects['shutter'].autoshutter)
+        except Exception:
+            pass
 
     def do_open(self, line):
         """open shutter and set the correct light path positions"""
