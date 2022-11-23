@@ -607,7 +607,7 @@ class MonetSetInteractive(cmd.Cmd):
 
         self.power_setvalues = {}
         for las in self.instrument.laser:
-            self.do_laser(las, enable)
+            self.do_laser(las)
             self.power_setvalues[las] = self.instrument.power
 
     def do_laser(self, laser):
@@ -629,10 +629,12 @@ class MonetSetInteractive(cmd.Cmd):
             else:
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))
-                    # self.instrument.laser = laser
-                    self.instrument.laser(laser)
+                    self.instrument.laser = laser
                     # set laser power back to the value for that laser
-                    self.do_power(self.power_setvalues[self.instrument.curr_laser])
+                    try:
+                        self.do_power(self.power_setvalues[self.instrument.curr_laser])
+                    except:
+                        pass
                     if self.use_powermeter:
                         self.powermeter.wavelength = int(laser)
                 except ValueError as e:

@@ -195,6 +195,9 @@ class KinesisAttenuator(AbstractAttenuator):
                 pos, 'DISTANCE'))
         logger.debug(pdevu + pnatu)
 
+    def curr_pos(self):
+        return self.device.get_position()
+
     def _move_absolute(self, pos):
         """Move to an absolute position
 

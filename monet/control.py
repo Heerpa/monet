@@ -294,7 +294,8 @@ class IlluminationLaserControl(IlluminationControl):
 
     @property
     def power(self):
-        return self.analyzer.estimate_power()
+        attpos = self.attenuator.curr_pos()
+        return self.analyzer.estimate_power(attpos)
 
     @power.setter
     def power(self, pwr):
