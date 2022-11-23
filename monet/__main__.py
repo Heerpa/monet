@@ -609,7 +609,7 @@ class MonetSetInteractive(cmd.Cmd):
         self.power_setvalues = {}
         for las in self.instrument.laser:
             self.do_laser(las)
-            self.power_setvalues[las] = self.instrument.power
+            self.power_setvalues[las] = round(self.instrument.power)
 
     def do_laser(self, laser):
         """Activate a laser, and open the beam path for it.
@@ -639,7 +639,7 @@ class MonetSetInteractive(cmd.Cmd):
             elif isinstance(laser, str) and laser.upper() == 'ALLOFF':
                 for las in self.instrument.laser:
                     self.instrument.lasers[las].enabled = False
-            if isinstance(laser, str) and laser.upper() == 'ON':
+            elif isinstance(laser, str) and laser.upper() == 'ON':
                 self.instrument.lasers[
                     self.instrument.curr_laser].enabled = True
             elif isinstance(laser, str) and laser.upper() == 'ALLON':
