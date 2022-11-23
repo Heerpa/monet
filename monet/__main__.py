@@ -714,6 +714,8 @@ class MonetSetInteractive(cmd.Cmd):
         try:
             print('Current attenuator position: ',
                   self.instrument.attenuator.curr_pos())
+        except Exception:
+            pass
         try:
             print('Beam path positions:', self.instrument.beampath.positions)
         except Exception:
