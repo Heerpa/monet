@@ -607,10 +607,10 @@ class MonetSetInteractive(cmd.Cmd):
 
         self.power_setvalues = {}
         for las in self.instrument.laser:
-            self.do_laser(las)
+            self.do_laser(las, enable=False)
             self.power_setvalues[las] = self.instrument.power
 
-    def do_laser(self, laser):
+    def do_laser(self, laser, enable=True):
         """Activate a laser. Deactivate current laser with 'OFF', deactivate all with 'ALLOFF'
         Args:
             laser : str
@@ -621,15 +621,16 @@ class MonetSetInteractive(cmd.Cmd):
         if not laser:
             print('Currently active laser: ', self.instrument.curr_laser)
         else:
-            if laser.upper() == 'OFF':
+            if isinstance(laser, str) and laser.upper() == 'OFF':
                 self.instrument.lasers[self.instrument.curr_laser].enabled = False
-            elif laser.upper() == 'ALLOFF':
+            elif isinstance(laser, str) and laser.upper() == 'ALLOFF':
                 for las in self.instrument.laser:
                     self.instrument.lasers[las].enabled = False
             else:
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))
-                    self.instrument.laser = laser
+                    # self.instrument.laser = laser
+                    self.instrument.laser(laser, enable=enable)
                     # set laser power back to the value for that laser
                     self.do_power(self.power_setvalues[self.instrument.curr_laser])
                     if self.use_powermeter:
@@ -647,7 +648,7 @@ class MonetSetInteractive(cmd.Cmd):
             except ValueError as e:
                 print(str(e))
 
-    def do_power(self, power):
+    def do_power(self, power, enable=True):
         """Set the power to a specified level.
         Args:
             power : float

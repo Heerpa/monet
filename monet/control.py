@@ -237,7 +237,7 @@ class IlluminationLaserControl(IlluminationControl):
         return list(self.lasers.keys())
 
     @laser.setter
-    def laser(self, laser):
+    def laser(self, laser, enable=True):
         """Set the current laser by name
         Args:
             laser : str
@@ -251,7 +251,7 @@ class IlluminationLaserControl(IlluminationControl):
             # self.lasers[self.curr_laser].enabled = False
             self.curr_laser = laser
             self.config['index'][LASER_TAG] = laser
-            self.lasers[self.curr_laser].enabled = True
+            self.lasers[self.curr_laser].enabled = enable
             if self.is_calibrated:
                 ic(self.cali_db)
                 self._analyzers, self._power_ranges = (
@@ -315,7 +315,7 @@ class IlluminationLaserControl(IlluminationControl):
             # is larger than pwr to set 
             laserpwr_best = list(
                     self._power_ranges.loc[self.power_ranges['max']*.95 > pwr].index)
-            if len(laserpwr_best) > 0
+            if len(laserpwr_best) > 0:
                 laserpwr_best = min(laserpwr_best)
             else:
                 laserpwr_best = max(list(self._power_ranges.index))
