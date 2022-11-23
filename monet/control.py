@@ -264,9 +264,10 @@ class IlluminationLaserControl(IlluminationControl):
             else:
                 logger.debug('Calibration not available, not setting analyzers.')
         else:
-            raise KeyError('Laser {:s} is not available'.format(str(laser)))
+            # raise KeyError('Laser {:s} is not available'.format(str(laser)))
+            print('Laser {:s} is not available'.format(str(laser)) + '. Choose one of ' + str(list(self.lasers.keys())))
 
-    @property
+   @property
     def laserpower(self):
         return self.lasers[self.curr_laser].power
 
