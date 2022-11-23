@@ -138,7 +138,7 @@ class IlluminationLaserControl(IlluminationControl):
             },
         },
     """
-    def __init__(self, config, do_load_cal=True):
+    def __init__(self, config, do_load_cal=True, auto_enable_lasers=True):
         """
         Args:
             config : dict
@@ -148,6 +148,8 @@ class IlluminationLaserControl(IlluminationControl):
                 whether or not to load the latest calibration
             ignore_powermeter : bool
                 if True, the powermeter is not loaded
+            auto_enable_lasers : bool
+                whether to switch on lasers at connection.
         """
         super().__init__(config, do_load_cal=do_load_cal)
 
@@ -155,6 +157,7 @@ class IlluminationLaserControl(IlluminationControl):
         config['index'][LASER_TAG] = slice(None)
         config['index'][POWER_TAG] = slice(None)
 
+        self.auto_enable_lasers = auto_enable_lasers
         self.lasers = {}
         lasers_missing = []
         for laser, lconf in config['lasers'].items():
@@ -237,7 +240,7 @@ class IlluminationLaserControl(IlluminationControl):
         return list(self.lasers.keys())
 
     @laser.setter
-    def laser(self, laser, enable=True):
+    def laser(self, laser):
         """Set the current laser by name
         Args:
             laser : str
@@ -251,7 +254,8 @@ class IlluminationLaserControl(IlluminationControl):
             # self.lasers[self.curr_laser].enabled = False
             self.curr_laser = laser
             self.config['index'][LASER_TAG] = laser
-            self.lasers[self.curr_laser].enabled = enable
+            if self.auto_enable_lasers:
+                self.lasers[self.curr_laser].enabled = True
             if self.is_calibrated:
                 ic(self.cali_db)
                 self._analyzers, self._power_ranges = (

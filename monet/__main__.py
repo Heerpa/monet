@@ -577,7 +577,7 @@ class MonetSetInteractive(cmd.Cmd):
             protocol = None
         self.protocol = protocol
 
-        self.instrument = mco.IlluminationLaserControl(config)
+        self.instrument = mco.IlluminationLaserControl(config, auto_enable_lasers=False)
         try:
             self.instrument.load_calibration_database()
         except:
@@ -607,10 +607,10 @@ class MonetSetInteractive(cmd.Cmd):
 
         self.power_setvalues = {}
         for las in self.instrument.laser:
-            self.do_laser(las, enable=False)
+            self.do_laser(las, enable)
             self.power_setvalues[las] = self.instrument.power
 
-    def do_laser(self, laser, enable=True):
+    def do_laser(self, laser):
         """Activate a laser. Deactivate current laser with 'OFF', deactivate all with 'ALLOFF'
         Args:
             laser : str
@@ -630,7 +630,7 @@ class MonetSetInteractive(cmd.Cmd):
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))
                     # self.instrument.laser = laser
-                    self.instrument.laser(laser, enable=enable)
+                    self.instrument.laser(laser)
                     # set laser power back to the value for that laser
                     self.do_power(self.power_setvalues[self.instrument.curr_laser])
                     if self.use_powermeter:
@@ -648,7 +648,7 @@ class MonetSetInteractive(cmd.Cmd):
             except ValueError as e:
                 print(str(e))
 
-    def do_power(self, power, enable=True):
+    def do_power(self, power):
         """Set the power to a specified level.
         Args:
             power : float
