@@ -12,6 +12,7 @@
 import logging
 from icecream import ic
 import os
+import shutil
 
 import time
 from datetime import datetime
@@ -64,6 +65,12 @@ class CalibrationProtocol1D():
     def calibrate(self, wait_time=0.1):
         """Calibrate power, with parameters according to the
         configuration file.
+
+        Returns:
+            control_par_vals : 1D np array
+                the control values (e.g. angles)
+            powers : 1D np array
+                the measured power
         """
         minval = self.instrument.config['analysis']['init_kwargs']['min']
         if np.isnan(minval):
@@ -72,7 +79,7 @@ class CalibrationProtocol1D():
         step = self.instrument.config['analysis']['init_kwargs']['step']
 
         # acquire power data
-        control_par_vals = np.arange(minval, maxval+step, step)
+        control_par_vals = np.arange(minval, maxval + step, step)
         powers = np.zeros_like(control_par_vals, dtype=np.float64)
         for i, ctrlval in enumerate(control_par_vals):
             self.instrument.attenuator.set(ctrlval)
@@ -80,13 +87,14 @@ class CalibrationProtocol1D():
             powers[i] = self.powermeter.read()
             print('Position: {:.1f}, Power: {:f}'.format(ctrlval, powers[i]))
 
-
         # analyze
         self.instrument.analyzer.fit(control_par_vals, powers)
         # print(self.instrument.analyzer.fit_result.fit_report())
         self.instrument.is_calibrated = True
 
         self.save_calibration()
+
+        return control_par_vals, powers
 
     def save_calibration(self, save_plot=True):
         """Save the calibration to the database
@@ -105,7 +113,7 @@ class CalibrationProtocol1D():
                 folder = os.path.split(fname)[0]
             fnplot = os.path.join(
                 folder, '_'.join(
-                    [str(k)+'-'+str(v)
+                    [str(k) + '-' + str(v)
                      for k, v in zip(indexnames, indexvals)]) + '.png')
             # colons are allowed in second position
             fnplot = fnplot[:2] + fnplot[2:].replace(':', '-')
@@ -120,6 +128,7 @@ class CalibrationProtocol1D():
 class CalibrationProtocol2D(CalibrationProtocol1D):
     """Calibrates different lasers at different power settings
     """
+
     def __init__(self, config, protocol):
         """
         Args:
@@ -176,6 +185,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             if self.instrument.use_beampath:
                 self.instrument.beampath.positions = self.protocol['beampath'][laser]
             modelpars = pd.DataFrame(index=laserpowers)
+            measpwrs = pd.DataFrame(columns=laserpowers)
             # set powermeter setting
             self.powermeter.wavelength = int(laser)
             # self.instrument.config['index'][LASER_TAG] = laser
@@ -187,7 +197,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     # this is a test powermeter. set amplitude
                     self.powermeter.config['amp'] = lpwr
 
-                self.calibrate(wait_time=wait_time)
+                angles, powers = self.calibrate(wait_time=wait_time)
+                measpwrs.loc[angles, lpwr] = powers
                 self.save_calibration()
 
                 # get model parameters for plotting
@@ -200,12 +211,21 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             self.instrument.laserpower = min(laserpowers)
             self.instrument.laser_enabled = False
             self.plot_model(modelpars, laser)
+            self.save_measvals(measpwrs, laser)
         self.plot_device_history()
         # post-actions
         if self.instrument.use_beampath and 'end' in self.protocol['beampath'].keys():
             self.instrument.beampath.positions = self.protocol['beampath']['end']
         # self.instrument.is_calibrated = True
         # self.instrument.load_calibration_database()
+
+        # copy all plots from local folder onto the server
+        device = self.instrument.config['index'][DEVICE_TAG]
+        sfolder = os.path.join(
+            os.path.split(self.instrument.config['database'])[0],
+            datetime.now().strftime('%y%m%d') + '_' + device)
+        lfolder = self.instrument.config.get('dest_calibration_plot')
+        shutil.copytree(lfolder, sfolder)
 
     def plot_model(self, modeldf, laser):
         fig, ax = plt.subplots(nrows=len(modeldf.columns), sharex=True, squeeze=False)
@@ -224,6 +244,25 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             folder, '{:d}nm'.format(int(laser)) + '.png')
         fig.savefig(fnplot)
         plt.close(fig)
+
+    def save_measvals(self, measdf, laser):
+        """Save measured values as excel sheet and png
+        """
+        fname = self.instrument.config['database']
+        folder = self.instrument.config.get('dest_calibration_plot')
+        if folder is None:
+            folder = os.path.split(fname)[0]
+        fnplot = os.path.join(
+            folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.xlsx')
+        measdf.to_excel(fnplot)
+
+        fig, ax = plt.subplots()
+        ax.xaxis.set_visible(False)
+        ax.yaxis.set_visible(False)
+        pd.plotting.table(ax, measdf)
+        fnplot = os.path.join(
+            folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.png')
+        plt.savefig(fnplot)
 
     def plot_device_history(self):
         """Plot the historic evolution of model parameters
