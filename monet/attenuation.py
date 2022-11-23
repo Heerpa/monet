@@ -48,6 +48,10 @@ class AbstractAttenuator(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def curr_pos(self):
+        pass
+
+    @abc.abstractmethod
     def home(self):
         pass
 
@@ -78,6 +82,9 @@ class TestAttenuator(AbstractAttenuator):
         """Logs the current position
         """
         pass
+
+    def curr_pos(self):
+        return 0        
 
     def _move_absolute(self, pos):
         """Move to an absolute position
@@ -196,7 +203,10 @@ class KinesisAttenuator(AbstractAttenuator):
         logger.debug(pdevu + pnatu)
 
     def curr_pos(self):
-        return self.device.get_position()
+        """return current position"""
+        pos = self.device.get_position()
+        return self.device.get_real_value_from_device_unit(
+            pos, 'DISTANCE')
 
     def _move_absolute(self, pos):
         """Move to an absolute position

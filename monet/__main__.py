@@ -712,6 +712,9 @@ class MonetSetInteractive(cmd.Cmd):
         print('Currently active laser: ',
               self.instrument.curr_laser)
         try:
+            print('Current attenuator position: ',
+                  self.instrument.attenuator.curr_pos())
+        try:
             print('Beam path positions:', self.instrument.beampath.positions)
         except Exception:
             pass
