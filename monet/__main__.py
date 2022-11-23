@@ -559,8 +559,8 @@ class MonetSetInteractive(cmd.Cmd):
         try:
             config = CONFIGS[config_name]
         except KeyError as e:
-            print('Could not find ' +
-                  config_name + ' in configurations. Aborting.')
+            print('Could not find '
+                  + config_name + ' in configurations. Aborting.')
             print('All configurations:')
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(CONFIGS)
@@ -568,22 +568,23 @@ class MonetSetInteractive(cmd.Cmd):
 
         try:
             protocol = PROTOCOLS[config_name]
-        except KeyError as e:
-            print('Could not find ' +
-                  config_name + ' in protocols. Not using laser control.')
+        except KeyError:
+            print('Could not find '
+                  + config_name + ' in protocols. Not using laser control.')
             print('All protocols:')
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(PROTOCOLS)
             protocol = None
         self.protocol = protocol
 
-        self.instrument = mco.IlluminationLaserControl(config, auto_enable_lasers=False)
+        self.instrument = mco.IlluminationLaserControl(
+            config, auto_enable_lasers=False)
         try:
             self.instrument.load_calibration_database()
-        except:
+        except Exception:
             raise KeyError(
-                'Microscope probably not calibrated yet. ' +
-                'Monet Set only works with an existing calibration.')
+                'Microscope probably not calibrated yet. '
+                + 'Monet Set only works with an existing calibration.')
 
         # load powermeter if present
         try:
@@ -591,7 +592,7 @@ class MonetSetInteractive(cmd.Cmd):
             self.powermeter = load_class(
                 pwrconfig['classpath'], pwrconfig['init_kwargs'])
             self.use_powermeter = True
-        except:
+        except Exception:
             self.use_powermeter = False
             print('Powermeter not connected. Do not use measure function')
             # print(traceback.format_exc())
@@ -600,7 +601,7 @@ class MonetSetInteractive(cmd.Cmd):
         # that is necessary for calibrate and adjust)
         try:
             self.instrument.beampath.objects['shutter'].autoshutter = True
-        except Exception as e:
+        except Exception:
             pass
 
         self.config_name = config_name
@@ -611,55 +612,60 @@ class MonetSetInteractive(cmd.Cmd):
             self.power_setvalues[las] = self.instrument.power
 
     def do_laser(self, laser):
-        """Activate a laser. Deactivate current laser with 'OFF', deactivate all with 'ALLOFF'
+        """Activate a laser, and open the beam path for it.
+        Switch current laser on with 'ON', switch all on with 'ALLON'.
+        Switch current laser off with 'OFF', switch all off with 'ALLOFF'.
         Args:
             laser : str
                 the laser to activate (its wavelength in nm)
                 if 'OFF': turn current laser off
                 if 'ALLOFF': turn all lasers off
+                if 'ON': turn current laser on
+                if 'ALLON': turn all lasers on
         """
         if not laser:
-            print('Currently active laser: ', self.instrument.curr_laser)
+            if self.instrument.lasers[self.instrument.curr_laser].enabled:
+                enbl = 'on'
+            else:
+                enbl = 'off'
+            pwr = self.instrument.power
+            print('Currently active laser ',
+                  self.instrument.curr_laser,
+                  'is', enbl, 'and set on ', pwr, 'mW.')
         else:
             if isinstance(laser, str) and laser.upper() == 'OFF':
-                self.instrument.lasers[self.instrument.curr_laser].enabled = False
+                self.instrument.lasers[
+                    self.instrument.curr_laser].enabled = False
             elif isinstance(laser, str) and laser.upper() == 'ALLOFF':
                 for las in self.instrument.laser:
                     self.instrument.lasers[las].enabled = False
+            if isinstance(laser, str) and laser.upper() == 'ON':
+                self.instrument.lasers[
+                    self.instrument.curr_laser].enabled = True
+            elif isinstance(laser, str) and laser.upper() == 'ALLON':
+                for las in self.instrument.laser:
+                    self.instrument.lasers[las].enabled = True
             else:
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))
                     self.instrument.laser = laser
+                    self.do_open()
                     # set laser power back to the value for that laser
                     try:
-                        self.do_power(
-                                self.power_setvalues[
-                                    self.instrument.curr_laser])
-                    except:
+                        self.do_power(self.power_setvalues[
+                            self.instrument.curr_laser])
+                    except Exception:
                         pass
                     if self.use_powermeter:
                         self.powermeter.wavelength = int(laser)
                 except ValueError as e:
                     print(str(e))
 
-    def do_enabled(self, enable):
-        if not enable:
-            if self.instrument.lasers[self.instrument.curr_laser].enabled:
-                enbl = 'enabled'
-            else:
-                enbl = 'disabled'
-            print('Currently active laser', self.instrument.curr_laser, 'is ' + enbl)
-        else:
-            if enable == 'True' or enable == '1':
-                enable = True
-            else:
-                enable = False
-            self.instrument.lasers[self.instrument.curr_laser].enabled = enable
-
     def do_laser_power(self, power):
         """Set the laser power of the current laser"""
         if not power:
-            print('Current laserpower out of laser: ', self.instrument.laserpower)
+            print('Current laserpower out of laser: ',
+                  self.instrument.laserpower)
         else:
             try:
                 self.instrument.laserpower = int(power)
@@ -693,6 +699,22 @@ class MonetSetInteractive(cmd.Cmd):
             pos = float(pos)
             self.instrument.attenuator.set(pos)
 
+    def do_status(self, line):
+        """Display the status of all available laser lines"""
+        for lsr in self.instrument.laser:
+            if self.instrument.lasers[lsr].enabled:
+                enbl = 'on'
+            else:
+                enbl = 'off'
+            pwr = self.power_setvalues[lsr]
+            print('Laser ', lsr,
+                  'is', enbl, 'and set on ', pwr, 'mW.')
+        print('Currently active laser: ',
+              self.instrument.curr_laser)
+        print('Beam path positions:', self.instrument.beampath.positions)
+        print('Autoshutter:',
+              self.instrument.beampath.objects['shutter'].autoshutter)
+
     def do_open(self, line):
         """open shutter and set the correct light path positions"""
         try:
@@ -715,7 +737,7 @@ class MonetSetInteractive(cmd.Cmd):
         """set autoshutter"""
         try:
             line = int(line)
-        except:
+        except Exception:
             if line.upper() == 'TRUE':
                 line = 1
             else:

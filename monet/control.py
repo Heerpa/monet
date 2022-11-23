@@ -267,7 +267,7 @@ class IlluminationLaserControl(IlluminationControl):
             # raise KeyError('Laser {:s} is not available'.format(str(laser)))
             print('Laser {:s} is not available'.format(str(laser)) + '. Choose one of ' + str(list(self.lasers.keys())))
 
-   @property
+    @property
     def laserpower(self):
         return self.lasers[self.curr_laser].power
 
@@ -320,7 +320,7 @@ class IlluminationLaserControl(IlluminationControl):
             # find best laserpwoer: minimal laserpower of which 95% of max 
             # is larger than pwr to set 
             laserpwr_best = list(
-                    self._power_ranges.loc[self.power_ranges['max']*.95 > pwr].index)
+                    self._power_ranges.loc[self._power_ranges['max']*.95 > pwr].index)
             if len(laserpwr_best) > 0:
                 laserpwr_best = min(laserpwr_best)
             else:
