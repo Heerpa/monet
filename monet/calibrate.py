@@ -261,7 +261,9 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
         ax.axis('off')
-        pd.plotting.table(ax, measdf, loc='center', cell_edges='horizontal')
+        tab = pd.plotting.table(ax, measdf, loc='center')
+        for c in tab.get_celld().values():
+            c.visible_edges = 'horizontal'
         fig.tight_layout()
         ax.set_title('measured powers in mW')
         fnplot = os.path.join(
