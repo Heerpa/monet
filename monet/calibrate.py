@@ -198,7 +198,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     self.powermeter.config['amp'] = lpwr
 
                 angles, powers = self.calibrate(wait_time=wait_time)
-                measpwrs.loc[angles, lpwr] = powers
+                for an, pw in zip(angles, powers):
+                    measpwrs.loc[an, lpwr] = pw
                 self.save_calibration()
 
                 # get model parameters for plotting
@@ -223,7 +224,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         device = self.instrument.config['index'][DEVICE_TAG]
         sfolder = os.path.join(
             os.path.split(self.instrument.config['database'])[0],
-            datetime.now().strftime('%y%m%d') + '_' + device)
+            datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
         lfolder = self.instrument.config.get('dest_calibration_plot')
         shutil.copytree(lfolder, sfolder)
 
@@ -259,9 +260,13 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         fig, ax = plt.subplots()
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
-        pd.plotting.table(ax, measdf)
+        ax.axis('off')
+        pd.plotting.table(ax, measdf, loc='center', cell_edges='horizontal')
+        fig.tight_layout()
+        ax.set_title('measured powers in mW')
         fnplot = os.path.join(
             folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.png')
+        fig.tight_layout()
         plt.savefig(fnplot)
 
     def plot_device_history(self):
