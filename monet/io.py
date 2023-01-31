@@ -11,6 +11,7 @@
 import pandas as pd
 import numpy as np
 import os
+import shutil
 from datetime import datetime
 import logging
 from icecream import ic
@@ -243,13 +244,14 @@ def restart_database(db_fname):
     """Save a backup of the current database and restart with the
     latest parameters
     """
-    whole_db = load_database(db_fname, index={}, time_idx='all')
+    # whole_db = load_database(db_fname, index={}, time_idx='all')
     today = datetime.now().strftime('%Y-%m-%d')
     root, ext = os.path.splitext(db_fname)
     bkup_fname = os.path.join(root+'_'+today, ext)
     if os.path.exists(bkup_fname):
         raise ValueError('File already exists: {:s}'.format(bkup_fname))
-    whole_db.to_excel(bkup_fname)
+    # whole_db.to_excel(bkup_fname)
+    shutil.copy2(db_fname, bkup_fname)
     last_entries = load_database(
         db_fname, index={}, time_idx='last combinations')
     last_entries.to_excel(db_fname)
