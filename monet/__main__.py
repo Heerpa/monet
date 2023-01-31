@@ -649,7 +649,7 @@ class MonetSetInteractive(cmd.Cmd):
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))
                     self.instrument.laser = laser
-                    self.do_open('')
+                    # self.do_open('')
                     # set laser power back to the value for that laser
                     try:
                         self.do_power(self.power_setvalues[
