@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 import os
 import shutil
+import time
 from datetime import datetime
 import logging
 from icecream import ic
@@ -43,22 +44,42 @@ def save_calibration(fname, index, cali_pars):
             the values of indices in the database
     """
     indexnames = list(index.keys()) + ['date', 'time']
-    indexnames = DATABASE_INDEXLEVELS + list(set(indexnames) -
-                                             set(DATABASE_INDEXLEVELS))
+    indexnames = DATABASE_INDEXLEVELS + list(set(indexnames)
+                                             - set(DATABASE_INDEXLEVELS))
     index['date'] = datetime.now().strftime('%Y-%m-%d')
     index['time'] = datetime.now().strftime('%H:%M')
     indexvals = tuple([index[k] for k in indexnames])
-    try:
-        db = pd.read_excel(fname, index_col=list(range(len(indexvals))))
-    except Exception as e:
-        logger.debug('Problem loading database: ' + str(e) + ' Creating file.')
-        # print('error loading database: ', str(e))
-        ic(indexnames)
-        ic(indexvals)
+    if not os.path.exists(fname):
+        logger.debug('Database file does not exist, creating it')
         midx = pd.MultiIndex.from_tuples(
             [indexvals], names=list(indexnames))
         db = pd.DataFrame(
             index=midx, columns=list(cali_pars.keys()))
+    else:
+        tic = time.time()
+        while True:
+            if time.time() - tic > 10:
+                logger.debug(
+                    'Persistent problem loading database. Creating anew')
+                # print('error loading database: ', str(e))
+                ic(indexnames)
+                ic(indexvals)
+                midx = pd.MultiIndex.from_tuples(
+                    [indexvals], names=list(indexnames))
+                db = pd.DataFrame(
+                    index=midx, columns=list(cali_pars.keys()))
+                break
+            try:
+                db = pd.read_excel(
+                    fname, index_col=list(range(len(indexvals))))
+            except Exception as e:
+                logger.debug(
+                    'Problem loading database: ' + str(e)
+                    + ' Probably busy with separate read/write. Trying again.')
+                time.sleep(.05)
+                continue
+            else:
+                break
 
     db.loc[indexvals, :] = list(cali_pars.values())
     db.to_excel(fname)
