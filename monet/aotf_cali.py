@@ -17,7 +17,7 @@ from monet.attenuation import AAAOTF_lowlevel
 from monet.powermeter import ThorlabsPowerMeter
 
 
-def sweep_freq(aotf, powermeter, channel, freqs):
+def sweep_freq(aotf, powermeter, channel, freqs, t_wait=.05):
     """Sweep over the frequencies and measure the power after each step
     Args:
         aotf : AAAOTF_lowlevel instance
@@ -36,13 +36,13 @@ def sweep_freq(aotf, powermeter, channel, freqs):
     for i, freq in enumerate(freqs):
         progress(i/len(freqs))
         aotf.frequency(channel, freq)
-        time.sleep(.1)
+        time.sleep(t_wait)
         powers[i] = powermeter.read()
     end_progress()
     return powers
 
 
-def sweep_pdb(aotf, powermeter, channel, pdbs):
+def sweep_pdb(aotf, powermeter, channel, pdbs, t_wait=.05):
     """Sweep over the aotf db powers and measure the power after each step
     Args:
         aotf : AAAOTF_lowlevel instance
@@ -61,7 +61,7 @@ def sweep_pdb(aotf, powermeter, channel, pdbs):
     for i, pdb in enumerate(pdbs):
         progress(i/len(pdbs))
         aotf.powerdb(channel, pdb)
-        time.sleep(.1)
+        time.sleep(t_wait)
         powers[i] = powermeter.read()
     end_progress()
     return powers
@@ -89,7 +89,9 @@ def progress(x):
     charwidth = 40
     charprog = x * charwidth
     charfull = int(charprog)
-    chardeci = int(np.round((charprog-charfull) * 10))
+    chardeci = int((charprog-charfull) * 10)
+    if chardeci > 9:
+        chardeci = 0
     charrest = charwidth - charfull - 1
     print(title + ": [" + '#'*charfull + str(chardeci) +"-"*charrest + "]", end='\r')
     #print(x, y, deci, x+y+1)
@@ -134,12 +136,14 @@ if __name__ == '__main__':
         'freqstep': .001,
         'wavelength': 561,
         'AOTF_port': 'COM5',
-        'output': 'C:\\Users\\admin\\Desktop\\AOTFcalibration'
+        'output': 'C:\\Users\\admin\\Desktop\\AOTFcalibration',
+        't_sweepstep': .05,
     }
     channel = arguments['channel']
     ctrfreq = arguments['ctrfreq']
     freqwindow = arguments['freqwindow']
     freqstep = arguments['freqstep']
+    t_sweepstep = arguments['t_sweepstep']
 
     freqs = np.arange(ctrfreq-freqwindow/2, ctrfreq+freqwindow/2, step=freqstep)
     pdbs = np.arange(0, 22.6, step=.1)
@@ -152,24 +156,24 @@ if __name__ == '__main__':
     powermeter.wavelength = arguments['wavelength']
 
     aotf.powerdb(channel, 22.5)
-    powers_f = sweep_freq(aotf, powermeter, channel, freqs)
+    powers_f = sweep_freq(aotf, powermeter, channel, freqs, t_sweepstep)
 
     best_freq = freqs[np.argmax(powers_f)]
     aotf.frequency(channel, best_freq)
 
-    powers_p = sweep_pdb(aotf, powermeter, channel, pdbs)
+    powers_p = sweep_pdb(aotf, powermeter, channel, pdbs, t_sweepstep)
 
     best_pdb = powers_p[np.argmax(powers_p)]
 
     fig, ax = plt.subplots(ncols=2)
     ax[0].plot(freqs, powers_f)
     ax[0].set_xlabel('Frequency [MHz]')
-    ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
+    ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(arguments['wavelength']))
     ax[0].set_title('optimum frequency: {:.3f} MHz'.format(best_freq))
 
     ax[1].plot(pdbs, powers_p)
     ax[1].set_xlabel('AOTF power [db]')
-    ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
+    ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(arguments['wavelength']))
     ax[1].set_title('optimum AOTF power: {:.1f} db'.format(best_pdb))
 
     fig.set_size_inches((8, 6))
