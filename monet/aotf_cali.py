@@ -29,11 +29,14 @@ def sweep_freq(aotf, powermeter, channel, freqs):
         freqs : 1D array
             the frequencies to query
     """
+    start_progress('Frequency sweep', len(freqs))
     powers = np.nan * np.ones_like(freqs)
     for i, freq in enumerate(freqs):
+        progress(i/len(freqs)*100)
         aotf.frequency(channel, freq)
         time.sleep(.1)
         powers[i] = powermeter.read()
+    end_progress()
     return powers
 
 
@@ -49,12 +52,41 @@ def sweep_pdb(aotf, powermeter, channel, pdbs):
         pdbs : 1D array
             the aotf db powers to query
     """
+    start_progress('Power sweep', len(pdbs))
     powers = np.nan * np.ones_like(pdbs)
     for i, pdb in enumerate(pdbs):
+        progress(i/len(pdbs)*100)
         aotf.powerdb(channel, pdb)
         time.sleep(.1)
         powers[i] = powermeter.read()
+    end_progress()
     return powers
+
+
+def start_progress(ltitle, n_frames):
+    global progress_x, title
+    global nimgs_acquired, nimgs_total
+    nimgs_acquired = 0
+    title = ltitle
+    nimgs_total = n_frames
+    #sys.stdout.write(title + ": [" + "-"*40 + "]" + chr(8)*41)
+    #sys.stdout.flush()
+    print(title + ": [" + "-"*40 + "]", end='\r')
+    progress_x = 0
+
+def progress(x):
+    global title
+    deci = int((x - int(x))*10)
+    x = int(x * 40 // 100)
+    y = max([0, 40-x-1])
+    print(title + ": [" + '#'*x + str(deci) +"-"*y + "]", end='\r')
+    #print(x, y, deci, x+y+1)
+
+
+def end_progress():
+    #sys.stdout.write("#" * (40 - progress_x) + "]\n")
+    #sys.stdout.flush()
+    print(title + ": [" + "#"*40 + "]", end='\n')
 
 
 if __name__ == '__main__':
@@ -115,7 +147,7 @@ if __name__ == '__main__':
 
     best_pdb = freqs[np.argmax(powers_p)]
 
-    fig, ax = plt.subplots(cols=2)
+    fig, ax = plt.subplots(ncols=2)
     ax[0].plot(freqs, powers_f)
     ax[0].set_xlabel('Frequency [MHz]')
     ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
