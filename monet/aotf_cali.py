@@ -96,7 +96,7 @@ def progress(x):
     if chardeci > 9:
         chardeci = 0
     charrest = charwidth - charfull - 1
-    print(title + ": [" + '#'*charfull + str(chardeci) +"-"*charrest + "]", end='\r')
+    print(title + ": [" + '#'*charfull + str(chardeci) +"-"*charrest + "]" + int(x*nimgs_total) + "/" + nimgs_total, end='\r')
     #print(x, y, deci, x+y+1)
 
 
@@ -140,7 +140,7 @@ if __name__ == '__main__':
         'wavelength': 561,
         'AOTF_port': 'COM5',
         'output': 'C:\\Users\\admin\\Desktop\\AOTFcalibration',
-        't_sweepstep': .02,
+        't_sweepstep': .01,
     }
     channel = arguments['channel']
     ctrfreq = arguments['ctrfreq']
@@ -166,7 +166,7 @@ if __name__ == '__main__':
 
     powers_p = sweep_pdb(aotf, powermeter, channel, pdbs, t_sweepstep)
 
-    best_pdb = powers_p[np.argmax(powers_p)]
+    best_pdb = pdbs[np.argmax(powers_p)]
 
     filename = os.path.join(arguments['output'], 'aotf_settings.csv')
     if os.path.exists(filename):
