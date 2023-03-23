@@ -140,7 +140,7 @@ if __name__ == '__main__':
         'wavelength': 561,
         'AOTF_port': 'COM5',
         'output': 'C:\\Users\\admin\\Desktop\\AOTFcalibration',
-        't_sweepstep': .05,
+        't_sweepstep': .02,
     }
     channel = arguments['channel']
     ctrfreq = arguments['ctrfreq']
@@ -168,15 +168,16 @@ if __name__ == '__main__':
 
     best_pdb = powers_p[np.argmax(powers_p)]
 
-    filename = os.path.join(arguments['output'], 'aotf_settings.xlsx')
+    filename = os.path.join(arguments['output'], 'aotf_settings.csv')
     if os.path.exists(filename):
-        settgs = pd.read_excel(filename)
+        settgs = pd.read_csv(filename, index_col=0)
     else:
         settgs = pd.DataFrame(index=np.arange(1, 9), columns=['wavelength', 'Frequency', 'Power'])
+        settgs.index.name = 'channel'
     settgs.loc[channel, 'wavelength'] = arguments['wavelength']
     settgs.loc[channel, 'Frequency'] = best_freq
     settgs.loc[channel, 'Power'] = best_pdb
-    settgs.to_excel(filename)
+    settgs.to_csv(filename)
 
     fig, ax = plt.subplots(ncols=2)
     ax[0].plot(freqs, powers_f)
