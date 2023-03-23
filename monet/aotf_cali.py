@@ -58,35 +58,47 @@ def sweep_pdb(aotf, powermeter, channel, pdbs):
 
 
 if __name__ == '__main__':
-    # Main parser
-    parser = argparse.ArgumentParser("aotfcali")
-    parser.add_argument(
-        'channel', type=int,
-        help='The channel to calibrate. 1-8.')
-    parser.add_argument(
-        'ctrfreq', type=float,
-        help='Center frequency to test [MHz].')
-    parser.add_argument(
-        'freqwindow', type=float,
-        default=1,
-        help='Frequency window width of testing [MHz].')
-    parser.add_argument(
-        'freqstep', type=float,
-        default=.001,
-        help='Frequency step for testing [MHz].')
+    # # Main parser
+    # parser = argparse.ArgumentParser("aotfcali")
+    # parser.add_argument(
+    #     'channel', type=int,
+    #     help='The channel to calibrate. 1-8.')
+    # parser.add_argument(
+    #     'ctrfreq', type=float,
+    #     help='Center frequency to test [MHz].')
+    # parser.add_argument(
+    #     'freqwindow', type=float,
+    #     default=1,
+    #     help='Frequency window width of testing [MHz].')
+    # parser.add_argument(
+    #     'freqstep', type=float,
+    #     default=.001,
+    #     help='Frequency step for testing [MHz].')
 
-    # Parse
-    args = parser.parse_args()
-    channel = args.channel
-    ctrfreq = args.ctrfreq
-    freqwindow = args.freqwindow
-    freqstep = args.freqstep
+    # # Parse
+    # args = parser.parse_args()
+    # channel = args.channel
+    # ctrfreq = args.ctrfreq
+    # freqwindow = args.freqwindow
+    # freqstep = args.freqstep
+
+    arguments = {
+        'channel': 6,
+        'ctrfreq': 94,
+        'freqwindow': 2,
+        'freqstep': .001,
+        'AOTF_port': 'COM5'
+    }
+    channel = arguments['channel']
+    ctrfreq = arguments['ctrfreq']
+    freqwindow = arguments['freqwindow']
+    freqstep = arguments['freqstep']
 
     freqs = np.arange(ctrfreq-freqwindow/2, ctrfreq+freqwindow/2, step=freqstep)
     pdbs = np.arange(0, 22.6, step=.1)
 
     aotf = AAAOTF_lowlevel(
-        port='COM10', baudrate=57600, bytesize=8, parity='N',
+        port=arguments['AOTF_port'], baudrate=57600, bytesize=8, parity='N',
         stopbits=1, timeout=1)
     powermeter = ThorlabsPowerMeter(config={'address': ''})
 

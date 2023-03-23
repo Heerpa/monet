@@ -15,6 +15,7 @@ from icecream import ic
 import abc
 import time
 import os
+import serial
 
 from msl.equipment import EquipmentRecord, ConnectionRecord, Backend
 from msl.equipment.resources.thorlabs import MotionControl
