@@ -8,9 +8,12 @@
     :authors: Heinrich Grabmayr, 2023
     :copyright: Copyright (c) 2023 Jungmann Lab, MPI of Biochemistry
 """
+import os
 import numpy as np
+import pandas as pd
 import time
 import argparse
+import yaml
 import matplotlib.pyplot as plt
 
 from monet.attenuation import AAAOTF_lowlevel
@@ -164,6 +167,16 @@ if __name__ == '__main__':
     powers_p = sweep_pdb(aotf, powermeter, channel, pdbs, t_sweepstep)
 
     best_pdb = powers_p[np.argmax(powers_p)]
+
+    filename = os.path.join(arguments['output'], 'aotf_settings.xlsx')
+    if os.path.exists(filename):
+        settgs = pd.read_excel(filename)
+    else:
+        settgs = pd.DataFrame(index=np.arange(1, 9), columns=['wavelength', 'Frequency', 'Power'])
+    settgs.loc[channel, 'wavelength'] = arguments['wavelength']
+    settgs.loc[channel, 'Frequency'] = best_freq
+    settgs.loc[channel, 'Power'] = best_pdb
+    settgs.to_excel(filename)
 
     fig, ax = plt.subplots(ncols=2)
     ax[0].plot(freqs, powers_f)
