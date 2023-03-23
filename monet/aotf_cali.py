@@ -96,7 +96,7 @@ def progress(x):
     if chardeci > 9:
         chardeci = 0
     charrest = charwidth - charfull - 1
-    print(title + ": [" + '#'*charfull + str(chardeci) +"-"*charrest + "]" + "  {:d}/{:d}".format(int(x*nimgs_total), nimgs_total), end='\r')
+    print(title + ": [" + '#'*charfull + str(chardeci) +"-"*charrest + "]" + "  {:d}/{:d}".format(1+int(x*nimgs_total), nimgs_total), end='\r')
     #print(x, y, deci, x+y+1)
 
 
@@ -158,6 +158,7 @@ if __name__ == '__main__':
 
     powermeter.wavelength = arguments['wavelength']
 
+    aotf.enable(channel, True)
     aotf.powerdb(channel, 22.5)
     powers_f = sweep_freq(aotf, powermeter, channel, freqs, t_sweepstep)
 
@@ -165,6 +166,8 @@ if __name__ == '__main__':
     aotf.frequency(channel, best_freq)
 
     powers_p = sweep_pdb(aotf, powermeter, channel, pdbs, t_sweepstep)
+
+    aotf.enable(channel, False)
 
     best_pdb = pdbs[np.argmax(powers_p)]
 
