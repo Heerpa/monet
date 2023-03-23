@@ -29,10 +29,12 @@ def sweep_freq(aotf, powermeter, channel, freqs):
         freqs : 1D array
             the frequencies to query
     """
+    aotf.frequency(channel, freqs[0])
+    time.sleep(.5)
     start_progress('Frequency sweep', len(freqs))
     powers = np.nan * np.ones_like(freqs)
     for i, freq in enumerate(freqs):
-        progress(i/len(freqs)*100)
+        progress(i/len(freqs))
         aotf.frequency(channel, freq)
         time.sleep(.1)
         powers[i] = powermeter.read()
@@ -52,10 +54,12 @@ def sweep_pdb(aotf, powermeter, channel, pdbs):
         pdbs : 1D array
             the aotf db powers to query
     """
+    aotf.frequency(channel, pdbs[0])
+    time.sleep(.5)
     start_progress('Power sweep', len(pdbs))
     powers = np.nan * np.ones_like(pdbs)
     for i, pdb in enumerate(pdbs):
-        progress(i/len(pdbs)*100)
+        progress(i/len(pdbs))
         aotf.powerdb(channel, pdb)
         time.sleep(.1)
         powers[i] = powermeter.read()
@@ -71,22 +75,31 @@ def start_progress(ltitle, n_frames):
     nimgs_total = n_frames
     #sys.stdout.write(title + ": [" + "-"*40 + "]" + chr(8)*41)
     #sys.stdout.flush()
-    print(title + ": [" + "-"*40 + "]", end='\r')
+    charwidth = 40
+    print(title + ": [" + "-"*charwidth + "]", end='\r')
     progress_x = 0
 
 def progress(x):
-    global title
-    deci = int((x - int(x))*10)
-    x = int(x * 40 // 100)
-    y = max([0, 40-x-1])
-    print(title + ": [" + '#'*x + str(deci) +"-"*y + "]", end='\r')
+    """Updates the progress bar
+    Args:
+        x : float
+            progress in fraction (0-1)
+    """
+    global title, nimgs_total
+    charwidth = 40
+    charprog = x * charwidth
+    charfull = int(charprog)
+    chardeci = int(np.round((charprog-charfull) * 10))
+    charrest = charwidth - charfull - 1
+    print(title + ": [" + '#'*charfull + str(chardeci) +"-"*charrest + "]", end='\r')
     #print(x, y, deci, x+y+1)
 
 
 def end_progress():
     #sys.stdout.write("#" * (40 - progress_x) + "]\n")
     #sys.stdout.flush()
-    print(title + ": [" + "#"*40 + "]", end='\n')
+    charwidth = 40
+    print(title + ": [" + "#"*charwidth + "]", end='\n')
 
 
 if __name__ == '__main__':
@@ -119,7 +132,9 @@ if __name__ == '__main__':
         'ctrfreq': 94,
         'freqwindow': 2,
         'freqstep': .001,
-        'AOTF_port': 'COM5'
+        'wavelength': 561,
+        'AOTF_port': 'COM5',
+        'output': 'C:\\Users\\admin\\Desktop\\AOTFcalibration'
     }
     channel = arguments['channel']
     ctrfreq = arguments['ctrfreq']
@@ -134,8 +149,7 @@ if __name__ == '__main__':
         stopbits=1, timeout=1)
     powermeter = ThorlabsPowerMeter(config={'address': ''})
 
-    wavelength = 561
-    powermeter.wavelength = wavelength
+    powermeter.wavelength = arguments['wavelength']
 
     aotf.powerdb(channel, 22.5)
     powers_f = sweep_freq(aotf, powermeter, channel, freqs)
@@ -145,7 +159,7 @@ if __name__ == '__main__':
 
     powers_p = sweep_pdb(aotf, powermeter, channel, pdbs)
 
-    best_pdb = freqs[np.argmax(powers_p)]
+    best_pdb = powers_p[np.argmax(powers_p)]
 
     fig, ax = plt.subplots(ncols=2)
     ax[0].plot(freqs, powers_f)
@@ -158,5 +172,8 @@ if __name__ == '__main__':
     ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
     ax[1].set_title('optimum AOTF power: {:.1f} db'.format(best_pdb))
 
-    fig.savefig('aotfpower.png')
+    fig.set_size_inches((8, 6))
+    fig.tight_layout()
+    filename = os.path.join(arguments['output'], 'aotfpower{:d}nm.png'.format(arguments['wavelength']))
+    fig.savefig(filename)
     plt.show()
