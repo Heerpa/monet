@@ -180,7 +180,7 @@ if __name__ == '__main__':
     settgs.loc[channel, 'wavelength'] = arguments['wavelength']
     settgs.loc[channel, 'Frequency'] = best_freq
     settgs.loc[channel, 'Power'] = best_pdb
-    settgs.to_csv(filename, float_format='{%.3f}')
+    settgs.to_csv(filename, float_format='%.3f')
 
     fig, ax = plt.subplots(ncols=2)
     ax[0].plot(freqs, powers_f)
