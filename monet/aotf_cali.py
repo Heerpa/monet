@@ -96,7 +96,7 @@ def progress(x):
     if chardeci > 9:
         chardeci = 0
     charrest = charwidth - charfull - 1
-    print(title + ": [" + '#'*charfull + str(chardeci) +"-"*charrest + "]" + int(x*nimgs_total) + "/" + nimgs_total, end='\r')
+    print(title + ": [" + '#'*charfull + str(chardeci) +"-"*charrest + "]" + "  {:d}/{:d}".format(int(x*nimgs_total), nimgs_total), end='\r')
     #print(x, y, deci, x+y+1)
 
 
@@ -177,7 +177,7 @@ if __name__ == '__main__':
     settgs.loc[channel, 'wavelength'] = arguments['wavelength']
     settgs.loc[channel, 'Frequency'] = best_freq
     settgs.loc[channel, 'Power'] = best_pdb
-    settgs.to_csv(filename)
+    settgs.to_csv(filename, float_format='{%.3f}')
 
     fig, ax = plt.subplots(ncols=2)
     ax[0].plot(freqs, powers_f)
