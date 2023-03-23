@@ -253,3 +253,181 @@ class KinesisAttenuator(AbstractAttenuator):
     def __del__(self):
         self.device.stop_polling()
         self.device.disconnect()
+
+
+class AAAOTF_lowlevel(serial.Serial):
+    """Low-level implementation of AA AOTF communication via serial
+    communication
+    https://gitlab.com/nanooptics-code/hyperion/-/blob/master/hyperion/controller/aa/aa_modd18012.py
+
+    Args:
+        port : str
+            the serial port used for the communication.
+            Defaults to '/dev/ttyDAQ' (docker renamed)
+            on a bare system, use sth like /dev/ttyACM0
+            on Windows: COM
+        baudrate : int
+            the baud rate for serial communication
+            Defaults to 115200
+        bytesize : int
+            the byte size for serial communication
+            Defaults to 8
+        parity : one of ['N', 'E', 'O', 'M', 'S']
+            parity for serial communication.
+            N: None, E: Even, O: Odd, M: Mark, S: Space.
+            Defaults to N
+        stopbits : int
+            the # stop bits for serial communication.
+            Defaults to 1
+        timeout : float
+            the timeout for serial communication (in seconds).
+            Defaults to 0.2.
+    """
+    def __init__(self, port='COM10',
+                 baudrate=57600, bytesize=8, parity='N',
+                 stopbits=1, timeout=1):
+        paritydict = {
+            'N': serial.PARITY_NONE,
+            'E': serial.PARITY_EVEN,
+            'O': serial.PARITY_ODD,
+            'M': serial.PARITY_MARK,
+            'S': serial.PARITY_SPACE
+        }
+        bytesizedict = {
+            5: serial.FIVEBITS,
+            6: serial.SIXBITS,
+            7: serial.SEVENBITS,
+            8: serial.EIGHTBITS
+        }
+        stopbitsdict = {
+            1: serial.STOPBITS_ONE,
+            2: serial.STOPBITS_TWO,
+            1.5: serial.STOPBITS_ONE_POINT_FIVE
+        }
+        super().__init__(port=port, baudrate=baudrate,
+                         bytesize=bytesizedict[bytesize],
+                         parity=paritydict[parity],
+                         stopbits=stopbitsdict[stopbits], timeout=timeout)
+
+    def main_enabled(self, value):
+        """Enable the
+        """
+        self.query("I{}".format(value), expectanswer=False)
+
+    def enable(self, channel, value):
+        """Enable single channels.
+        Args:
+            channel : int
+                channel to use (can be from 1 to 8 inclusive)
+            value : bool
+                True for on and False for off
+        """
+        if value:
+            value = 1
+        else:
+            value = 0
+
+        self.query("L{}O{}".format(channel, value), expectanswer=False)
+
+    def store(self):
+        """store current parameters into EEPROM
+        """
+        self.query("E", expectanswer=False)
+
+    def blanking(self, state, mode):
+        """Define the blanking state. If True (False), all channels are on (off).
+        It can be set to 'internal' or 'external', where external means that the modulation voltage
+        of the channel will be used to define the channel output.
+
+        Args:
+            state : bool
+                blanking state: True->channels on
+            mode : str
+                'external' or 'internal'. 
+                'external' is used to follow TTL external modulation
+        """
+        if mode == 'internal':
+            if state:
+                self.query("L0I1O1", expectanswer=False)
+            else:
+                self.query("L0I1O0", expectanswer=False)
+        elif mode == 'external':
+            if state:
+                self.query("L0I0O1", expectanswer=False)
+            else:
+                self.query("L0I0O0", expectanswer=False)
+        else:
+            raise Warning('Blanking type not known.')
+
+    def get_states(self):
+        """ Gets the status of all the channels
+
+        Returns:
+            states : str
+                message from the driver describing all channel states
+        """
+        return self.query('S')
+
+    def frequency(self, channel, value):
+        """RF frequency for a given channel.
+        Args:
+            channel : int
+                channel to set the frequency.
+            value : float
+                Frequency to set in MHz (it has accepted ranges that depends on the channel)
+        """
+        self.query("L{}F{}".format(channel, value), expectanswer=False)
+
+    def powerdb(self, channel, value):
+        """Power for a given channel (in db).
+        Range: (0,22) dBm
+
+        Args:
+            channel : int
+                channel to use
+            value : float
+                power value in dBm
+        """
+        self.query("L{}D{}".format(channel, value), expectanswer=False)
+
+    # def power(self, channel, value):
+    #     """Power for a given channel (in digital units).
+    #     """
+    #     self.query("L{}P{:04d}".format(channel, value), expectanswer=False)
+
+    def query(self, cmd, values=None, expectanswer=True):
+        '''send and receive the answer
+
+        Args:
+            cmd : byte string
+                the command to send. necessary end-of-command syntax will
+                be appended
+            values : dict
+                conversion of possible return values.
+                    keys: required outputs of this query function
+                    values: expected serial answers
+            expectanswer : bool
+                whether or not to wait for an answer
+        '''
+        if self.in_waiting:
+            self.reset_input_buffer()
+        self.write(cmd.encode()+b'\r')
+
+        if expectanswer:
+            answer = self.read_until()
+            answer = answer.decode().split('\rD')[0]
+
+            if values is not None:
+                valrev = {v: k for k, v in values.items()}
+                answer = valrev[answer]
+            return answer
+
+
+class AAAOTFAttenuator(AbstractAttenuator):
+    """Implementation of the AbstractAttenuator using an AOTF
+    from AA.
+
+    """
+    CHANNELS = list(range(8))
+
+    
