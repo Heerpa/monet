@@ -56,6 +56,11 @@ class AbstractAttenuator(abc.ABC):
     def home(self):
         pass
 
+    def set_wavelength(self, wvl):
+        """in case the attenuator is wavelength-sensitive
+        """
+        pass
+
 
 class TestAttenuator(AbstractAttenuator):
     """Implementation of a Attenuator for testing purposes
@@ -431,4 +436,47 @@ class AAAOTFAttenuator(AbstractAttenuator):
     """
     CHANNELS = list(range(8))
 
-    
+    def __init__(self, attenuation_config, wait_after_move=.5):
+        """Keys in attenuation config:
+            for connection maximally:
+                port, baudrate, bytesize, parity, stopbits, timeout
+            for channel def:
+                channeldef_loc : points to the csv file specifying channels and frequencies
+        """
+        super().__init__(attenuation_config)
+        self.wait_after_move = wait_after_move
+        self.currval = None
+        self.wavelength = None
+
+        self.channeldef = np.load_csv(attenuation_config['channeldef_loc'])
+
+    def _connect(self):
+        """Keys in attenuation config, maximally:
+        port, baudrate, bytesize, parity, stopbits, timeout
+        """
+        pot_pars = [
+            'port', 'baudrate', 'bytesize',
+            'parity', 'stopbits', 'timeout']
+        connection_pars = {
+            k: v for k, v in self.attenuation_config.values()
+            if k in pot_pars}
+        self.lowlvl = AAAOTF_lowlevel(**conection_pars)
+
+    def set(self, val):
+        self.currval = val
+        self.lowlvl.powerdb(self.channel, val)
+
+    def curr_pos(self):
+        return self.currval
+
+    def home(self):
+        pass
+
+    def set_wavelength(self, wvl):
+        """in case the attenuator is wavelength-sensitive
+        """
+        self.wavelength = wvl
+
+        self.channel = self.channeldef.loc[wvl, 'channel']
+        freq = self.channeldef.loc[wvl, 'freq']
+        self.lowlvl.frequency(self.channel, freq)

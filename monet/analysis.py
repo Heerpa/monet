@@ -16,6 +16,7 @@ import time
 
 import lmfit
 import numpy as np
+import numpy.polynomial.polynomial.Polynomial as _Polynomial
 import matplotlib.pyplot as plt
 
 
@@ -493,7 +494,263 @@ class PointCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         return pars
 
 
-class SplineAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
-    """Model is a spline.
+class PolyfitAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
+    """Model is a polynomial fit.
+    P(alpha) = pn[0] * ap**deg + pn[1] * ap**(deg-1) + ... + pn[deg]
+
+    In- and Output
+    P : power
+    ap / x : power setting of the AOTF (input value)
+
+    Model Parameters:
+    pn : polynomial fit parameters. Array, len deg+1
+    deg : degree of polynomial fitting
     """
-    pass
+    def __init__(self, analysis_parameters):
+        """
+        Args:
+            analysis_parameters : dict
+                min : float
+                    minimum control parameter (angle, ..)
+                max : float
+                    maximum control parameter (angle, ..)
+                deg : int
+                    the degree of polynomial fitting
+        """
+        self.poly = None
+        self.polinv = None
+        super().__init__(analysis_parameters)
+
+    def _model_function(self, x, pn):
+        """Squared sinus function with twice the angle, background and offset
+
+        Args:
+            x : float or array
+                input variable, AOTF power [dB]
+            pn : array of float
+                polynomial parameters
+        Returns:
+            result : float or array
+                the evaluation of the polynomial at x
+        """
+        if self.poly is None:
+            self.poly = _Polynomial(pn)
+        y = self.poly(x)
+        return y
+
+    def _model_function_inv(self, y, pn, mini, maxi):
+        """calculate the inverse
+        """
+        if self.polinv is None:
+            x = self.polinv(y)
+        else:
+            x = _Polynomial(pn)(y)
+        if x < mini:
+            x = mini
+        elif x > maxi:
+            x = maxi
+        return x
+
+    def _model_function_estinit(self, y, x):
+        """Estimate initial parameters of data given to a squared sinusoidal
+
+        Args:
+            y : array (N)
+                the result data
+            alpha : array (N)
+                the angular data
+        Returns:
+            pars : dict
+                keys: bkg, amp, phi
+        """
+        raise NotImplementedError()
+
+    def output_range(self):
+        """calculate the power output range within input parameter range
+
+        Returns:
+            output_range : list, len 2
+                [min power, max power]
+        """
+        params = self.get_model()
+        phi_max = 180/8  # =22,5°; period 90°
+        phi_min = 3/8*180
+        phi_period = 90
+        phi_range = [self.analysis_parameters['min'], self.analysis_parameters['max']]
+        # check whether maximum is between the angle range
+        next_maxphi_from_min = (
+            (((phi_range[0]-phi_max)//phi_period)+1) *
+             phi_period+phi_max)
+        next_minphi_from_min = (
+            (((phi_range[0]-phi_min)//phi_period)+1) *
+             phi_period+phi_min)
+        output_range = [0, 0]
+        if next_maxphi_from_min < phi_range[1]:
+            output_range[1] = params['bkg']+params['amp']
+        else:
+            output_range[1] = max([self.estimate_power(phi_range[0]),
+                                   self.estimate_power(phi_range[1])])
+        if next_minphi_from_min < phi_range[1]:
+            output_range[0] = params['bkg']
+        else:
+            output_range[0] = min([self.estimate_power(phi_range[0]),
+                                   self.estimate_power(phi_range[1])])
+        return output_range
+
+    def fit(self, x, y):
+        """Fit a model from calibration data. crop to x-range and
+        between maxima to make the relationship bijective.
+
+        Args:
+            y : scalar or 1d array
+                desired power output
+            x : numeric, same shape as y
+                the control parameters (e.g. angle) corresponding to y
+                using the current model
+        """
+        inxrange = np.argwhere(
+            (x >= self.analysis_parameters['min']) &
+            (x <= self.analysis_parameters['max']))
+        x = x[inxrange]
+        y = y[inyrange]
+        self.fitvals_forward = {
+            'x': x,
+            'y': y}
+        self.poly = _Polynomial.fit(x, y, 10)
+        yextremepos = np.argmin(y), np.argmax(y)
+        if yextremepos[0] < yextremepos[1]:
+            x = x[yextremepos[0]:yextremepos[1]]
+            y = y[yextremepos[0]:yextremepos[1]]
+        else:
+            x = x[yextremepos[1]:yextremepos[0]]
+            y = y[yextremepos[1]:yextremepos[0]]
+        self.fitvals_backward = {
+            'x': x,
+            'y': y}
+        self.polinv = _Polynomial.fit(y, x, 20)
+        self.curr_params = self.coef2params(self.poly.coef)
+
+    def estimate(self, y):
+        """Estimate control parameter needed to reach a given power.
+
+        Args:
+            y : scalar or 1d array
+                desired power output
+
+        Returns:
+            x : numeric, same shape as y
+                the control parameters (e.g. angle) corresponding to y
+                using the current model
+        """
+        pars = self.params2coef(self.curr_params)
+        minimax = {
+            'mini': self.analysis_parameters['min'],
+            'maxi': self.analysis_parameters['max']}
+        return self._model_function_inv(y, **pars, **minimax)
+
+    def estimate_power(self, x):
+        """Estimate power for a given control parameter.
+
+        Args:
+            x : scalar or 1d array
+                angular value
+
+        Returns:
+            y : numeric, same shape as y
+                estimated power output
+        """
+        if poly is not None:
+            return self.poly(y)
+
+    def get_model(self):
+        """Return current model parameters
+
+        Returns:
+            model_parameters : dict
+                the model parameters
+        """
+        if self.poly is not None:
+            return self.coef2params(self.poly.coef)
+        else:
+            return self.curr_params
+
+    def coef2params(self, coef):
+        """Convert the Polynomial coefficients to a parameter set
+        Args:
+            coef : np array
+                the polynomial coefficients
+        Returns:
+            params : dict
+                the coefficients as a dict, with keys p0, p1, ..
+        """
+        return {'{p{:d}'.format(i): c for i, c in enumerate(coef)}
+
+    def params2coef(self, params):
+        """Convert a parameter set to the Polynomial coefficients
+        Args:
+            params : dict
+                the coefficients as a dict, with keys p0, p1, ..
+        Returns:
+            coef : np array
+                the polynomial coefficients
+        """
+        return np.array(params.values())
+
+    def load_model(self, model_parameters):
+        """Load a model from parameters
+
+        Args:
+            parameters : dict
+                the model parameters
+                keys: 'p0', 'p1', ...
+        """
+        coefficients = np.array(model_parameters.values())
+        self.poly = _Polynomial(coefficients)
+        xmock = np.linspace(
+            self.analysis_parameters['min'],
+            self.analysis_parameters['max'],
+            num=50)
+        ymock = self.poly(xmock)
+        yextremepos = np.argmin(ymock), np.argmax(ymock)
+        if yextremepos[0] < yextremepos:
+            x = x[yextremepos[0]:yextremepos[1]]
+            y = y[yextremepos[0]:yextremepos[1]]
+        else:
+            x = x[yextremepos[1]:yextremepos[0]]
+            y = y[yextremepos[1]:yextremepos[0]]
+        self.polinv = _Polynomial.fit(y, x, 20)
+        self.curr_params = model_parameters
+
+    def plot(self, fname, xlabel=None, ylabel=None, title=None):
+        """Plot the outcome of the analysis
+
+        Args:
+            fname : string
+                the file name to save the plot at.
+
+        """
+        if xlabel is None:
+            xlabel = 'input variable (e.g. power[dBm])'
+        # print('plotting with', xlabel, ylabel, title)
+        import matplotlib
+        matplotlib.use('tkagg')
+        # fig, ax = plt.subplots()
+        # print('abstract plotting with', xlabel, ylabel, title)
+        # print('filename', fname)
+        fig, ax = plt.subplots()
+        ax.plot(self.fitvals_forward['x'], self.fitvals_forward['y'],
+            color='b', linestyle='None', marker='+', label='data used forward')
+        xmock = np.linspace(
+            self.analysis_parameters['min'],
+            self.analysis_parameters['max'],
+            num=50)
+        ax.plot(xmock, self.poly(xmock), color='b', linestyle='-', label='fit forward')
+        ax.plot(self.fitvals_backward['x'], self.fitvals_backward['y'],
+            color='r', linestyle='None', marker='+', label='data used inv')
+        ymock = np.linspace(
+            np.min(self.fitvals_backward['y']),
+            np.max(self.fitvals_backward['y']), num=50)
+        fig = self.fit_result.plot(self.polinv(ymock), ymock,
+            color='r', linestyle='-', label='fit inverse')
+        fig.savefig(fname)
+        plt.close(fig)
