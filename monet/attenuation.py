@@ -318,7 +318,7 @@ class AAAOTF_lowlevel(serial.Serial):
     def main_enabled(self, value):
         """Enable the
         """
-        self.query("I{}".format(value), expectanswer=False)
+        self.query("I{}".format(value))
 
     def enable(self, channel, value):
         """Enable single channels.
@@ -333,12 +333,12 @@ class AAAOTF_lowlevel(serial.Serial):
         else:
             value = 0
 
-        self.query("L{}O{}".format(channel, value), expectanswer=False)
+        self.query("L{}O{}".format(channel, value))
 
     def store(self):
         """store current parameters into EEPROM
         """
-        self.query("E", expectanswer=False)
+        self.query("E")
 
     def blanking(self, state, mode):
         """Define the blanking state. If True (False), all channels are on (off).
@@ -354,14 +354,14 @@ class AAAOTF_lowlevel(serial.Serial):
         """
         if mode == 'internal':
             if state:
-                self.query("L0I1O1", expectanswer=False)
+                self.query("L0I1O1")
             else:
-                self.query("L0I1O0", expectanswer=False)
+                self.query("L0I1O0")
         elif mode == 'external':
             if state:
-                self.query("L0I0O1", expectanswer=False)
+                self.query("L0I0O1")
             else:
-                self.query("L0I0O0", expectanswer=False)
+                self.query("L0I0O0")
         else:
             raise Warning('Blanking type not known.')
 
@@ -382,7 +382,7 @@ class AAAOTF_lowlevel(serial.Serial):
             value : float
                 Frequency to set in MHz (it has accepted ranges that depends on the channel)
         """
-        self.query("L{}F{}".format(channel, value), expectanswer=False)
+        self.query("L{}F{}".format(channel, value))
 
     def powerdb(self, channel, value):
         """Power for a given channel (in db).
@@ -394,7 +394,7 @@ class AAAOTF_lowlevel(serial.Serial):
             value : float
                 power value in dBm
         """
-        self.query("L{}D{}".format(channel, value), expectanswer=False)
+        self.query("L{}D{}".format(channel, value))
 
     # def power(self, channel, value):
     #     """Power for a given channel (in digital units).
