@@ -419,6 +419,7 @@ class AAAOTF_lowlevel(serial.Serial):
         if self.in_waiting:
             self.reset_input_buffer()
         self.write(cmd.encode()+b'\r')
+        time.sleep(0.1)
 
         if expectanswer:
             answer = self.read_until()
@@ -449,7 +450,7 @@ class AAAOTFAttenuator(AbstractAttenuator):
         self.currval = None
         self.wavelength = None
 
-        self.channeldef = pd.read_csv(attenuation_config['channeldef_loc'])
+        self.channeldef = pd.read_csv(attenuation_config['channeldef_loc'], index_col=0)
 
     def _connect(self):
         """Keys in attenuation config, maximally:

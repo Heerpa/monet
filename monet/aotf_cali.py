@@ -57,7 +57,7 @@ def sweep_pdb(aotf, powermeter, channel, pdbs, t_wait=.05):
         pdbs : 1D array
             the aotf db powers to query
     """
-    aotf.frequency(channel, pdbs[0])
+    aotf.powerdb(channel, pdbs[0])
     time.sleep(.5)
     start_progress('Power sweep', len(pdbs))
     powers = np.nan * np.ones_like(pdbs)
@@ -107,14 +107,12 @@ def end_progress():
     print(title + ": [" + "#"*charwidth + "]", end='\n')
 
 
-def calibrate_all(instrument, protocol):
+def calibrate_all(instrument, protocol, powermeter):
     """Calibrate all channels defined
     Args:
         instrument : monet.control.IlluminationLaserControl Instance
             the access to all hardware
     """
-    filedir, _ = os.path.split(aotf.config['channeldef_loc'])
-    powermeter = instrument.powermeter
     aotf = instrument.attenuator
     freqstep = aotf.config['freqstep']
     freqwindow = aotf.config['freqwindow']
@@ -122,8 +120,14 @@ def calibrate_all(instrument, protocol):
     channeldef = aotf.channeldef
     wavelengths = channeldef['wavelength'].unique()
     channels = {
-        wvl: channeldef.loc[channeldef['wavelength']==wvl, 'channel'].values[0]
-        for wvl in channeldef['wavelength'].unique()}
+        int(wvl): int(channeldef.loc[channeldef['wavelength']==wvl, 'channel'].values[0])
+        for wvl in channeldef['wavelength'].unique()
+        if wvl > 0}
+    indexes = {
+        int(wvl): list(channeldef[channeldef['wavelength']==wvl].index)[0]
+        for wvl in channeldef['wavelength'].unique()
+        if wvl > 0}
+    filedir, _ = os.path.split(aotf.config['channeldef_loc'])
 
     lasers = instrument.laser
 
@@ -144,12 +148,19 @@ def calibrate_all(instrument, protocol):
         print('Calibrating laser ', laser)
         instrument.laser = laser
         instrument.laserpower = max(protocol['laser_powers'][laser])
+        time.sleep(10)
+        try:
+            instrument.beampath.positions = protocol['beampath'][laser]
+        except Exception as e:
+            print(str(e))
+            return
 
         # previously set approximate frequency and aotf power
-        prev_freq = channeldef.loc[channels[laser], 'frequency']
-        prev_pwr = channeldef.loc[channels[laser], 'power']
+        prev_freq = channeldef.loc[indexes[laser], 'frequency']
+        prev_pwr = channeldef.loc[indexes[laser], 'power']
         aotf.lowlvl.enable(channels[laser], True)
-        aotf.lowlvl.powerdb(prev_pwr)
+        aotf.lowlvl.frequency(channels[laser], prev_freq)
+        aotf.lowlvl.powerdb(channels[laser], prev_pwr)
 
         freqs = np.arange(prev_freq-freqwindow/2, prev_freq+freqwindow/2, step=freqstep)
         pdbs = np.arange(0, 22.6, step=.1)
@@ -157,33 +168,35 @@ def calibrate_all(instrument, protocol):
         powers_f = sweep_freq(aotf.lowlvl, powermeter, channels[laser], freqs, t_wait=.01)
 
         best_freq = freqs[np.argmax(powers_f)]
-        aotf.frequency(channel, best_freq)
+        aotf.lowlvl.frequency(channels[laser], best_freq)
 
-        powers_p = sweep_pdb(aotf, powermeter, channel, pdbs, t_sweepstep)
+        powers_p = sweep_pdb(aotf.lowlvl, powermeter, channels[laser], pdbs, t_wait=.01)
 
-        aotf.enable(channel, False)
+        aotf.lowlvl.enable(channels[laser], False)
 
         best_pdb = pdbs[np.argmax(powers_p)]
 
-        channeldef.loc[channels[laser], 'frequency'] = best_freq
-        channeldef.loc[channels[laser], 'power'] = best_pdb
+        channeldef.loc[indexes[laser], 'frequency'] = best_freq
+        channeldef.loc[indexes[laser], 'power'] = best_pdb
 
-        plot_results(filedir, laser, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb)
+        instrument.laser_enabled = False
+
+        plot_results(filedir, laser, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr)
     filename = aotf.config['channeldef_loc']
     channeldef.to_csv(filename, float_format='%.3f')
 
 
-def plot_results(filedir, wavelength, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb):
+def plot_results(filedir, wavelength, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr):
     fig, ax = plt.subplots(ncols=2)
     ax[0].plot(freqs, powers_f)
     ax[0].set_xlabel('Frequency [MHz]')
     ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
-    ax[0].set_title('optimum frequency: {:.3f} MHz'.format(best_freq))
+    ax[0].set_title('optimum frequency: {:.3f} MHz (at {:.1f} db)'.format(best_freq, prev_pwr))
 
     ax[1].plot(pdbs, powers_p)
     ax[1].set_xlabel('AOTF power [db]')
     ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
-    ax[1].set_title('optimum AOTF power: {:.1f} db'.format(best_pdb))
+    ax[1].set_title('optimum AOTF power: {:.1f} db (at {:.3f} MHz)'.format(best_pdb, best_freq))
 
     fig.set_size_inches((8, 6))
     fig.tight_layout()

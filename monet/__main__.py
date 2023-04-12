@@ -213,7 +213,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
             raise ValueError(
                 'Probably, the attenuator is not an AOTF and thus cannot be calibrated this way.' +
                 ' No mention of "AOTF" is in {:s}'.format(attenuator_classpath))
-        aotf_cali.calibrate_all(self.pc.instrument, self.pc.protocol)
+        aotf_cali.calibrate_all(self.pc.instrument, self.pc.protocol, self.pc.powermeter)
 
     def do_set(self, power):
         """Set the power to a specified level.
