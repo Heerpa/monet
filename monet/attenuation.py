@@ -465,7 +465,7 @@ class AAAOTFAttenuator(AbstractAttenuator):
 
     def set(self, val):
         self.currval = val
-        print('setting power dB to ', val)
+        # print('setting power dB to ', val)
         self.lowlvl.powerdb(self.channel, val)
         time.sleep(0.1)
         #print('set power of channel ', self.channel, ' to ', val)

@@ -77,7 +77,7 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
                 using the current model
         """
         init_pars = self._model_function_estinit(y, x)
-        self.fit_result = self.model.fit(y, x=x, **init_pars)
+        self.fit_result = self.model.fit(y, x=x, verbose=False, **init_pars)
         self.curr_params = self.get_model()
 
     def estimate(self, y):
@@ -575,29 +575,21 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             output_range : list, len 2
                 [min power, max power]
         """
-        params = self.get_model()
-        phi_max = 180/8  # =22,5°; period 90°
-        phi_min = 3/8*180
-        phi_period = 90
-        phi_range = [self.analysis_parameters['min'], self.analysis_parameters['max']]
-        # check whether maximum is between the angle range
-        next_maxphi_from_min = (
-            (((phi_range[0]-phi_max)//phi_period)+1) *
-             phi_period+phi_max)
-        next_minphi_from_min = (
-            (((phi_range[0]-phi_min)//phi_period)+1) *
-             phi_period+phi_min)
-        output_range = [0, 0]
-        if next_maxphi_from_min < phi_range[1]:
-            output_range[1] = params['bkg']+params['amp']
-        else:
-            output_range[1] = max([self.estimate_power(phi_range[0]),
-                                   self.estimate_power(phi_range[1])])
-        if next_minphi_from_min < phi_range[1]:
-            output_range[0] = params['bkg']
-        else:
-            output_range[0] = min([self.estimate_power(phi_range[0]),
-                                   self.estimate_power(phi_range[1])])
+        end_vals = [
+            self.poly(self.analysis_parameters['min']),
+            self.poly(self.analysis_parameters['max']),
+            ]
+        extremes = self.poly.deriv().roots()
+        extremes = [
+            e for e in extremes
+            if (np.isreal(e) and
+                e > self.analysis_parameters['min'] and
+                e < self.analysis_parameters['max'])]
+        extreme_vals = [self.poly(e) for e in extremes]
+        output_range = [
+            min(end_vals+extreme_vals),
+            max(end_vals+extreme_vals),
+            ]
         return output_range
 
     def fit(self, x, y):
@@ -619,7 +611,10 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         self.fitvals_forward = {
             'x': x,
             'y': y}
-        self.poly = _Polynomial.fit(x, y, self.analysis_parameters['polydegree'])
+        win_x = [min(x), max(x)]
+        self.poly = _Polynomial.fit(
+                x, y, self.analysis_parameters['polydegree'],
+                window=win_x, domain=win_x)
         idxyextremepos = np.argmin(y), np.argmax(y)
         if idxyextremepos[0] < idxyextremepos[1]:
             idx = range(idxyextremepos[0], idxyextremepos[1])
@@ -631,8 +626,11 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         self.fitvals_backward = {
             'x': x,
             'y': y}
-        self.polinv = _Polynomial.fit(y, x, self.analysis_parameters['polydegree'])
-        self.curr_params = self.coef2params(self.poly.coef)
+        win_y = [min(y), max(y)]
+        self.polinv = _Polynomial.fit(
+            y, x, int(1.5 * self.analysis_parameters['polydegree']),
+            window=win_y, domain=win_y)
+        self.curr_params = self.coef2params(self.poly.coef, self.polinv.coef)
 
     def estimate(self, y):
         """Estimate control parameter needed to reach a given power.
@@ -646,15 +644,11 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
                 the control parameters (e.g. angle) corresponding to y
                 using the current model
         """
-        pars = self.params2coef(self.curr_params)
+        coef_fw, coef_bw = self.params2coef(self.curr_params)
         minimax = {
             'mini': self.analysis_parameters['min'],
             'maxi': self.analysis_parameters['max']}
-        print('estimating power dB to reach ', y)
-        print('with parameters', pars)
-        print('and min/max', minimax)
-        print('result:', self._model_function_inv(y, pars, **minimax))
-        return self._model_function_inv(y, pars, **minimax)
+        return self._model_function_inv(y, coef_bw, **minimax)
 
     def estimate_power(self, x):
         """Estimate power for a given control parameter.
@@ -680,20 +674,25 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
                 the model parameters
         """
         if self.poly is not None:
-            return self.coef2params(self.poly.coef)
+            return self.coef2params(self.poly.coef, self.polinv.coef)
         else:
             return self.curr_params
 
-    def coef2params(self, coef):
+    def coef2params(self, coef, coef_inv):
         """Convert the Polynomial coefficients to a parameter set
         Args:
             coef : np array
                 the polynomial coefficients
+            coef_inv : np array
+                the coefficients of the inverse polynomial
         Returns:
             params : dict
                 the coefficients as a dict, with keys p0, p1, ..
         """
-        return {'p{:d}'.format(i): c for i, c in enumerate(coef)}
+        params = {'p{:d}'.format(i): c for i, c in enumerate(coef)}
+        for i, c in enumerate(coef_inv):
+            params['i{:d}'.format(i)] = c
+        return params
 
     def params2coef(self, params):
         """Convert a parameter set to the Polynomial coefficients
@@ -701,10 +700,22 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             params : dict
                 the coefficients as a dict, with keys p0, p1, ..
         Returns:
-            coef : np array
+            coef_fw : np array
                 the polynomial coefficients
+            coef_bw : np array
+                the coefficients of the inverse polynomial
         """
-        return np.array(list(params.values()))
+        n_fw = len([1 for k in list(params.keys()) if 'p' in k])
+        n_bw = len([1 for k in list(params.keys()) if 'i' in k])
+        coef_fw = np.array([
+            params['p{:d}'.format(i)]
+            for i in range(n_fw)])
+        coef_fw[np.isnan(coef_fw)] = 0
+        coef_bw = np.array([
+            params['i{:d}'.format(i)]
+            for i in range(n_bw)])
+        coef_bw[np.isnan(coef_bw)] = 0
+        return coef_fw, coef_bw
 
     def load_model(self, model_parameters):
         """Load a model from parameters
@@ -714,21 +725,9 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
                 the model parameters
                 keys: 'p0', 'p1', ...
         """
-        coefficients = np.array(list(model_parameters.values()))
-        self.poly = _Polynomial(coefficients)
-        xmock = np.linspace(
-            self.analysis_parameters['min'],
-            self.analysis_parameters['max'],
-            num=50)
-        ymock = self.poly(xmock)
-        idxyextremepos = np.argmin(ymock), np.argmax(ymock)
-        if idxyextremepos[0] < idxyextremepos[1]:
-            idx = range(idxyextremepos[0], idxyextremepos[1])
-        else:
-            idx = range(idxyextremepos[1], idxyextremepos[0])
-        xmock = xmock[idx]
-        ymock = ymock[idx]
-        self.polinv = _Polynomial.fit(ymock, xmock, self.analysis_parameters['polydegree'])
+        coef_fw, coef_bw = self.params2coef(model_parameters)
+        self.poly = _Polynomial(coef_fw)
+        self.polinv = _Polynomial(coef_bw)
         self.curr_params = model_parameters
 
     def plot(self, fname, xlabel=None, ylabel=None, title=None):
@@ -750,18 +749,25 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         # print('abstract plotting with', xlabel, ylabel, title)
         # print('filename', fname)
         fig, ax = plt.subplots()
-        ax.plot(self.fitvals_forward['x'], self.fitvals_forward['y'],
-            color='b', linestyle='None', marker='+', label='data used forward')
         xmock = np.linspace(
             self.analysis_parameters['min'],
             self.analysis_parameters['max'],
             num=50)
-        ax.plot(xmock, self.poly(xmock), color='b', linestyle='-', label='fit forward')
-        ax.plot(self.fitvals_backward['x'], self.fitvals_backward['y'],
-            color='r', linestyle='None', marker='+', label='data used inv')
-        ymock = np.linspace(
-            np.min(self.fitvals_backward['y']),
-            np.max(self.fitvals_backward['y']), num=50)
+        if (hasattr(self, 'fitvals_forward')):
+            ax.plot(self.fitvals_forward['x'], self.fitvals_forward['y'],
+                color='b', linestyle='None', marker='+', label='data used forward')
+            ax.plot(self.fitvals_backward['x'], self.fitvals_backward['y'],
+                color='r', linestyle='None', marker='+', label='data used inv')
+            ymock = np.linspace(
+                np.min(self.fitvals_backward['y']),
+                np.max(self.fitvals_backward['y']), num=50)
+        else:
+            ymock = np.linspace(
+                self.poly(np.min(self.analysis_parameters['min'])),
+                self.poly(np.max(self.analysis_parameters['min'])), num=50)
+        ax.plot(
+            xmock, self.poly(xmock), color='b', linestyle='-',
+            label='fit forward')
         ax.plot(self.polinv(ymock), ymock,
             color='r', linestyle='-', label='fit inverse')
         ax.legend()

@@ -81,7 +81,8 @@ def save_calibration(fname, index, cali_pars):
             else:
                 break
 
-    db.loc[indexvals, :] = list(cali_pars.values())
+    for k, v in cali_pars.items():
+        db.loc[indexvals, k] = v
     db.to_excel(fname)
 
     return indexnames, indexvals

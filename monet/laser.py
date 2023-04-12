@@ -101,7 +101,7 @@ class TestLaser(AbstractLaser):
 
 
 class MPBVFL(AbstractLaser):
-    def __init__(self, connection_parameters, warmup_delay=10):
+    def __init__(self, connection_parameters, warmup_delay=1):
         super().__init__(warmup_delay)
         self.laser = MPBVFL_lowlevel(**connection_parameters)
 
@@ -393,7 +393,7 @@ class MPBVFL_lowlevel(serial.Serial):
 class Toptica(AbstractLaser):
     """
     """
-    def __init__(self, connection_parameters, warmup_delay=10):
+    def __init__(self, connection_parameters, warmup_delay=1):
         """
         Args:
             connection_parameters
@@ -415,7 +415,8 @@ class Toptica(AbstractLaser):
             self.las.enable()
             time.sleep(self.warmup_delay)
         elif value==False:
-            self.las.disable()
+            if hasattr(self.las, '_conn'):
+                self.las.disable()
         else:
             raise ValueError('value must be bool, but is {:s}'.format(str(value)))
 
