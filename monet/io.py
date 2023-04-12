@@ -263,6 +263,65 @@ def plot_device_history(db_fname, device, plot_dir):
         plt.close(fig)
 
 
+def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
+    """Plot the historic evolution of model parameters. For each
+    laser, a plot with subplots for each parameter is generated, with
+    laser powers as different plots in the subplot.
+
+    Args:
+        db_fname : str
+            the filename of the database
+        device : str
+            the device name to plot (eg. 'Voyager')
+        plot_dir : str
+            the directory to save the plots in.
+    """
+    # there was a QT error on voyager (220726) - avoid it by using tkagg
+    import matplotlib
+    matplotlib.use('tkagg')
+
+    index = {DEVICE_TAG: device}
+    db = load_database(db_fname, index, 'all')
+    for laser, laser_df in db.groupby(LASER_TAG):
+        powers = laser_df.index.get_level_values(POWER_TAG).unique()
+        params = laser_df.columns
+        fig, ax = plt.subplots(nrows=2, sharex=True)
+        for power, power_df in laser_df.groupby(POWER_TAG):
+            dates = power_df.index.get_level_values('date')
+            times = power_df.index.get_level_values('time')
+
+            dt = [datetime.strptime(date+';'+time, '%Y-%m-%d;%H:%M')
+                  for date, time in zip(dates, times)]
+            minpower = np.zeros(len(dates))
+            maxpower = np.zeros(len(dates))
+            for i, (idx, row) in enumerate(power_df.iterrows()):
+                pars = {col: row[col].to_numpy()[0] for col in row.columns}
+                output_range = analyzer.load_model(pars)
+                minpower[i] = output_range[0]
+                maxpower[i] = output_range[1]
+            ax[0].plot(
+                dt, minpower, marker='x',
+                label='power={:.1f}'.format(power))
+            ax[0].set_ylabel('background')
+            ax[1].plot(
+                dt, maxpower, marker='x',
+                label='power={:.1f}'.format(power))
+            ax[1].set_ylabel('maximum power')
+        ax[0].legend()
+        # ax[-1].set_xlabel('datetime')
+        ax[-1].xaxis.set_major_locator(mdates.MonthLocator())
+        ax[-1].xaxis.set_minor_locator(mdates.WeekdayLocator(
+            byweekday=mdates.MO))
+        ax[-1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%b'))
+        for label in ax[-1].get_xticklabels(which='major'):
+            label.set(rotation=30, horizontalalignment='right')
+        plot_fname = os.path.join(
+            plot_dir, 'history_amplitude_{:s}.png'.format(str(laser)))
+        fig.set_size_inches((8, 7))
+        fig.savefig(plot_fname)
+        plt.close(fig)
+
+
 def restart_database(db_fname):
     """Save a backup of the current database and restart with the
     latest parameters

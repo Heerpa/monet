@@ -282,3 +282,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         plot_dir = self.instrument.config.get('dest_calibration_plot')
         db_fname = self.instrument.config['database']
         io.plot_device_history(db_fname, device, plot_dir)
+        anaconfig = self.instrument.config['analysis']
+        analyzer = load_class(
+                anaconfig['classpath'], anaconfig['init_kwargs'])
+        io.plot_device_amplitude_history(db_fname, device, plot_dir, analyzer)
