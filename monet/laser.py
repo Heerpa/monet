@@ -15,6 +15,7 @@ import abc
 
 import serial
 from microscope.lights.toptica import TopticaiBeam
+import pycobolt
 
 import time
 import numpy as np
@@ -452,3 +453,293 @@ class Toptica(AbstractLaser):
             self.las._conn._serial._serial.close()
         except:
             pass
+
+
+class LaserQuantum(AbstractLaser):
+    def __init__(self, connection_parameters, warmup_delay=1):
+        super().__init__(warmup_delay)
+        self.laser = LaserQuantum_lowlevel(**connection_parameters)
+        self.laser.control_mode('power')
+
+    @property
+    def enabled(self):
+        status = self.laser.get_status()
+        if status:
+            return True
+        else:
+            return False
+
+    @enabled.setter
+    def enabled(self, value):
+        self.laser.enabled(value)
+
+    @property
+    def power(self):
+        return self.laser.get_power()
+
+    @power.setter
+    def power(self, power):
+        self.laser.set_power(power)
+        time.sleep(self.warmup_delay)
+
+    @property
+    def min_power(self):
+        return None
+
+    @property
+    def max_power(self):
+        return None
+
+
+class LaserQuantum_lowlevel(serial.Serial):
+    """Low-level implementation of "Laser Quantum" laser
+    communication via serial communication
+    https://novantaphotonics.com/wp-content/uploads/2022/05/gem_with_smd12_Novanta_Product_Manual.pdf
+
+    Args:
+        port : str
+            the serial port used for the communication.
+            Defaults to '/dev/ttyDAQ' (docker renamed)
+            on a bare system, use sth like /dev/ttyACM0
+        baudrate : int
+            the baud rate for serial communication
+            Defaults to 115200
+        bytesize : int
+            the byte size for serial communication
+            Defaults to 8
+        parity : one of ['N', 'E', 'O', 'M', 'S']
+            parity for serial communication.
+            N: None, E: Even, O: Odd, M: Mark, S: Space.
+            Defaults to N
+        stopbits : int
+            the # stop bits for serial communication.
+            Defaults to 1
+        timeout : float
+            the timeout for serial communication (in seconds).
+            Defaults to 0.2.
+    """
+    def __init__(self, port='COM10',
+                 baudrate=9600, bytesize=8, parity='N',
+                 stopbits=1, timeout=1):
+        paritydict = {
+            'N': serial.PARITY_NONE,
+            'E': serial.PARITY_EVEN,
+            'O': serial.PARITY_ODD,
+            'M': serial.PARITY_MARK,
+            'S': serial.PARITY_SPACE
+        }
+        bytesizedict = {
+            5: serial.FIVEBITS,
+            6: serial.SIXBITS,
+            7: serial.SEVENBITS,
+            8: serial.EIGHTBITS
+        }
+        stopbitsdict = {
+            1: serial.STOPBITS_ONE,
+            2: serial.STOPBITS_TWO,
+            1.5: serial.STOPBITS_ONE_POINT_FIVE
+        }
+        super().__init__(port=port, baudrate=baudrate,
+                         bytesize=bytesizedict[bytesize],
+                         parity=paritydict[parity],
+                         stopbits=stopbitsdict[stopbits], timeout=timeout)
+
+    # ENABLE LASER
+    def enabled(self, value):
+        translation = {
+            0: False,
+            1: True,
+            False: False,
+            True: True,
+            '0': False,
+            '1': True,
+            'off': False,
+            'on': True,
+            'OFF': False,
+            'ON': True,
+        }
+        value = translation[value]
+
+        if value:
+            self.query('ON', expectanswer=True)
+        else:
+            self.query('OFF', expectanswer=True)
+
+    def control_mode(self, value='power'):
+        """Set the control mode to one of 'power' or 'current'
+        """
+        value = value.upper()
+        options = ['POWER', 'CURRENT']
+        if value not in options:
+            raise ValueError(
+                'Control Mode {:s} is not implemented.'.format(value) +
+                ' use one of {:s}.'.format(str(options)))
+        self.query('CONTROL={:s}'.format(value))
+
+    def set_current(self, value):
+        """Set the current to a specified percentage.
+
+        Args:
+            value : int
+                percentage of current used
+        """
+        if (not isinstance(value, int)) or value < 0 or value > 100:
+            raise ValueError('Current percentage must be an integer between 0 and 100. Not {:s}'.format(str(value)))
+        self.query('CURRENT={:d}'.format(value))
+
+    def set_power(self, value):
+        """Set the power in milliwatt
+        Args:
+            value : int
+                the power in mW
+        """
+        if not isinstance(value, int):
+            raise ValueError('Power needs to be specified as an integer mW value. Not {:s}'.format(str(value)))
+        self.query('POWER={:d}'.format(value))
+
+    def get_power(self):
+        """Query the current power
+        Returns:
+            value : int
+                the current power in mW
+        """
+        return self.query('POWER?')
+
+    def sten(self, value):
+        """set enable on startup
+        Args:
+            value : bool
+                whether to enable laser emission at startup
+        """
+        if not isinstance(value, bool):
+            raise ValueError('value must be a bool, not {:s}'.format(str(value)))
+        if value:
+            value = 'YES'
+        else:
+            value = 'NO'
+        self.query('STEN={:s}'.format(value))
+        self.query('WRITE')
+
+    def stpow(self, value):
+        """set power on startup
+        Args:
+            value : int
+                the startup power value
+        """
+        if not isinstance(value, int):
+            raise ValueError('value must be an int, not {:s}'.format(str(value)))
+        self.query('STPOW={:d}'.format(value))
+        self.query('WRITE')
+
+    def get_laser_temp(self):
+        """Get the temperature at the laser head
+        Returns:
+            temp : int
+                temperature in centigrade
+        """
+        return self.query('LASTEMP?')
+
+    def get_psu_temp(self):
+        """Get the temperature at the PSU
+        Returns:
+            temp : int
+                temperature in centigrade
+        """
+        return self.query('PSUTEMP?')
+
+    def get_status(self):
+        """Get the status of the interlock
+        """
+        return self.query('STATUS?')
+
+    def get_timers(self):
+        """Get the timers of laser and PSU:
+            Time=#######.# Total time the system has been powered
+            Laser Time=#######.# Total time the diodes have been powered
+            Laser > 1A Time=#######.# Total time the diodes have been powered >1 A
+        """
+        return self.query('TIMERS?')
+
+    def get_version(self):
+        """Get the firmware version"""
+        return self.query('VERSION?')
+ 
+    def query(self, cmd, values=None, expectanswer=True):
+        '''send and receive the answer
+
+        Args:
+            cmd : byte string
+                the command to send. necessary end-of-command syntax will
+                be appended
+            values : dict
+                conversion of possible return values.
+                    keys: required outputs of this query function
+                    values: expected serial answers
+            expectanswer : bool
+                whether or not to wait for an answer
+        '''
+        if self.in_waiting:
+            self.reset_input_buffer()
+        self.write(cmd.encode()+b'\r')
+
+        answer = self.read_until()
+        answer = answer.decode().split('\rD')[0]
+
+        if values is not None:
+            valrev = {v: k for k, v in values.items()}
+            answer = valrev[answer]
+        return answer
+
+
+class Cobolt(AbstractLaser):
+    """Implementation of the Cobolt lasers
+
+    """
+    def __init__(self, connection_parameters, warmup_delay):
+        """
+        Args:
+            connection_parameters : dict
+                port : str
+                    the COM port to use
+                serialnumber : str
+                    the serial number (optional, can be used instead of port)
+                baudrate : int
+                    the baud rate. default: 115200
+            warmup_delay : scalar
+                time delay in seconds to wait for stabilization after
+                changing power
+        """
+        super().__init__(warmup_delay)
+        self.laser = pycobolt.CoboltLaser(**connection_parameters)
+        self.laser.connect()
+        self.laser.constant_power()
+
+    @property
+    def enabled(self):
+        return self.laser.is_on()
+
+    @enabled.setter
+    def enabled(self, value):
+        if value:
+            self.laser.turn_on()
+        else:
+            self.laser.turn_off()
+
+    @property
+    def power(self):
+        return self.laser.get_power()
+
+    @power.setter
+    def power(self, power):
+        self.laser.set_power(power)
+
+    @property
+    def min_power(self):
+        return None
+
+    @property
+    def max_power(self):
+        return None
+
+    def __del__(self):
+        self.laser.disconnect()
