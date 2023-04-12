@@ -483,10 +483,11 @@ class AAAOTFAttenuator(AbstractAttenuator):
         wvl = int(wvl)
         self.wavelength = wvl
 
-        self.channel = self.channeldef.loc[self.channeldef['wavelength']==wvl, 'channel'].values[0]
+        self.channel = int(self.channeldef.loc[self.channeldef['wavelength']==wvl, 'channel'].values[0])
         self.lowlvl.enable(self.channel, True)
-        #time.sleep(0.05)
+        # time.sleep(0.05)
         freq = self.channeldef.loc[self.channeldef['wavelength']==wvl, 'frequency'].values[0]
+        # print('set freq', freq, ' for channel', self.channel, 'for wavelength', wvl)
         self.lowlvl.frequency(self.channel, freq)
-        #time.sleep(0.05)
+        # time.sleep(0.05)
         #print('enabled channel ', self.channel, ' and set its frequency to ', freq)

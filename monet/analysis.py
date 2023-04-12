@@ -576,8 +576,8 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
                 [min power, max power]
         """
         end_vals = [
-            self.poly(self.analysis_parameters['min']),
-            self.poly(self.analysis_parameters['max']),
+            np.real(self.poly(self.analysis_parameters['min'])),
+            np.real(self.poly(self.analysis_parameters['max'])),
             ]
         extremes = self.poly.deriv().roots()
         extremes = [
@@ -585,7 +585,7 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             if (np.isreal(e) and
                 e > self.analysis_parameters['min'] and
                 e < self.analysis_parameters['max'])]
-        extreme_vals = [self.poly(e) for e in extremes]
+        extreme_vals = [np.real(self.poly(e)) for e in extremes]
         output_range = [
             min(end_vals+extreme_vals),
             max(end_vals+extreme_vals),

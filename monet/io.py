@@ -296,17 +296,18 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
             maxpower = np.zeros(len(dates))
             for i, (idx, row) in enumerate(power_df.iterrows()):
                 pars = {col: row[col] for col in row.index}
-                output_range = analyzer.load_model(pars)
-                minpower[i] = output_range[0]
-                maxpower[i] = output_range[1]
+                analyzer.load_model(pars)
+                output_range = analyzer.output_range()
+                minpower[i] = np.real(output_range[0])
+                maxpower[i] = np.real(output_range[1])
             ax[0].plot(
                 dt, minpower, marker='x',
                 label='power={:.1f}'.format(power))
-            ax[0].set_ylabel('background')
+            ax[0].set_ylabel('Background [mW]')
             ax[1].plot(
                 dt, maxpower, marker='x',
                 label='power={:.1f}'.format(power))
-            ax[1].set_ylabel('maximum power')
+            ax[1].set_ylabel('maximum power [mW]')
         ax[0].legend()
         # ax[-1].set_xlabel('datetime')
         ax[-1].xaxis.set_major_locator(mdates.MonthLocator())
