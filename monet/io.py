@@ -295,7 +295,7 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
             minpower = np.zeros(len(dates))
             maxpower = np.zeros(len(dates))
             for i, (idx, row) in enumerate(power_df.iterrows()):
-                pars = {col: row[col].to_numpy()[0] for col in row.columns}
+                pars = {col: row[col] for col in row.index}
                 output_range = analyzer.load_model(pars)
                 minpower[i] = output_range[0]
                 maxpower[i] = output_range[1]

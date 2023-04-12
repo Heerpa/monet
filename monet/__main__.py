@@ -206,7 +206,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
     def do_calibrate_aotf(self, args):
         """Perform a calibration of the AOTF settings (especially the frequency).
         """
-        attenuator_classpath = self.pc.config['attenuation']['classpath']
+        attenuator_classpath = self.pc.instrument.config['attenuation']['classpath']
         if 'AOTF' not in attenuator_classpath.upper():
             raise ValueError(
                 'Probably, the attenuator is not an AOTF and thus cannot be calibrated this way.' +
