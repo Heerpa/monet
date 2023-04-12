@@ -156,6 +156,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
     def __init__(self, config_name, configs_file=None, protocol_file=None):
         super().__init__()
         import monet.calibrate as mca
+
         global CONFIGS, PROTOCOLS
 
         if configs_file is not None:
@@ -206,6 +207,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
     def do_calibrate_aotf(self, args):
         """Perform a calibration of the AOTF settings (especially the frequency).
         """
+        import monet.aotf_cali as aotf_cali
         attenuator_classpath = self.pc.instrument.config['attenuation']['classpath']
         if 'AOTF' not in attenuator_classpath.upper():
             raise ValueError(
