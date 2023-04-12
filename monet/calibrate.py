@@ -85,7 +85,7 @@ class CalibrationProtocol1D():
             self.instrument.attenuator.set(ctrlval)
             time.sleep(wait_time)
             powers[i] = self.powermeter.read()
-            print('Position: {:.1f}, Power: {:f}'.format(ctrlval, powers[i]))
+            # print('Position: {:.1f}, Power: {:f}'.format(ctrlval, powers[i]))
 
         # analyze
         self.instrument.analyzer.fit(control_par_vals, powers)
@@ -184,6 +184,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             laserpowers = self.protocol['laser_powers'][laser]
             if self.instrument.use_beampath:
                 self.instrument.beampath.positions = self.protocol['beampath'][laser]
+            self.instrument.attenuator.set_wavelength(laser)
             modelpars = pd.DataFrame(index=laserpowers)
             measpwrs = pd.DataFrame(columns=laserpowers)
             # set powermeter setting

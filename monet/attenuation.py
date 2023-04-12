@@ -16,6 +16,7 @@ import abc
 import time
 import os
 import serial
+import pandas as pd
 
 from msl.equipment import EquipmentRecord, ConnectionRecord, Backend
 from msl.equipment.resources.thorlabs import MotionControl
@@ -448,7 +449,7 @@ class AAAOTFAttenuator(AbstractAttenuator):
         self.currval = None
         self.wavelength = None
 
-        self.channeldef = np.load_csv(attenuation_config['channeldef_loc'])
+        self.channeldef = pd.read_csv(attenuation_config['channeldef_loc'])
 
     def _connect(self):
         """Keys in attenuation config, maximally:
@@ -458,13 +459,16 @@ class AAAOTFAttenuator(AbstractAttenuator):
             'port', 'baudrate', 'bytesize',
             'parity', 'stopbits', 'timeout']
         connection_pars = {
-            k: v for k, v in self.attenuation_config.values()
+            k: v for k, v in self.config.items()
             if k in pot_pars}
-        self.lowlvl = AAAOTF_lowlevel(**conection_pars)
+        self.lowlvl = AAAOTF_lowlevel(**connection_pars)
 
     def set(self, val):
         self.currval = val
+        print('setting power dB to ', val)
         self.lowlvl.powerdb(self.channel, val)
+        time.sleep(0.1)
+        #print('set power of channel ', self.channel, ' to ', val)
 
     def curr_pos(self):
         return self.currval
@@ -475,8 +479,13 @@ class AAAOTFAttenuator(AbstractAttenuator):
     def set_wavelength(self, wvl):
         """in case the attenuator is wavelength-sensitive
         """
+        wvl = int(wvl)
         self.wavelength = wvl
 
-        self.channel = self.channeldef.loc[wvl, 'channel']
-        freq = self.channeldef.loc[wvl, 'freq']
+        self.channel = self.channeldef.loc[self.channeldef['wavelength']==wvl, 'channel'].values[0]
+        self.lowlvl.enable(self.channel, True)
+        #time.sleep(0.05)
+        freq = self.channeldef.loc[self.channeldef['wavelength']==wvl, 'frequency'].values[0]
         self.lowlvl.frequency(self.channel, freq)
+        #time.sleep(0.05)
+        #print('enabled channel ', self.channel, ' and set its frequency to ', freq)

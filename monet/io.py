@@ -244,7 +244,7 @@ def plot_device_history(db_fname, device, plot_dir):
                 dt = [datetime.strptime(date+';'+time, '%Y-%m-%d;%H:%M')
                       for date, time in zip(dates, times)]
                 ax[i].plot(
-                    dt, power_df[param], marker='x',
+                    dt, power_df.loc[:, param].values.flatten(), marker='x',
                     label='power={:.1f}'.format(power))
             ax[i].set_ylabel(str(param))
         ax[0].legend()
@@ -257,6 +257,7 @@ def plot_device_history(db_fname, device, plot_dir):
             label.set(rotation=30, horizontalalignment='right')
         plot_fname = os.path.join(
             plot_dir, 'history_{:s}.png'.format(str(laser)))
+        fig.set_size_inches((8, 7))
         fig.savefig(plot_fname)
         plt.close(fig)
 
