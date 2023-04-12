@@ -48,7 +48,7 @@ def main():
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
         'mode', type=str,
-        help='mode. One of "set", "adjust", or "calibrate".')
+        help='mode. One of "set", "adjust", "caliaotf", or "calibrate".')
     parser.add_argument(
         'name', type=str,
         help='Microscope Name, as specified in config.')
@@ -71,6 +71,9 @@ def main():
     if args.mode == 'calibrate':
         MonetCalibrateInteractive(
             args.name, args.configs_file, args.protocol_file).do_calibrate(args={})
+    elif args.mode == 'caliaotf':
+        MonetCalibrateInteractive(
+            args.name, args.configs_file, args.protocol_file).do_calibrate_aotf(args={})
     elif args.mode == 'adjust':
         MonetAdjustInteractive(
             args.name, args.configs_file, args.protocol_file).cmdloop()
@@ -199,6 +202,16 @@ class MonetCalibrateInteractive(cmd.Cmd):
             self.pc.calibrate()
         else:
             self.pc.run_protocol()
+
+    def do_calibrate_aotf(self, args):
+        """Perform a calibration of the AOTF settings (especially the frequency).
+        """
+        attenuator_classpath = self.pc.config['attenuation']['classpath']
+        if 'AOTF' not in attenuator_classpath.upper():
+            raise ValueError(
+                'Probably, the attenuator is not an AOTF and thus cannot be calibrated this way.' +
+                ' No mention of "AOTF" is in {:s}'.format(attenuator_classpath))
+        aotf_cali.calibrate_all(self.pc.instrument, self.pc.protocol)
 
     def do_set(self, power):
         """Set the power to a specified level.

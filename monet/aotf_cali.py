@@ -107,6 +107,90 @@ def end_progress():
     print(title + ": [" + "#"*charwidth + "]", end='\n')
 
 
+def calibrate_all(instrument, protocol):
+    """Calibrate all channels defined
+    Args:
+        instrument : monet.control.IlluminationLaserControl Instance
+            the access to all hardware
+    """
+    filedir, _ = os.path.split(aotf.config['channeldef_loc'])
+    powermeter = instrument.powermeter
+    aotf = instrument.attenuator
+    freqstep = aotf.config['freqstep']
+    freqwindow = aotf.config['freqwindow']
+
+    channeldef = aotf.channeldef
+    wavelengths = channeldef['wavelength'].unique()
+    channels = {
+        wvl: channeldef.loc[channeldef['wavelength']==wvl, 'channel'].values[0]
+        for wvl in channeldef['wavelength'].unique()}
+
+    lasers = instrument.laser
+
+    missing_defs = []
+    calibrate_lasers = []
+    for l in lasers:
+        if l in wavelengths:
+            calibrate_lasers.append(l)
+        else:
+            missing_defs.append(l)
+
+    if len(missing_defs) > 0:
+        print('channel for laser {:s} not defined.'.format(str(missing_defs)))
+    print('Calibrating lasers {:s}.'.format(str(calibrate_lasers)))
+
+    # go through lasers
+    for laser in calibrate_lasers:
+        print('Calibrating laser ', laser)
+        instrument.laser = laser
+        instrument.laserpower = max(protocol['laser_powers'][laser])
+
+        # previously set approximate frequency and aotf power
+        prev_freq = channeldef.loc[channels[laser], 'frequency']
+        prev_pwr = channeldef.loc[channels[laser], 'power']
+        aotf.lowlvl.enable(channels[laser], True)
+        aotf.lowlvl.powerdb(prev_pwr)
+
+        freqs = np.arange(prev_freq-freqwindow/2, prev_freq+freqwindow/2, step=freqstep)
+        pdbs = np.arange(0, 22.6, step=.1)
+
+        powers_f = sweep_freq(aotf.lowlvl, powermeter, channels[laser], freqs, t_wait=.01)
+
+        best_freq = freqs[np.argmax(powers_f)]
+        aotf.frequency(channel, best_freq)
+
+        powers_p = sweep_pdb(aotf, powermeter, channel, pdbs, t_sweepstep)
+
+        aotf.enable(channel, False)
+
+        best_pdb = pdbs[np.argmax(powers_p)]
+
+        channeldef.loc[channels[laser], 'frequency'] = best_freq
+        channeldef.loc[channels[laser], 'power'] = best_pdb
+
+        plot_results(filedir, laser, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb)
+    filename = aotf.config['channeldef_loc']
+    channeldef.to_csv(filename, float_format='%.3f')
+
+
+def plot_results(filedir, wavelength, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb):
+    fig, ax = plt.subplots(ncols=2)
+    ax[0].plot(freqs, powers_f)
+    ax[0].set_xlabel('Frequency [MHz]')
+    ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
+    ax[0].set_title('optimum frequency: {:.3f} MHz'.format(best_freq))
+
+    ax[1].plot(pdbs, powers_p)
+    ax[1].set_xlabel('AOTF power [db]')
+    ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
+    ax[1].set_title('optimum AOTF power: {:.1f} db'.format(best_pdb))
+
+    fig.set_size_inches((8, 6))
+    fig.tight_layout()
+    filename = os.path.join(filedir, 'aotfpower{:d}nm.png'.format(wavelength))
+    fig.savefig(filename)
+
+
 if __name__ == '__main__':
     # # Main parser
     # parser = argparse.ArgumentParser("aotfcali")
@@ -175,7 +259,7 @@ if __name__ == '__main__':
     if os.path.exists(filename):
         settgs = pd.read_csv(filename, index_col=0)
     else:
-        settgs = pd.DataFrame(index=np.arange(1, 9), columns=['wavelength', 'Frequency', 'Power'])
+        settgs = pd.DataFrame(index=np.arange(1, 9), columns=['wavelength', 'frequency', 'power'])
         settgs.index.name = 'channel'
     settgs.loc[channel, 'wavelength'] = arguments['wavelength']
     settgs.loc[channel, 'Frequency'] = best_freq
