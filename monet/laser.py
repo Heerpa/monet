@@ -391,7 +391,7 @@ class MPBVFL_lowlevel(serial.Serial):
         return answer
 
 
-class Toptica(AbstractLaser):
+class Toptica_Old(AbstractLaser):
     """
     """
     def __init__(self, connection_parameters, warmup_delay=1):
@@ -453,6 +453,181 @@ class Toptica(AbstractLaser):
             self.las._conn._serial._serial.close()
         except:
             pass
+
+class Toptica(AbstractLaser):
+    """
+    """
+    def __init__(self, connection_parameters, warmup_delay=1):
+        """
+        Args:
+            connection_parameters
+        """
+        super().__init__(warmup_delay)
+        self.las = Toptica_lowlevel(**connection_parameters)
+        self.las.enabled(True)
+        # self.enabled = False
+
+    @property
+    def enabled(self):
+        return self.las.enabled
+
+    @enabled.setter
+    def enabled(self, value):
+        if value==True:
+            self.las.enabled(True)
+            time.sleep(self.warmup_delay)
+        elif value==False:
+            self.las.enabled(False)
+        else:
+            raise ValueError('value must be bool, but is {:s}'.format(str(value)))
+
+    @property
+    def power(self):
+        return self.las.get_power()
+
+    @power.setter
+    def power(self, power):
+        if power != self.curr_power_set:
+            self.las.set_power(power)
+            time.sleep(self.warmup_delay)
+
+    @property
+    def min_power(self):
+        return 0
+
+    @property
+    def max_power(self):
+        return None
+
+
+class Toptica_lowlevel(serial.Serial):
+    """Low-level implementation of Toptica iBeam laser
+    communication via serial communication
+
+    Args:
+        port : str
+            the serial port used for the communication.
+            Defaults to '/dev/ttyDAQ' (docker renamed)
+            on a bare system, use sth like /dev/ttyACM0
+        baudrate : int
+            the baud rate for serial communication
+            Defaults to 115200
+        bytesize : int
+            the byte size for serial communication
+            Defaults to 8
+        parity : one of ['N', 'E', 'O', 'M', 'S']
+            parity for serial communication.
+            N: None, E: Even, O: Odd, M: Mark, S: Space.
+            Defaults to N
+        stopbits : int
+            the # stop bits for serial communication.
+            Defaults to 1
+        timeout : float
+            the timeout for serial communication (in seconds).
+            Defaults to 0.2.
+    """
+    def __init__(self, port='COM10',
+                 baudrate=9600, bytesize=8, parity='N',
+                 stopbits=1, timeout=1):
+        paritydict = {
+            'N': serial.PARITY_NONE,
+            'E': serial.PARITY_EVEN,
+            'O': serial.PARITY_ODD,
+            'M': serial.PARITY_MARK,
+            'S': serial.PARITY_SPACE
+        }
+        bytesizedict = {
+            5: serial.FIVEBITS,
+            6: serial.SIXBITS,
+            7: serial.SEVENBITS,
+            8: serial.EIGHTBITS
+        }
+        stopbitsdict = {
+            1: serial.STOPBITS_ONE,
+            2: serial.STOPBITS_TWO,
+            1.5: serial.STOPBITS_ONE_POINT_FIVE
+        }
+        super().__init__(port=port, baudrate=baudrate,
+                         bytesize=bytesizedict[bytesize],
+                         parity=paritydict[parity],
+                         stopbits=stopbitsdict[stopbits], timeout=timeout)
+
+    # ENABLE LASER
+    def enabled(self, value):
+        translation = {
+            0: False,
+            1: True,
+            False: False,
+            True: True,
+            '0': False,
+            '1': True,
+            'off': False,
+            'on': True,
+            'OFF': False,
+            'ON': True,
+        }
+        value = translation[value]
+
+        if value:
+            self.query('laser on', expectanswer=True)
+            self.query('enable 1')
+            self.query('enable 2')
+        else:
+            self.query('laser off', expectanswer=True)
+            self.query('disable 1')
+            self.query('disable 2')
+
+    def set_power(self, value):
+        """Set the power in milliwatt
+        Args:
+            value : int
+                the power in mW (precision down to µW)
+        """
+        if not isinstance(value, int) and not isinstance(value, float):
+            raise ValueError('Power needs to be specified as an integer mW value. Not {:s}'.format(str(value)))
+        self.query('channel 2 power {:d} micro'.format(int(1e3*value)))
+
+    def get_power(self):
+        """Query the current power
+        Returns:
+            value : int
+                the current power in mW
+        """
+        value = self.query('show level power')
+        powers = {}
+        for ln in reply:
+            m = re.match(r"CH(\d+),\s*PWR:\s*([\d.]+)\s*(mW|uW)",ln,flags=re.IGNORECASE)
+            if m:
+                p=float(m[2])*(1 if m[3].lower()=="mw" else 1E-3)
+                powers[int(m[1])] = p
+        return powers[1]
+
+ 
+    def query(self, cmd, values=None, expectanswer=True):
+        '''send and receive the answer
+
+        Args:
+            cmd : byte string
+                the command to send. necessary end-of-command syntax will
+                be appended
+            values : dict
+                conversion of possible return values.
+                    keys: required outputs of this query function
+                    values: expected serial answers
+            expectanswer : bool
+                whether or not to wait for an answer
+        '''
+        if self.in_waiting:
+            self.reset_input_buffer()
+        self.write(cmd.encode()+b'\r')
+
+        answer = self.read_until()
+        answer = answer.decode().split('\rD')[0]
+
+        if values is not None:
+            valrev = {v: k for k, v in values.items()}
+            answer = valrev[answer]
+        return answer
 
 
 class LaserQuantum(AbstractLaser):
