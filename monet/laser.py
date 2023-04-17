@@ -12,6 +12,7 @@ import logging
 from icecream import ic
 import os
 import abc
+import re
 
 import serial
 from microscope.lights.toptica import TopticaiBeam
@@ -464,20 +465,20 @@ class Toptica(AbstractLaser):
         """
         super().__init__(warmup_delay)
         self.las = Toptica_lowlevel(**connection_parameters)
-        self.las.enabled(True)
+        self.las.set_enabled(True)
         # self.enabled = False
 
     @property
     def enabled(self):
-        return self.las.enabled
+        return self.las.get_enabled()
 
     @enabled.setter
     def enabled(self, value):
         if value==True:
-            self.las.enabled(True)
+            self.las.set_enabled(True)
             time.sleep(self.warmup_delay)
         elif value==False:
-            self.las.enabled(False)
+            self.las.set_enabled(False)
         else:
             raise ValueError('value must be bool, but is {:s}'.format(str(value)))
 
@@ -527,7 +528,7 @@ class Toptica_lowlevel(serial.Serial):
             Defaults to 0.2.
     """
     def __init__(self, port='COM10',
-                 baudrate=9600, bytesize=8, parity='N',
+                 baudrate=115200, bytesize=8, parity='N',
                  stopbits=1, timeout=1):
         paritydict = {
             'N': serial.PARITY_NONE,
@@ -553,7 +554,7 @@ class Toptica_lowlevel(serial.Serial):
                          stopbits=stopbitsdict[stopbits], timeout=timeout)
 
     # ENABLE LASER
-    def enabled(self, value):
+    def set_enabled(self, value):
         translation = {
             0: False,
             1: True,
@@ -577,6 +578,15 @@ class Toptica_lowlevel(serial.Serial):
             self.query('disable 1')
             self.query('disable 2')
 
+    def get_enabled(self):
+        answer = self.query('show ch 1')
+        answer = ';'.join(answer)
+        if 'status: on' in answer:
+            return True
+        else:
+            return False
+        return self.query('show ch 1')
+
     def set_power(self, value):
         """Set the power in milliwatt
         Args:
@@ -585,6 +595,7 @@ class Toptica_lowlevel(serial.Serial):
         """
         if not isinstance(value, int) and not isinstance(value, float):
             raise ValueError('Power needs to be specified as an integer mW value. Not {:s}'.format(str(value)))
+        self.query('channel 1 power {:d} micro'.format(int(1e3*value)))
         self.query('channel 2 power {:d} micro'.format(int(1e3*value)))
 
     def get_power(self):
@@ -594,13 +605,14 @@ class Toptica_lowlevel(serial.Serial):
                 the current power in mW
         """
         value = self.query('show level power')
+        #print('got values', value)
         powers = {}
-        for ln in reply:
+        for ln in value:
             m = re.match(r"CH(\d+),\s*PWR:\s*([\d.]+)\s*(mW|uW)",ln,flags=re.IGNORECASE)
             if m:
                 p=float(m[2])*(1 if m[3].lower()=="mw" else 1E-3)
                 powers[int(m[1])] = p
-        return powers[1]
+        return max(powers.values())
 
  
     def query(self, cmd, values=None, expectanswer=True):
@@ -619,15 +631,38 @@ class Toptica_lowlevel(serial.Serial):
         '''
         if self.in_waiting:
             self.reset_input_buffer()
+        time.sleep(.02)
         self.write(cmd.encode()+b'\r')
+        time.sleep(.02)
 
-        answer = self.read_until()
-        answer = answer.decode().split('\rD')[0]
+        all_answers = []
+        for i in range(10):
+            answer = self.read_until()
+            if answer == b'':
+                break
+            #print('got answer', answer)
+            answer = answer.decode().split('\rD')[0]
+            #print('decoded to ', answer)
+            all_answers = all_answers + [answer]
+            #if isinstance(answer, list):
+            #    all_answers = all_answers + answer
+            #elif isinstance(answer, str):
+            #    all_answers = all_answers + [answer]
+            #print('all answers', all_answers)
+        #answer = self.read_until()
+        #print('got answer', answer)
+        #answer = answer.decode().split('\rD')[0]
+        #print('got answer', answer)
 
         if values is not None:
             valrev = {v: k for k, v in values.items()}
             answer = valrev[answer]
-        return answer
+
+        return all_answers
+        if len(all_answers) == 1:
+            return all_answers[0]
+        else:
+            return all_answers
 
 
 class LaserQuantum(AbstractLaser):
@@ -646,7 +681,7 @@ class LaserQuantum(AbstractLaser):
 
     @enabled.setter
     def enabled(self, value):
-        self.laser.enabled(value)
+        self.laser.set_enabled(value)
 
     @property
     def power(self):
@@ -870,7 +905,7 @@ class Cobolt(AbstractLaser):
     """Implementation of the Cobolt lasers
 
     """
-    def __init__(self, connection_parameters, warmup_delay):
+    def __init__(self, connection_parameters, warmup_delay=.2):
         """
         Args:
             connection_parameters : dict
@@ -886,7 +921,6 @@ class Cobolt(AbstractLaser):
         """
         super().__init__(warmup_delay)
         self.laser = pycobolt.CoboltLaser(**connection_parameters)
-        self.laser.connect()
         self.laser.constant_power()
 
     @property
@@ -917,4 +951,5 @@ class Cobolt(AbstractLaser):
         return None
 
     def __del__(self):
-        self.laser.disconnect()
+        if hasattr(self, 'laser'):
+            self.laser.disconnect()

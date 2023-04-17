@@ -438,7 +438,7 @@ class MonetAdjustInteractive(cmd.Cmd):
             try:
                 # print('Setting laser')
                 self.pc.instrument.laser = laser
-                self.instrument.attenuator.set_wavelength(laser)
+                self.pc.instrument.attenuator.set_wavelength(laser)
             except Exception as e:
                 print(str(e))
                 print('Available lasers: ', str(self.pc.instrument.laser))
