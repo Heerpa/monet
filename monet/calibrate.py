@@ -225,7 +225,12 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         device = self.instrument.config['index'][DEVICE_TAG]
         sfolder = os.path.join(
             os.path.split(self.instrument.config['database'])[0],
+            'Calibrations',
             datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
+        try:
+            os.mkdirs(sfolder)
+        except:
+            pass
         lfolder = self.instrument.config.get('dest_calibration_plot')
         shutil.copytree(lfolder, sfolder)
 

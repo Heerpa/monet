@@ -137,6 +137,7 @@ def calibrate_all(instrument, protocol, powermeter):
     missing_defs = []
     calibrate_lasers = []
     for l in lasers:
+        instrument.lasers[l].enabled = False
         if l in wavelengths:
             calibrate_lasers.append(l)
         else:
@@ -149,8 +150,13 @@ def calibrate_all(instrument, protocol, powermeter):
     # go through lasers
     for laser in calibrate_lasers:
         print('Calibrating laser ', laser)
+        powermeter.wavelength = laser
         instrument.laser = laser
-        instrument.laserpower = max(protocol['laser_powers'][laser])
+        # instrument.lasers[laser].enabled = True
+        instrument.laser_enabled = True
+        time.sleep(.1)
+        laserpower = min(protocol['laser_powers'][laser])
+        instrument.laserpower = laserpower
         time.sleep(10)
         try:
             instrument.beampath.positions = protocol['beampath'][laser]
@@ -184,33 +190,38 @@ def calibrate_all(instrument, protocol, powermeter):
 
         instrument.laser_enabled = False
 
-        plot_results(filedir, laser, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr)
+        plot_results(filedir, laser, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr, laserpower)
     aotf.lowlvl.store()
     filename = aotf.config['channeldef_loc']
     channeldef.to_csv(filename, float_format='%.3f')
     srvdir, _ = os.path.split(instrument.config['database'])
-    datestr = datetime.now().strftime('%Y-%m-%d_%H-%M_')
-    srvdir = os.path.join(srvdir, 'AOTFcali', datestr+instrumnet.config['index']['name'])
+    datestr = datetime.now().strftime('%y%m%d-%H%M_')
+    srvdir = os.path.join(srvdir, 'AOTFcali', datestr+instrument.config['index']['name'])
     try:
         os.mkdirs(srvdir)
+    except:
+        pass
     shutil.copytree(filedir, srvdir)
 
 
 
-def plot_results(filedir, wavelength, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr):
-    fig, ax = plt.subplots(ncols=2)
-    ax[0].plot(freqs, powers_f)
+def plot_results(filedir, wavelength, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr, laserpower):
+    fig, ax = plt.subplots(ncols=2, sharey=True)
+    ax[0].plot(freqs, powers_f, label='AOTF power {:.1f} db\nmax {:.2f} mW\nopt {:.3f} MHz'.format(prev_pwr, max(powers_f), best_freq))
     ax[0].set_xlabel('Frequency [MHz]')
     ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
-    ax[0].set_title('optimum frequency: {:.3f} MHz (at {:.1f} db)'.format(best_freq, prev_pwr))
+    # ax[0].set_title('optimum frequency: {:.3f} MHz'.format(laserpower))
+    ax[0].legend()
 
-    ax[1].plot(pdbs, powers_p)
+    ax[1].plot(pdbs, powers_p, label='Frequency {:.3f} MHz\nmax {:.2f} mW\nopt {:.1f} dB'.format(best_freq, max(powers_p), best_pdb))
     ax[1].set_xlabel('AOTF power [db]')
     ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
-    ax[1].set_title('optimum AOTF power: {:.1f} db (at {:.3f} MHz)'.format(best_pdb, best_freq))
+    # ax[1].set_title('optimum AOTF power: {:.1f} db (at {:.3f} MHz)'.format(best_pdb, best_freq))
+    fig.suptitle('{:d}nm at {:d} mW'.format(int(wavelength), int(laserpower)))
+    ax[1].legend()
 
     fig.set_size_inches((8, 6))
-    fig.tight_layout()
+    # fig.tight_layout()
     filename = os.path.join(filedir, 'aotfpower{:d}nm.png'.format(wavelength))
     fig.savefig(filename)
 

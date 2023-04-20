@@ -103,7 +103,7 @@ class TestLaser(AbstractLaser):
 
 
 class MPBVFL(AbstractLaser):
-    def __init__(self, connection_parameters, warmup_delay=1):
+    def __init__(self, connection_parameters, warmup_delay=.1):
         super().__init__(warmup_delay)
         self.laser = MPBVFL_lowlevel(**connection_parameters)
 
@@ -458,7 +458,7 @@ class Toptica_Old(AbstractLaser):
 class Toptica(AbstractLaser):
     """
     """
-    def __init__(self, connection_parameters, warmup_delay=1):
+    def __init__(self, connection_parameters, warmup_delay=.1):
         """
         Args:
             connection_parameters
@@ -669,7 +669,7 @@ class Toptica_lowlevel(serial.Serial):
 
 
 class LaserQuantum(AbstractLaser):
-    def __init__(self, connection_parameters, warmup_delay=1):
+    def __init__(self, connection_parameters, warmup_delay=.1):
         super().__init__(warmup_delay)
         self.laser = LaserQuantum_lowlevel(**connection_parameters)
         self.laser.control_mode('power')
@@ -758,7 +758,7 @@ class LaserQuantum_lowlevel(serial.Serial):
                          stopbits=stopbitsdict[stopbits], timeout=timeout)
 
     # ENABLE LASER
-    def enabled(self, value):
+    def set_enabled(self, value):
         translation = {
             0: False,
             1: True,
