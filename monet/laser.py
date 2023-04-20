@@ -631,34 +631,37 @@ class Toptica_lowlevel(serial.Serial):
         '''
         if self.in_waiting:
             self.reset_input_buffer()
-        time.sleep(.02)
+        # time.sleep(.02)
         self.write(cmd.encode()+b'\r')
-        time.sleep(.02)
+        # time.sleep(.02)
 
-        all_answers = []
-        for i in range(10):
-            answer = self.read_until()
-            if answer == b'':
-                break
-            #print('got answer', answer)
-            answer = answer.decode().split('\rD')[0]
-            #print('decoded to ', answer)
-            all_answers = all_answers + [answer]
-            #if isinstance(answer, list):
-            #    all_answers = all_answers + answer
-            #elif isinstance(answer, str):
-            #    all_answers = all_answers + [answer]
-            #print('all answers', all_answers)
-        #answer = self.read_until()
-        #print('got answer', answer)
-        #answer = answer.decode().split('\rD')[0]
-        #print('got answer', answer)
+        answer = self.read_until('CMD>')
+        all_answers = answer.decode().split('\r')
 
-        if values is not None:
-            valrev = {v: k for k, v in values.items()}
-            answer = valrev[answer]
+        # all_answers = []
+        # for i in range(10):
+        #     answer = self.read_until()
+        #     if answer == b'':
+        #         break
+        #     #print('got answer', answer)
+        #     answer = answer.decode().split('\rD')[0]
+        #     #print('decoded to ', answer)
+        #     all_answers = all_answers + [answer]
+        #     #if isinstance(answer, list):
+        #     #    all_answers = all_answers + answer
+        #     #elif isinstance(answer, str):
+        #     #    all_answers = all_answers + [answer]
+        #     #print('all answers', all_answers)
+        # #answer = self.read_until()
+        # #print('got answer', answer)
+        # #answer = answer.decode().split('\rD')[0]
+        # #print('got answer', answer)
 
-        return all_answers
+        # if values is not None:
+        #     valrev = {v: k for k, v in values.items()}
+        #     answer = valrev[answer]
+
+        # return all_answers
         if len(all_answers) == 1:
             return all_answers[0]
         else:

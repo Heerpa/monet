@@ -9,6 +9,8 @@
     :copyright: Copyright (c) 2023 Jungmann Lab, MPI of Biochemistry
 """
 import os
+import shutil
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import time
@@ -114,6 +116,7 @@ def calibrate_all(instrument, protocol, powermeter):
             the access to all hardware
     """
     aotf = instrument.attenuator
+    aotf.lowlvl.blanking(True, 'internal')
     freqstep = aotf.config['freqstep']
     freqwindow = aotf.config['freqwindow']
 
@@ -182,8 +185,16 @@ def calibrate_all(instrument, protocol, powermeter):
         instrument.laser_enabled = False
 
         plot_results(filedir, laser, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr)
+    aotf.lowlvl.store()
     filename = aotf.config['channeldef_loc']
     channeldef.to_csv(filename, float_format='%.3f')
+    srvdir, _ = os.path.split(instrument.config['database'])
+    datestr = datetime.now().strftime('%Y-%m-%d_%H-%M_')
+    srvdir = os.path.join(srvdir, 'AOTFcali', datestr+instrumnet.config['index']['name'])
+    try:
+        os.mkdirs(srvdir)
+    shutil.copytree(filedir, srvdir)
+
 
 
 def plot_results(filedir, wavelength, freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr):
