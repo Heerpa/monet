@@ -177,10 +177,15 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 os.remove(os.path.join(plotfolder, f))
             except:
                 pass
+        # switch off all lasers
+        for laser in self.protocol['laser_sequence']:
+            self.instrument.laser = laser
+            self.instrument.laser_enabled = False
         # now start calibration
         for laser in self.protocol['laser_sequence']:
             print('switching to laser', laser)
             self.instrument.laser = laser
+            self.instrument.laser_enabled = True
             laserpowers = self.protocol['laser_powers'][laser]
             if self.instrument.use_beampath:
                 self.instrument.beampath.positions = self.protocol['beampath'][laser]

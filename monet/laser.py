@@ -631,9 +631,9 @@ class Toptica_lowlevel(serial.Serial):
         '''
         if self.in_waiting:
             self.reset_input_buffer()
-        # time.sleep(.02)
+        time.sleep(.01)
         self.write(cmd.encode()+b'\r')
-        # time.sleep(.02)
+        time.sleep(.01)
 
         answer = self.read_until('CMD>')
         all_answers = answer.decode().split('\r')
