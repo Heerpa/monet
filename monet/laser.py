@@ -908,7 +908,7 @@ class Cobolt(AbstractLaser):
     """Implementation of the Cobolt lasers
 
     """
-    def __init__(self, connection_parameters, warmup_delay=.2):
+    def __init__(self, connection_parameters, warmup_delay=.1):
         """
         Args:
             connection_parameters : dict
@@ -926,16 +926,38 @@ class Cobolt(AbstractLaser):
         self.laser = pycobolt.CoboltLaser(**connection_parameters)
         self.laser.constant_power()
 
+        """After turning on the laser, the key needs to be switched every
+        time. Therefore, keep the laser enabled all the time, and use
+        'software-enabling'
+        """
+        self.laser.turn_on()
+        print('please enable the Cobolt laser by switching the key. ' +
+              str(connection_parameters))
+        self._enabled = False
+        self._power = 0
+
     @property
     def enabled(self):
-        return self.laser.is_on()
+        """After turning on the laser, the key needs to be switched every
+        time. Therefore, keep the laser enabled all the time, and use
+        'software-enabling'
+        """
+        return self._enabled
+        # return self.laser.is_on()
 
     @enabled.setter
     def enabled(self, value):
+        """After turning on the laser, the key needs to be switched every
+        time. Therefore, keep the laser enabled all the time, and use
+        'software-enabling'
+        """
+        self._enabled = value
         if value:
-            self.laser.turn_on()
+            self.power = self._power
+            # self.laser.turn_on()
         else:
-            self.laser.turn_off()
+            self.power = 0
+            # self.laser.turn_off()
 
     @property
     def power(self):
@@ -944,6 +966,7 @@ class Cobolt(AbstractLaser):
     @power.setter
     def power(self, power):
         self.laser.set_power(power)
+        self._power = power
 
     @property
     def min_power(self):
