@@ -222,7 +222,10 @@ def plot_results(filedir, wavelength, freqs, powers_f, best_freq, pdbs, powers_p
 
     fig.set_size_inches((8, 6))
     # fig.tight_layout()
-    filename = os.path.join(filedir, 'aotfpower{:d}nm.png'.format(wavelength))
+    samewvlfiles = [f for f in os.listdir(filedir) if str(wavelength) in f]
+    nfiles = len(samewvlfiles)
+    filename = os.path.join(filedir, 'aotfpower{:d}nm_{:02d}.png'.format(wavelength, nfiles))
+    # filename = os.path.join(filedir, 'aotfpower{:d}nm.png'.format(wavelength))
     fig.savefig(filename)
 
 
@@ -252,14 +255,14 @@ if __name__ == '__main__':
     # freqstep = args.freqstep
 
     arguments = {
-        'channel': 6,
-        'ctrfreq': 94,
-        'freqwindow': 2,
-        'freqstep': .001,
-        'wavelength': 561,
+        'channel': 2,
+        'ctrfreq': 113.522,
+        'freqwindow': .5,
+        'freqstep': .002,
+        'wavelength': 488,
         'AOTF_port': 'COM5',
         'output': 'C:\\Users\\admin\\Desktop\\AOTFcalibration',
-        't_sweepstep': .01,
+        't_sweepstep': .001,
     }
     channel = arguments['channel']
     ctrfreq = arguments['ctrfreq']
@@ -268,7 +271,7 @@ if __name__ == '__main__':
     t_sweepstep = arguments['t_sweepstep']
 
     freqs = np.arange(ctrfreq-freqwindow/2, ctrfreq+freqwindow/2, step=freqstep)
-    pdbs = np.arange(0, 22.6, step=.1)
+    pdbs = np.arange(15, 22.6, step=.1)
 
     aotf = AAAOTF_lowlevel(
         port=arguments['AOTF_port'], baudrate=57600, bytesize=8, parity='N',
@@ -286,9 +289,10 @@ if __name__ == '__main__':
 
     powers_p = sweep_pdb(aotf, powermeter, channel, pdbs, t_sweepstep)
 
-    aotf.enable(channel, False)
-
     best_pdb = pdbs[np.argmax(powers_p)]
+
+    aotf.powerdb(channel, best_pdb)
+    # aotf.enable(channel, False)
 
     filename = os.path.join(arguments['output'], 'aotf_settings.csv')
     if os.path.exists(filename):
@@ -301,19 +305,24 @@ if __name__ == '__main__':
     settgs.loc[channel, 'Power'] = best_pdb
     settgs.to_csv(filename, float_format='%.3f')
 
-    fig, ax = plt.subplots(ncols=2)
-    ax[0].plot(freqs, powers_f)
-    ax[0].set_xlabel('Frequency [MHz]')
-    ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(arguments['wavelength']))
-    ax[0].set_title('optimum frequency: {:.3f} MHz'.format(best_freq))
+    filedir = arguments['output']
+    samewvlfiles = [f for f in os.listdir(filedir) if str(arguments['wavelength']) in f]
+    nfiles = len(samewvlfiles)
+    filename = os.path.join(arguments['output'], 'aotfpower{:d}nm_{:02d}.png'.format(arguments['wavelength'], nfiles))
+    plot_results(filedir, arguments['wavelength'], freqs, powers_f, best_freq, pdbs, powers_p, best_pdb, prev_pwr=22.5, laserpower=0)
+    # fig, ax = plt.subplots(ncols=2)
+    # ax[0].plot(freqs, powers_f)
+    # ax[0].set_xlabel('Frequency [MHz]')
+    # ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(arguments['wavelength']))
+    # ax[0].set_title('optimum frequency: {:.3f} MHz'.format(best_freq))
 
-    ax[1].plot(pdbs, powers_p)
-    ax[1].set_xlabel('AOTF power [db]')
-    ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(arguments['wavelength']))
-    ax[1].set_title('optimum AOTF power: {:.1f} db'.format(best_pdb))
+    # ax[1].plot(pdbs, powers_p)
+    # ax[1].set_xlabel('AOTF power [db]')
+    # ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(arguments['wavelength']))
+    # ax[1].set_title('optimum AOTF power: {:.1f} db'.format(best_pdb))
 
-    fig.set_size_inches((8, 6))
-    fig.tight_layout()
-    filename = os.path.join(arguments['output'], 'aotfpower{:d}nm.png'.format(arguments['wavelength']))
-    fig.savefig(filename)
-    plt.show()
+    # fig.set_size_inches((8, 6))
+    # fig.tight_layout()
+    # filename = os.path.join(arguments['output'], 'aotfpower{:d}nm.png'.format(arguments['wavelength']))
+    # fig.savefig(filename)
+    # plt.show()

@@ -99,6 +99,8 @@ class TestPowerMeter(AbstractPowerMeter):
 class ThorlabsPowerMeter(AbstractPowerMeter):
     def __init__(self, config):
         self.pm = self._open_powermeter(config['address'])
+        if self.pm == None:
+            raise ValueError('Could not load Thorlabs Powermeter')
         self.config = config
 
     def _open_powermeter(self, address=''):
@@ -108,10 +110,14 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
             address : str
                 the address string of the powermeter. If none is given,
                 check resources
+            manufacturer : str
+                the manufacturer of the 
         Returns:
             power_meter : ThorlabsPM100 instance
                 the interface to reading power values
         """
+        manufacturer='thorlabs'
+        power_meter = None
         rm = pyvisa.ResourceManager()
 
         if address == '' or address == 'find connection':
@@ -119,6 +125,7 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
             for res in resources:
                 try:
                     inst = rm.open_resource(res, timeout=1)
+                    assert inst.get_visa_attribute(pyvisa.constants.VI_ATTR_MANF_NAME).lower() == manufacturer
                     power_meter = ThorlabsPM100(inst=inst)
                     break
                 except: # if it didn't work, it raises an error
