@@ -500,6 +500,13 @@ class Toptica(AbstractLaser):
     def max_power(self):
         return None
 
+    def __del__(self):
+        if hasattr(self, 'las'):
+            try:
+                self.las.close()
+            except:
+                pass
+
 
 class Toptica_lowlevel(serial.Serial):
     """Low-level implementation of Toptica iBeam laser
@@ -552,6 +559,7 @@ class Toptica_lowlevel(serial.Serial):
                          bytesize=bytesizedict[bytesize],
                          parity=paritydict[parity],
                          stopbits=stopbitsdict[stopbits], timeout=timeout)
+        self.query('channel 1 power {:d} micro'.format(0))
 
     # ENABLE LASER
     def set_enabled(self, value):
@@ -595,7 +603,8 @@ class Toptica_lowlevel(serial.Serial):
         """
         if not isinstance(value, int) and not isinstance(value, float):
             raise ValueError('Power needs to be specified as an integer mW value. Not {:s}'.format(str(value)))
-        self.query('channel 1 power {:d} micro'.format(int(1e3*value)))
+        # chan1pwr = min([int(1e3*value), 100000])
+        # self.query('channel 1 power {:d} micro'.format(chan1pwr))
         self.query('channel 2 power {:d} micro'.format(int(1e3*value)))
 
     def get_power(self):
@@ -608,7 +617,7 @@ class Toptica_lowlevel(serial.Serial):
         #print('got values', value)
         powers = {}
         for ln in value:
-            m = re.match(r"CH(\d+),\s*PWR:\s*([\d.]+)\s*(mW|uW)",ln,flags=re.IGNORECASE)
+            m = re.search(r"CH(\d+),\s*PWR:\s*([\d.]+)\s*(mW|uW)",ln,flags=re.IGNORECASE)
             if m:
                 p=float(m[2])*(1 if m[3].lower()=="mw" else 1E-3)
                 powers[int(m[1])] = p
@@ -631,11 +640,12 @@ class Toptica_lowlevel(serial.Serial):
         '''
         if self.in_waiting:
             self.reset_input_buffer()
-        time.sleep(.01)
+        time.sleep(.03)
         self.write(cmd.encode()+b'\r')
-        time.sleep(.01)
+        time.sleep(.03)
 
         answer = self.read_until('CMD>')
+        time.sleep(.03)
         all_answers = answer.decode().split('\r')
 
         # all_answers = []
@@ -669,7 +679,7 @@ class Toptica_lowlevel(serial.Serial):
 
 
 class LaserQuantum(AbstractLaser):
-    def __init__(self, connection_parameters, warmup_delay=.1):
+    def __init__(self, connection_parameters, warmup_delay=5):
         super().__init__(warmup_delay)
         self.laser = LaserQuantum_lowlevel(**connection_parameters)
         self.laser.control_mode('power')
