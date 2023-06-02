@@ -20,6 +20,7 @@ import pandas as pd
 
 from msl.equipment import EquipmentRecord, ConnectionRecord, Backend
 from msl.equipment.resources.thorlabs import MotionControl
+import nidaqmx
 
 
 logger = logging.getLogger(__name__)
@@ -491,3 +492,56 @@ class AAAOTFAttenuator(AbstractAttenuator):
         self.lowlvl.frequency(self.channel, freq)
         # time.sleep(0.05)
         #print('enabled channel ', self.channel, ' and set its frequency to ', freq)
+
+
+class NIdaqmxAOAttenuator(AbstractAttenuator):
+    """Implementation of the AbstractAttenuator using NIDAQmx analog output.
+
+    """
+    CHANNELS = list(range(8))
+
+    def __init__(self, attenuation_config, wait_after_move=.5):
+        """Keys in attenuation config:
+            lines: dict with
+                keys: wavelength (int)
+                vals: line (e.g. 'Dev1/ao0')
+        """
+        super().__init__(attenuation_config)
+        self.wait_after_move = wait_after_move
+        self.currval = None
+        self.wavelength = None
+
+
+    def _connect(self):
+        """Keys in attenuation config, maximally:
+        port, baudrate, bytesize, parity, stopbits, timeout
+        """
+        self.tasks = {}
+        for wavelength, line in self.config['lines'].items():
+            self.task[wavelength] = nidaqmx.Task()
+            self.task[wavelength].add_ao_voltage_chan(line)
+
+    def set(self, val):
+        self.currval = val
+        self.tasks[self.wavelength].write(val, auto_start=True)
+        # self.task.stop()
+
+    def curr_pos(self):
+        return self.currval
+
+    def home(self):
+        pass
+
+    def set_wavelength(self, wvl):
+        """in case the attenuator is wavelength-sensitive
+        """
+        wvl = int(wvl)
+        self.wavelength = wvl
+
+    def __del__(self):
+        if hasattr(self, 'tasks'):
+            for t in self.tasks.values():
+                try:
+                    t.close()
+                except:
+                    pass
