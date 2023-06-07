@@ -1,0 +1,6 @@
+config_paths:
+- Z:/users/grabmayr/test_powerbase/configs.yaml
+- Z:/y_Microscope_Infrastructure/powerbase/configs.yaml
+protocol_paths:
+- Z:/users/grabmayr/test_powerbase/protocols.yaml
+- Z:/y_Microscope_Infrastructure/powerbase/protocols.yaml

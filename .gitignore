@@ -126,3 +126,4 @@ dmypy.json
 
 # MAC OS specific
 *.DS_Store
+env.yaml
