@@ -518,13 +518,13 @@ class NIdaqmxAOAttenuator(AbstractAttenuator):
         """
         self.tasks = {}
         for wavelength, line in self.config['lines'].items():
-            self.task[wavelength] = nidaqmx.Task()
-            self.task[wavelength].add_ao_voltage_chan(line)
+            self.tasks[wavelength] = nidaqmx.Task()
+            self.tasks[wavelength].ao_channels.add_ao_voltage_chan(line)
 
     def set(self, val):
         self.currval = val
         self.tasks[self.wavelength].write(val, auto_start=True)
-        # self.task.stop()
+        self.tasks[self.wavelength].stop()
 
     def curr_pos(self):
         return self.currval
