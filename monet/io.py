@@ -83,6 +83,7 @@ def save_calibration(fname, index, cali_pars):
 
     for k, v in cali_pars.items():
         db.loc[indexvals, k] = v
+        db = db.sort_index()
     db.to_excel(fname)
 
     return indexnames, indexvals
@@ -168,6 +169,7 @@ def load_database(fname, index, time_idx='last combinations'):
     except:
         raise FileNotFoundError('Problem loading file ' + fname)
 
+    db = db.sort_index()
     ic(db)
 
     # select for the index values
