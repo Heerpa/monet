@@ -963,11 +963,20 @@ class Cobolt(AbstractLaser):
         """
         self._enabled = value
         if value:
+            # self.laser.turn_on()  # key would need to be switched
+            self.laser.constant_power()  # from modulation or current modes
             self.power = self._power
-            # self.laser.turn_on()
         else:
             self.power = 0
-            # self.laser.turn_off()
+            # self.laser.turn_off()  # key would need to be switched for on
+
+            # switch to modulation mode, as no modulation signal is applied
+            # the laser will be off
+            self.laser.send_cmd('em')
+
+            # # alternatively, switch to constant current mode, with current
+            # # below laser threshold (e.g. 0 or 1)
+            # self.laser.constant_current(0)
 
     @property
     def power(self):
