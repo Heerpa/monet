@@ -967,7 +967,7 @@ class Cobolt(AbstractLaser):
             self.laser.constant_power()  # from modulation or current modes
             self.power = self._power
         else:
-            self.power = 0
+            self.laser.set_power(0)
             # self.laser.turn_off()  # key would need to be switched for on
 
             # switch to modulation mode, as no modulation signal is applied
@@ -996,5 +996,7 @@ class Cobolt(AbstractLaser):
         return None
 
     def __del__(self):
-        if hasattr(self, 'laser'):
+        try:
             self.laser.disconnect()
+        except:
+            pass
