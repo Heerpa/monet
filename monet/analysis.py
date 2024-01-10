@@ -206,7 +206,9 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         """calculate the inverse of the squared sinus
         alpha = np.arcsin((out-bkg)/amp*2 - 1)/2*180/np.pi-phi
         """
-        if np.any(y < bkg) or np.any(y > amp):
+        logger.debug('inverting squared sinus model function')
+        logger.debug(f'y={str(y)}, bkg={str(bkg)}, amp={str(amp)}, phi={str(phi)}')
+        if np.any(y < bkg) or np.any(y > bkg + amp):
             raise ValueError(
                 'Desired value y={:s} out of range. '.format(str(y)) +
                 'Should be between bkg={:s} and amp+bkg={:s}'.format(
