@@ -266,8 +266,8 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         # phi_max = 180/8  # =22,5°; period 90°
         # phi_min = 3/8*180
         phi_period = 90
-        phi_max = self.analysis_parameters['phi'] - 180 / 8
-        phi_min = self.analysis_parameters['phi']  + 180 / 8
+        phi_max = params['phi'] - 180 / 8
+        phi_min = params['phi']  + 180 / 8
         phi_range = [self.analysis_parameters['min'], self.analysis_parameters['max']]
         ic(phi_min)
         ic(phi_max)
