@@ -262,10 +262,16 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
                 [min power, max power]
         """
         params = self.get_model()
-        phi_max = 180/8  # =22,5°; period 90°
-        phi_min = 3/8*180
+        # the next two lines do not seem to make sense at all
+        # phi_max = 180/8  # =22,5°; period 90°
+        # phi_min = 3/8*180
         phi_period = 90
+        phi_max = self.analysis_parameters['phi'] - 180 / 8
+        phi_min = self.analysis_parameters['phi']  + 180 / 8
         phi_range = [self.analysis_parameters['min'], self.analysis_parameters['max']]
+        ic(phi_min)
+        ic(phi_max)
+        ic(phi_range)
         # check whether maximum is between the angle range
         next_maxphi_from_min = (
             (((phi_range[0]-phi_max)//phi_period)+1) *
@@ -273,6 +279,8 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         next_minphi_from_min = (
             (((phi_range[0]-phi_min)//phi_period)+1) *
              phi_period+phi_min)
+        ic(next_minphi_from_min)
+        ic(next_maxphi_from_min)
         output_range = [0, 0]
         if next_maxphi_from_min < phi_range[1]:
             output_range[1] = params['bkg']+params['amp']
