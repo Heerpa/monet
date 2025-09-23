@@ -628,7 +628,11 @@ class MonetSetInteractive(cmd.Cmd):
         self.power_setvalues = {}
         for las in self.instrument.laser:
             self.do_laser(las)
-            self.power_setvalues[las] = round(self.instrument.power)
+            try:
+                self.power_setvalues[las] = 1
+                self.power_setvalues[las] = round(self.instrument.power)
+            except:
+                pass
 
     def do_multi_laser(self, arg):
         if arg.upper() == '0' or arg.upper() == 'FALSE':
