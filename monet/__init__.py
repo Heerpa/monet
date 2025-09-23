@@ -8,7 +8,7 @@
 """
 import os.path as _ospath
 import yaml as _yaml
-import pkg_resources
+import importlib_resources
 
 import logging
 from logging import handlers
@@ -41,9 +41,10 @@ DATABASE_INDEXLEVELS = [
 ]
 
 try:
-    envpath = _ospath.abspath(pkg_resources.resource_filename('monet', '..\\env.yaml'))
-    with open(envpath, 'r') as f:
-        env = _yaml.full_load(f)
+    ref = importlib_resources.files('monet') / '..\\env.yaml'
+    with importlib_resources.as_file(ref) as envpath:
+        with open(envpath, 'r') as f:
+            env = _yaml.full_load(f)
 except:
     logger.debug('env.yaml cannot be loaded.')
     env = None
