@@ -244,7 +244,7 @@ def plot_device_history(db_fname, device, plot_dir):
                 dates = power_df.index.get_level_values('date')
                 times = power_df.index.get_level_values('time')
 
-                dt = [datetime.strptime(date+';'+time, '%Y-%m-%d;%H:%M')
+                dt = [datetime.strptime(f"{date};{time}", '%Y-%m-%d;%H:%M')
                       for date, time in zip(dates, times)]
                 ax[i].plot(
                     dt, power_df.loc[:, param].values.flatten(), marker='x',
