@@ -166,7 +166,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
         super().__init__(config, load_instrument=False)
 
-    def run_protocol(self, wait_time=0):
+    def run_protocol(self, wait_time=0, switch_time=10):
         """Run a protocol: loop through lasers and respective power settings,
         doing calibrations, and saving them for every combination.
         """
@@ -195,6 +195,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             # set powermeter setting
             self.powermeter.wavelength = int(laser)
             # self.instrument.config['index'][LASER_TAG] = laser
+            time.sleep(switch_time)
             for lpwr in laserpowers:
                 print('setting laser power to', lpwr, 'mW')
                 self.instrument.laserpower = lpwr
