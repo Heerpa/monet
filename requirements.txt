@@ -14,3 +14,4 @@ coverage>=7.10
 pycromanager #==0.29.5  # 0.27.2 for nightly build 20230312 | or 0.27.5 with 20230601 | or 0.28.2 with 20230830 | or 0.29.5 with 20230928
 git+https://github.com/cobolt-lasers/pycobolt.git
 nidaqmx>=1.2
+importlib_resources
