@@ -18,6 +18,7 @@ import logging
 from icecream import ic
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import requests
 
 from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 from monet import DATABASE_INDEXLEVELS
@@ -26,11 +27,20 @@ logger = logging.getLogger(__name__)
 ic.configureOutput(outputFunction=logger.debug)
 
 
+def _is_server_url(fname):
+    """Check if fname is a server URL rather than a file path."""
+    return fname.startswith('http://') or fname.startswith('https://')
+
+
+# ──────────────────────────────────────────────
+# save_calibration
+# ──────────────────────────────────────────────
+
 def save_calibration(fname, index, cali_pars):
     """Save the calibration to the database
     Args:
         fname : str
-            file name to the database (excel)
+            file name to the database (excel) or server URL
         index : dict
             index values for the database entry
                 e.g. microscope name, wavelength, laser power
@@ -43,6 +53,33 @@ def save_calibration(fname, index, cali_pars):
         indexvals : list of str
             the values of indices in the database
     """
+    if _is_server_url(fname):
+        return _save_calibration_http(fname, index, cali_pars)
+    return _save_calibration_excel(fname, index, cali_pars)
+
+
+def _save_calibration_http(server_url, index, cali_pars):
+    """Save calibration via HTTP server."""
+    resp = requests.post(
+        f'{server_url}/calibrations',
+        json={'index': index, 'parameters': cali_pars},
+    )
+    resp.raise_for_status()
+    record = resp.json()
+
+    indexnames = DATABASE_INDEXLEVELS
+    indexvals = (
+        record['device_name'],
+        record['wavelength_nm'],
+        record['laser_power_mw'],
+        record['calibration_date'],
+        record['calibration_time'],
+    )
+    return indexnames, indexvals
+
+
+def _save_calibration_excel(fname, index, cali_pars):
+    """Save calibration to Excel file (original implementation)."""
     indexnames = list(index.keys()) + ['date', 'time']
     indexnames = DATABASE_INDEXLEVELS + list(set(indexnames)
                                              - set(DATABASE_INDEXLEVELS))
@@ -89,12 +126,16 @@ def save_calibration(fname, index, cali_pars):
     return indexnames, indexvals
 
 
+# ──────────────────────────────────────────────
+# load_calibration
+# ──────────────────────────────────────────────
+
 def load_calibration(fname, index, time_idx='latest'):
     """Load a calibration from the database
 
     Args:
         fname : str
-            file name of the database
+            file name of the database or server URL
         index : dict
             index values for the database entry
                 e.g. microscope name, wavelength, laser power
@@ -110,13 +151,6 @@ def load_calibration(fname, index, time_idx='latest'):
     """
     db_select = load_database(fname, index, time_idx=time_idx)
 
-    # logger.debug('db_select')
-    # logger.debug(db_select)
-    # logger.debug('db_select.index')
-    # logger.debug(db_select.index)
-    # logger.debug('db_select.values')
-    # logger.debug(db_select.values)
-
     cali_pars = {col: val
                  for col, val
                  in zip(db_select.index, db_select.values)
@@ -124,12 +158,16 @@ def load_calibration(fname, index, time_idx='latest'):
     return cali_pars
 
 
+# ──────────────────────────────────────────────
+# load_database
+# ──────────────────────────────────────────────
+
 def load_database(fname, index, time_idx='last combinations'):
     """Load the database
 
     Args:
         fname : str
-            file name of the database
+            file name of the database or server URL
         index : dict
             index values for the database entry
                 e.g. microscope name, wavelength, laser power
@@ -143,7 +181,66 @@ def load_database(fname, index, time_idx='last combinations'):
         cali_pars : dict
             keys: parameter names, vals: calibration parameters
     """
-    # indexnames = list(index.keys()) + ['date', 'time']
+    if _is_server_url(fname):
+        return _load_database_http(fname, index, time_idx)
+    return _load_database_excel(fname, index, time_idx)
+
+
+def _load_database_http(server_url, index, time_idx):
+    """Load database via HTTP server.
+
+    Returns a Series for time_idx='latest'/None, DataFrame otherwise.
+    """
+    # Convert slice(None) values to None for JSON serialization
+    json_index = {}
+    for k, v in index.items():
+        if isinstance(v, slice) and v == slice(None):
+            json_index[k] = None
+        else:
+            json_index[k] = v
+
+    resp = requests.post(
+        f'{server_url}/calibrations/query',
+        json={'index': json_index, 'time_idx': time_idx},
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    records = data['records']
+
+    if not records:
+        raise KeyError(f'index {index} not found in database.')
+
+    # Reconstruct pandas structures matching Excel behavior
+    if time_idx is None or time_idx == 'latest':
+        # Single record → return Series (like iloc[-1, :])
+        rec = records[0]
+        params = rec['parameters']
+        return pd.Series(params)
+    else:
+        # Multiple records → return DataFrame with MultiIndex
+        rows = []
+        index_tuples = []
+        for rec in records:
+            index_tuples.append((
+                rec['device_name'],
+                rec['wavelength_nm'],
+                rec['laser_power_mw'],
+                rec['calibration_date'],
+                rec['calibration_time'],
+            ))
+            rows.append(rec['parameters'])
+
+        midx = pd.MultiIndex.from_tuples(
+            index_tuples, names=DATABASE_INDEXLEVELS)
+        df = pd.DataFrame(rows, index=midx)
+        # Convert numeric columns
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        return df
+
+
+def _load_database_excel(fname, index, time_idx):
+    """Load database from Excel file (original implementation)."""
     indexnames = DATABASE_INDEXLEVELS
     index_full = {name: slice(None) for name in indexnames}
     for n, v in index.items():
@@ -158,11 +255,6 @@ def load_database(fname, index, time_idx='last combinations'):
             index['time'] = time_idx[1]
     indexvals = tuple(list(index.values()))
     ic(index)
-    # if time_idx==None or isinstance(time_idx, str):
-    #     datim = [slice(None), slice(None)]
-    # elif (isinstance(time_idx, list) or isinstance(time_idx, tuple) and len(time_idx)==2):
-    #     datim = list(time_idx)
-    # indexvals = tuple(list(index.values()) + datim)
 
     try:
         db = pd.read_excel(fname, index_col=list(range(len(indexnames))))
@@ -176,9 +268,6 @@ def load_database(fname, index, time_idx='last combinations'):
     try:
         db = db.loc[indexvals, :]
     except:
-        # indexvals not present
-        # db = pd.DataFrame(
-        #     index=, columns=db.columns)
         raise KeyError('index ' + str(indexvals) + ' not found in database.')
 
     # date selection
@@ -191,30 +280,56 @@ def load_database(fname, index, time_idx='last combinations'):
         # for every non-time index, only one entry should remain (time
         # index should be redundant)
         nontimedateidx = [k for k in index.keys() if k not in ['date', 'time']]
-        # idxlvls = {lvl: db.index.get_level_values(lvl) for lvl in nontimedateidx}
-        # newdb = pd.DataFrame(
-        #     index=pd.MultiIndex.from_product([[0]]*len(list(index.keys())),
-        #                                      names=nontimedateidx),
-        #     columns=db.columns)
-        # ic(newdb)
         newdb = db.copy()
         for dfidx, subdf in db.groupby(nontimedateidx):
             idxlen = len(subdf.index)
             for i, (idx, row) in enumerate(subdf.iterrows()):
                 if i < idxlen-1:
                     newdb.drop(idx, inplace=True)
-            # if len(subdf.index)>0:
-                # keepentry = subdf.iloc[-1, :]
-                # # does this keep working if there are multiple entries?
-                # ic(newdb)
-                # newdb.loc[dfidx, :] = keepentry
-        # newdb.drop(index=tuple([0]*len(list(index.keys()))), inplace=True)
         db = newdb
     elif time_idx == 'all':
         pass
 
     return db
 
+
+# ──────────────────────────────────────────────
+# restart_database
+# ──────────────────────────────────────────────
+
+def restart_database(db_fname):
+    """Save a backup of the current database and restart with the
+    latest parameters
+    """
+    if _is_server_url(db_fname):
+        return _restart_database_http(db_fname)
+    return _restart_database_excel(db_fname)
+
+
+def _restart_database_http(server_url):
+    """Restart database via HTTP server."""
+    resp = requests.post(f'{server_url}/database/restart')
+    resp.raise_for_status()
+    data = resp.json()
+    return data['backup_path']
+
+
+def _restart_database_excel(db_fname):
+    """Restart database from Excel file (original implementation)."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    root, ext = os.path.splitext(db_fname)
+    bkup_fname = os.path.join(root+'_'+today, ext)
+    if os.path.exists(bkup_fname):
+        raise ValueError('File already exists: {:s}'.format(bkup_fname))
+    shutil.copy2(db_fname, bkup_fname)
+    last_entries = load_database(
+        db_fname, index={}, time_idx='last combinations')
+    last_entries.to_excel(db_fname)
+
+
+# ──────────────────────────────────────────────
+# Plotting functions (always client-side)
+# ──────────────────────────────────────────────
 
 def plot_device_history(db_fname, device, plot_dir):
     """Plot the historic evolution of model parameters. For each
@@ -323,20 +438,3 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
         fig.set_size_inches((8, 7))
         fig.savefig(plot_fname)
         plt.close(fig)
-
-
-def restart_database(db_fname):
-    """Save a backup of the current database and restart with the
-    latest parameters
-    """
-    # whole_db = load_database(db_fname, index={}, time_idx='all')
-    today = datetime.now().strftime('%Y-%m-%d')
-    root, ext = os.path.splitext(db_fname)
-    bkup_fname = os.path.join(root+'_'+today, ext)
-    if os.path.exists(bkup_fname):
-        raise ValueError('File already exists: {:s}'.format(bkup_fname))
-    # whole_db.to_excel(bkup_fname)
-    shutil.copy2(db_fname, bkup_fname)
-    last_entries = load_database(
-        db_fname, index={}, time_idx='last combinations')
-    last_entries.to_excel(db_fname)

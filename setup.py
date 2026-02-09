@@ -27,12 +27,13 @@ setup(
     # packages=find_packages(exclude=['tests']),
     packages=find_packages(),
     long_description=read('README.md'),
+    python_requires='>=3.10',
     classifiers=[
         "Development Status :: 3 - Alpha",
         # "Topic :: Utilities",
         "License :: OSI Approved :: BSD License",
         "Programming Language :: Python",
-        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.10",
         "Operating System :: OS Independent"
     ],
 )

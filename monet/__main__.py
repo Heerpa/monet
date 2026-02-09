@@ -19,6 +19,7 @@ from io import StringIO
 from contextlib import redirect_stdout
 
 from monet import CONFIGS, CONFIGS_PATH, PROTOCOLS, PROTOCOLS_PATH
+import monet.io as io
 
 
 # configure logger and log that this shouldn't be done here
@@ -48,10 +49,10 @@ def main():
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
         'mode', type=str,
-        help='mode. One of "set", "adjust", "caliaotf", or "calibrate".')
+        help='mode. One of "set", "adjust", "caliaotf", "calibrate", "serve", or "migrate".')
     parser.add_argument(
-        'name', type=str,
-        help='Microscope Name, as specified in config.')
+        'name', type=str, nargs='?', default=None,
+        help='Microscope Name, as specified in config. Not required for serve/migrate modes.')
     parser.add_argument(
         '-c', '--configs-file', type=str, required=False,
         default=None,
@@ -65,10 +66,32 @@ def main():
             path to the protocol yaml file (if not supplied, only attenuation
             will be controlled, no laser control).
             - Only for calibration mode''')
+    parser.add_argument(
+        '--host', type=str, default='0.0.0.0',
+        help='Host to bind the server to (serve mode only).')
+    parser.add_argument(
+        '--port', type=int, default=8000,
+        help='Port to bind the server to (serve mode only).')
+    parser.add_argument(
+        '--db-path', type=str, default='calibrations.db',
+        help='Path to the SQLite database file (serve/migrate mode).')
+    parser.add_argument(
+        '--source', type=str, default=None,
+        help='Path to the source Excel database (migrate mode only).')
 
     # Parse
     args = parser.parse_args()
-    if args.mode == 'calibrate':
+    if args.mode == 'serve':
+        import uvicorn
+        os.environ['MONET_DB_PATH'] = args.db_path
+        from monet.server import app
+        uvicorn.run(app, host=args.host, port=args.port)
+    elif args.mode == 'migrate':
+        from monet.migrate import migrate_excel_to_sqlite
+        if args.source is None:
+            parser.error('migrate mode requires --source argument')
+        migrate_excel_to_sqlite(args.source, args.db_path)
+    elif args.mode == 'calibrate':
         MonetCalibrateInteractive(
             args.name, args.configs_file, args.protocol_file).do_calibrate(args={})
     elif args.mode == 'caliaotf':
@@ -81,7 +104,7 @@ def main():
         MonetSetInteractive(
             args.name).cmdloop()
     else:
-        raise KeyError('monet mode has to be one of "set" and "calibrate".')
+        raise KeyError('monet mode has to be one of "set", "calibrate", "serve", or "migrate".')
 
 
 # def monet_interactive(CONFIG):
