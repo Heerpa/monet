@@ -240,6 +240,22 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 <script>
 'use strict';
 
+// ── Device color + marker palette (cycles markers when colors repeat) ─────────
+const _DEV_COLORS = [
+  '#636EFA','#EF553B','#00CC96','#AB63FA','#FFA15A',
+  '#19D3F3','#FF6692','#B6E880','#FF97FF','#FECB52',
+];
+const _DEV_MARKERS = [
+  'circle','square','triangle-up','cross','x',
+  'triangle-down','star','hexagram','pentagon','diamond',
+];
+function deviceStyle(idx) {
+  const n      = _DEV_COLORS.length;
+  const color  = _DEV_COLORS[idx % n];
+  const symbol = _DEV_MARKERS[Math.floor(idx / n) % _DEV_MARKERS.length];
+  return { color, symbol };
+}
+
 // ── Wavelength → color ────────────────────────────────────────────────────────
 function wlColor(nm) {
   nm = parseFloat(nm);
@@ -561,9 +577,9 @@ function renderLatestCharts(rows) {
     const traces = [];
     const byDevice = groupBy(wlRecs, r => r.device);
 
-    for (const [device, recs] of Object.entries(byDevice)) {
+    Object.entries(byDevice).forEach(([device, recs], devIdx) => {
       recs.sort((a, b) => a.laser_power - b.laser_power);
-      const xs      = recs.map(r => r.laser_power);
+      const { color, symbol } = deviceStyle(devIdx);
       const sinRecs = recs.filter(r => modelType(r.parameters) === 'sinusoidal');
       const ptRecs  = recs.filter(r => modelType(r.parameters) === 'point');
 
@@ -572,22 +588,26 @@ function renderLatestCharts(rows) {
         traces.push({
           x: sxs, y: sinRecs.map(r => r.parameters.bkg + r.parameters.amp),
           name: device + ' max', legendgroup: device,
-          mode: 'lines+markers', showlegend: true,
+          mode: 'lines+markers',
+          line: { color }, marker: { color, symbol, size: 7 },
+          showlegend: true,
         });
         traces.push({
           x: sxs, y: sinRecs.map(r => r.parameters.bkg),
           name: device + ' bkg', legendgroup: device,
-          mode: 'lines+markers', line: { dash: 'dot' }, showlegend: true,
+          mode: 'lines+markers',
+          line: { color, dash: 'dot' }, marker: { color, symbol, size: 7 },
+          showlegend: true,
         });
       }
       if (ptRecs.length) {
         traces.push({
           x: ptRecs.map(r => r.laser_power), y: ptRecs.map(r => r.parameters.amp),
           name: device, legendgroup: device,
-          mode: 'markers', marker: { symbol: 'diamond', size: 9 }, showlegend: true,
+          mode: 'markers', marker: { color, symbol, size: 9 }, showlegend: true,
         });
       }
-    }
+    });
 
     const chartDiv = document.createElement('div');
     chartDiv.className = 'plotly-chart';
