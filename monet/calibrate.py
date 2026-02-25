@@ -227,18 +227,19 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         # self.instrument.is_calibrated = True
         # self.instrument.load_calibration_database()
 
-        # copy all plots from local folder onto the server
-        device = self.instrument.config['index'][DEVICE_TAG]
-        sfolder = os.path.join(
-            os.path.split(self.instrument.config['database'])[0],
-            'Calibrations',
-            datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
-        try:
-            os.mkdirs(sfolder)
-        except:
-            pass
-        lfolder = self.instrument.config.get('dest_calibration_plot')
-        shutil.copytree(lfolder, sfolder)
+        # copy all plots from local folder onto the server (file-based DB only)
+        if not io._is_server_url(self.instrument.config['database']):
+            device = self.instrument.config['index'][DEVICE_TAG]
+            sfolder = os.path.join(
+                os.path.split(self.instrument.config['database'])[0],
+                'Calibrations',
+                datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
+            try:
+                os.mkdirs(sfolder)
+            except:
+                pass
+            lfolder = self.instrument.config.get('dest_calibration_plot')
+            shutil.copytree(lfolder, sfolder)
 
     def plot_model(self, modeldf, laser):
         fig, ax = plt.subplots(nrows=len(modeldf.columns), sharex=True, squeeze=False)
@@ -252,7 +253,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         fname = self.instrument.config['database']
         folder = self.instrument.config.get('dest_calibration_plot')
         if folder is None:
-            folder = os.path.split(fname)[0]
+            folder = os.getcwd() if io._is_server_url(fname) else os.path.split(fname)[0]
         fnplot = os.path.join(
             folder, '{:d}nm'.format(int(laser)) + '.png')
         fig.savefig(fnplot)
@@ -264,7 +265,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         fname = self.instrument.config['database']
         folder = self.instrument.config.get('dest_calibration_plot')
         if folder is None:
-            folder = os.path.split(fname)[0]
+            folder = os.getcwd() if io._is_server_url(fname) else os.path.split(fname)[0]
         fnplot = os.path.join(
             folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.xlsx')
         measdf.to_excel(fnplot)

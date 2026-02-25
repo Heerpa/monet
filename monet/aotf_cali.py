@@ -194,7 +194,11 @@ def calibrate_all(instrument, protocol, powermeter):
     aotf.lowlvl.store()
     filename = aotf.config['channeldef_loc']
     channeldef.to_csv(filename, float_format='%.3f')
-    srvdir, _ = os.path.split(instrument.config['database'])
+    database = instrument.config['database']
+    if database.startswith('http://') or database.startswith('https://'):
+        srvdir = instrument.config.get('dest_calibration_plot', '.')
+    else:
+        srvdir, _ = os.path.split(database)
     datestr = datetime.now().strftime('%y%m%d-%H%M_')
     srvdir = os.path.join(srvdir, 'AOTFcali', datestr+instrument.config['index']['name'])
     try:
