@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from monet.models import Calibration, get_engine
 from monet.schemas import (
     CalibrationCreate,
+    CalibrationDeleteQuery,
+    CalibrationDeleteResponse,
     CalibrationQuery,
     CalibrationRecord,
     DatabaseResponse,
@@ -173,6 +175,28 @@ def query_calibrations(query: CalibrationQuery):
                 status_code=400,
                 detail=f'Unknown time_idx mode: {time_idx}',
             )
+
+
+@app.post('/calibrations/delete', response_model=CalibrationDeleteResponse)
+def delete_calibrations(query: CalibrationDeleteQuery):
+    """Delete calibration records matching the query. None values act as wildcards."""
+    with _get_session() as session:
+        stmt = select(Calibration)
+        if query.device_name is not None:
+            stmt = stmt.where(Calibration.device_name == query.device_name)
+        if query.wavelength_nm is not None:
+            stmt = stmt.where(Calibration.wavelength_nm == query.wavelength_nm)
+        if query.laser_power_mw is not None:
+            stmt = stmt.where(Calibration.laser_power_mw == query.laser_power_mw)
+        if query.calibration_date is not None:
+            stmt = stmt.where(Calibration.calibration_date == query.calibration_date)
+        if query.calibration_time is not None:
+            stmt = stmt.where(Calibration.calibration_time == query.calibration_time)
+        rows = session.execute(stmt).scalars().all()
+        for row in rows:
+            session.delete(row)
+        session.commit()
+    return CalibrationDeleteResponse(deleted_count=len(rows))
 
 
 @app.post('/database/restart', response_model=RestartResponse)

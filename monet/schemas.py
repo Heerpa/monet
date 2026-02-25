@@ -38,3 +38,15 @@ class DatabaseResponse(BaseModel):
 class RestartResponse(BaseModel):
     backup_path: str
     remaining_records: int
+
+
+class CalibrationDeleteQuery(BaseModel):
+    device_name: Optional[str] = None
+    wavelength_nm: Optional[float] = None
+    laser_power_mw: Optional[float] = None
+    calibration_date: Optional[str] = None
+    calibration_time: Optional[str] = None
+
+
+class CalibrationDeleteResponse(BaseModel):
+    deleted_count: int
