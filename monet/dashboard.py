@@ -215,22 +215,23 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 
     <!-- Tab bar -->
     <div class="border-bottom mb-3">
-      <button class="tab-btn active" data-tab="param-history"
+      <button class="tab-btn"        data-tab="param-history"
               onclick="switchTab('param-history')">Parameter History</button>
-      <button class="tab-btn"        data-tab="power-range"
+      <button class="tab-btn active" data-tab="power-range"
               onclick="switchTab('power-range')">Power Range</button>
       <button class="tab-btn"        data-tab="latest-table"
               onclick="switchTab('latest-table')">Latest Calibrations</button>
     </div>
 
-    <div id="tab-param-history" class="tab-pane active">
+    <div id="tab-param-history" class="tab-pane">
       <div id="charts-param"></div>
     </div>
-    <div id="tab-power-range"   class="tab-pane">
+    <div id="tab-power-range"   class="tab-pane active">
       <div id="charts-power"></div>
     </div>
     <div id="tab-latest-table"  class="tab-pane">
-      <div id="table-latest"></div>
+      <div id="charts-latest"></div>
+      <div id="table-latest"  class="mt-3"></div>
     </div>
 
   </div>
@@ -535,10 +536,94 @@ function renderPowerRange(records) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // TAB 3 — Latest Calibrations Table
 // ═══════════════════════════════════════════════════════════════════════════════
+// ── Latest Calibrations: parameters vs laser-power charts ─────────────────────
+function renderLatestCharts(rows) {
+  const container = document.getElementById('charts-latest');
+  container.innerHTML = '';
+  if (!rows.length) return;
+
+  const byDevice = groupBy(rows, r => r.device);
+
+  for (const [device, recs] of Object.entries(byDevice)) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    const h6 = document.createElement('h6');
+    h6.className = 'fw-semibold mb-2';
+    h6.textContent = device;
+    card.appendChild(h6);
+
+    const sinRecs = recs.filter(r => modelType(r.parameters) === 'sinusoidal');
+    const ptRecs  = recs.filter(r => modelType(r.parameters) === 'point');
+
+    const traces = [];
+    const layout = {
+      margin: { t: 10, b: 50, l: 55, r: 15 },
+      hovermode: 'x unified',
+      legend: { orientation: 'h', y: -0.22, font: { size: 11 } },
+      xaxis: { title: 'Laser power setting (mW)' },
+    };
+
+    if (sinRecs.length) {
+      layout.yaxis  = { domain: [0.70, 1.00], title: { text: 'bkg', standoff: 4 } };
+      layout.yaxis2 = { domain: [0.36, 0.64], title: { text: 'amp', standoff: 4 } };
+      layout.yaxis3 = { domain: [0.00, 0.30], title: { text: 'phi', standoff: 4 } };
+      layout.xaxis  = { anchor: 'y3', title: 'Laser power setting (mW)' };
+      layout.height = 500;
+
+      const sinByWL = groupBy(sinRecs, r => r.wavelength);
+      for (const [wl, wlRecs] of Object.entries(sinByWL)) {
+        const color = wlColor(wl);
+        const xs    = wlRecs.map(r => r.laser_power);
+        const name  = wl + '\\u202fnm';
+        const base  = { x: xs, name, legendgroup: name,
+                         mode: 'lines+markers', line: { color }, marker: { color } };
+        traces.push({ ...base, y: wlRecs.map(r => r.parameters.bkg), yaxis: 'y',
+                                showlegend: true });
+        traces.push({ ...base, y: wlRecs.map(r => r.parameters.amp), yaxis: 'y2',
+                                showlegend: false });
+        traces.push({ ...base, y: wlRecs.map(r => r.parameters.phi), yaxis: 'y3',
+                                showlegend: false });
+      }
+    }
+
+    if (ptRecs.length) {
+      if (!sinRecs.length) {
+        layout.yaxis  = { title: { text: 'amp' } };
+        layout.height = 280;
+      }
+      const ptByWL = groupBy(ptRecs, r => r.wavelength);
+      for (const [wl, wlRecs] of Object.entries(ptByWL)) {
+        const color = wlColor(wl);
+        traces.push({
+          x: wlRecs.map(r => r.laser_power),
+          y: wlRecs.map(r => r.parameters.amp),
+          name: wl + '\\u202fnm', legendgroup: wl + '\\u202fnm',
+          mode: 'lines+markers', line: { color }, marker: { color },
+          yaxis: 'y', showlegend: true,
+        });
+      }
+    }
+
+    const chartDiv = document.createElement('div');
+    chartDiv.className = 'plotly-chart';
+    card.appendChild(chartDiv);
+    container.appendChild(card);
+
+    if (traces.length) {
+      Plotly.newPlot(chartDiv, traces, layout, { responsive: true, displayModeBar: false });
+    } else {
+      chartDiv.appendChild(emptyMsg('No plottable records for this device.'));
+    }
+  }
+}
+
 function renderLatestTable(records) {
   const container = document.getElementById('table-latest');
   container.innerHTML = '';
-  if (!records.length) { container.appendChild(emptyMsg('No data.')); return; }
+  if (!records.length) {
+    document.getElementById('charts-latest').innerHTML = '';
+    container.appendChild(emptyMsg('No data.')); return;
+  }
 
   // Keep only the most recent record per (device, wavelength, laser_power)
   const latest = {};
@@ -551,6 +636,8 @@ function renderLatestTable(records) {
     a.wavelength  - b.wavelength     ||
     a.laser_power - b.laser_power
   );
+
+  renderLatestCharts(rows);
 
   const wrap = document.createElement('div');
   wrap.className = 'table-responsive';
