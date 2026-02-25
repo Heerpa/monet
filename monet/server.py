@@ -229,3 +229,8 @@ def restart_database():
 def health():
     """Health check endpoint."""
     return {'status': 'ok'}
+
+
+# Dashboard UI — imported last to avoid circular-import issues
+from monet import dashboard as _dashboard_module  # noqa: E402
+app.include_router(_dashboard_module.router)
