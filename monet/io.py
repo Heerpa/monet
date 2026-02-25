@@ -328,6 +328,79 @@ def _restart_database_excel(db_fname):
 
 
 # ──────────────────────────────────────────────
+# delete_calibration
+# ──────────────────────────────────────────────
+
+def delete_calibration(fname, index):
+    """Delete records matching index from the database. None values = wildcard.
+
+    Args:
+        fname : str
+            file name of the database or server URL
+        index : dict
+            index values to match for deletion. Use None values as wildcards.
+
+    Returns:
+        int : number of deleted rows
+    """
+    if _is_server_url(fname):
+        return _delete_calibration_http(fname, index)
+    return _delete_calibration_excel(fname, index)
+
+
+def _delete_calibration_http(server_url, index):
+    """Delete calibration records via HTTP server."""
+    payload = {
+        'device_name': index.get('name'),
+        'wavelength_nm': index.get('wavelength [nm]'),
+        'laser_power_mw': index.get('laser_power [mW]'),
+        'calibration_date': index.get('date'),
+        'calibration_time': index.get('time'),
+    }
+    resp = requests.post(f'{server_url}/calibrations/delete', json=payload)
+    resp.raise_for_status()
+    return resp.json()['deleted_count']
+
+
+def _delete_calibration_excel(fname, index):
+    """Delete calibration records from Excel file matching index.
+
+    Returns number of deleted rows.
+    """
+    try:
+        db = pd.read_excel(fname, index_col=list(range(len(DATABASE_INDEXLEVELS))))
+    except Exception as e:
+        raise FileNotFoundError('Problem loading file ' + fname) from e
+
+    original_len = len(db)
+    mask = pd.Series(True, index=db.index)
+
+    name = index.get('name')
+    if name is not None:
+        mask &= db.index.get_level_values('name') == name
+
+    wavelength = index.get('wavelength [nm]')
+    if wavelength is not None:
+        mask &= db.index.get_level_values('wavelength [nm]') == wavelength
+
+    laser_power = index.get('laser_power [mW]')
+    if laser_power is not None:
+        mask &= db.index.get_level_values('laser_power [mW]') == laser_power
+
+    date = index.get('date')
+    if date is not None:
+        mask &= db.index.get_level_values('date') == date
+
+    time_val = index.get('time')
+    if time_val is not None:
+        mask &= db.index.get_level_values('time') == time_val
+
+    db = db[~mask]
+    db.to_excel(fname)
+    return original_len - len(db)
+
+
+# ──────────────────────────────────────────────
 # Plotting functions (always client-side)
 # ──────────────────────────────────────────────
 

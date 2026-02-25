@@ -62,9 +62,15 @@ class CalibrationProtocol1D():
         self.powermeter = load_class(
             pwrconfig['classpath'], pwrconfig['init_kwargs'])
 
-    def calibrate(self, wait_time=0.1):
+    def calibrate(self, wait_time=0.1, dry_run=False):
         """Calibrate power, with parameters according to the
         configuration file.
+
+        Args:
+            wait_time : float
+                time to wait between attenuator steps [s]
+            dry_run : bool
+                if True, calibration is performed but not saved to the database
 
         Returns:
             control_par_vals : 1D np array
@@ -92,20 +98,32 @@ class CalibrationProtocol1D():
         # print(self.instrument.analyzer.fit_result.fit_report())
         self.instrument.is_calibrated = True
 
-        self.save_calibration()
+        self.save_calibration(dry_run=dry_run)
 
         return control_par_vals, powers
 
-    def save_calibration(self, save_plot=True):
+    def save_calibration(self, save_plot=True, dry_run=False):
         """Save the calibration to the database
+
+        Args:
+            save_plot : bool
+                whether to save a plot of the calibration
+            dry_run : bool
+                if True, skip writing to the database
         """
         cali_pars = self.instrument.analyzer.get_model()
 
         fname = self.instrument.config['database']
         # print('saving calibration into index', self.instrument.config['index'])
         # print('calibration pars: ', cali_pars)
-        indexnames, indexvals = io.save_calibration(
-            fname, self.instrument.config['index'], cali_pars)
+        if not dry_run:
+            indexnames, indexvals = io.save_calibration(
+                fname, self.instrument.config['index'], cali_pars)
+        else:
+            indexnames = (list(self.instrument.config['index'].keys())
+                          + ['date', 'time'])
+            indexvals = tuple(
+                list(self.instrument.config['index'].values()) + ['dry', 'run'])
 
         if save_plot:
             folder = self.instrument.config.get('dest_calibration_plot')
@@ -166,9 +184,26 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
         super().__init__(config, load_instrument=False)
 
-    def run_protocol(self, wait_time=0, switch_time=10):
+    def run_protocol(self, wait_time=0, switch_time=10,
+                     laser_filter=None, dry_run=False,
+                     progress_callback=None, manage_laser_state=True):
         """Run a protocol: loop through lasers and respective power settings,
         doing calibrations, and saving them for every combination.
+
+        Args:
+            wait_time : float
+                time to wait between attenuator steps [s]
+            switch_time : float
+                time to wait after switching laser [s]
+            laser_filter : list or None
+                if not None, only calibrate lasers in this list
+            dry_run : bool
+                if True, calibration is performed but not saved to the database
+            progress_callback : callable or None
+                called after each power step with (step, total, laser, lpwr)
+            manage_laser_state : bool
+                if True (CLI mode), switch off all lasers at start and after
+                each wavelength. If False (GUI mode), leave laser state as-is.
         """
         # delete previous calibration plots
         plotfolder = self.instrument.config.get('dest_calibration_plot')
@@ -177,12 +212,20 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 os.remove(os.path.join(plotfolder, f))
             except:
                 pass
-        # switch off all lasers
-        for laser in self.protocol['laser_sequence']:
-            self.instrument.laser = laser
-            self.instrument.laser_enabled = False
+
+        lasers = [l for l in self.protocol['laser_sequence']
+                  if laser_filter is None or l in laser_filter]
+        total = sum(len(self.protocol['laser_powers'][l]) for l in lasers)
+        step = 0
+
+        if manage_laser_state:
+            # switch off all lasers
+            for laser in self.protocol['laser_sequence']:
+                self.instrument.laser = laser
+                self.instrument.laser_enabled = False
+
         # now start calibration
-        for laser in self.protocol['laser_sequence']:
+        for laser in lasers:
             print('switching to laser', laser)
             self.instrument.laser = laser
             self.instrument.laser_enabled = True
@@ -204,10 +247,10 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     # this is a test powermeter. set amplitude
                     self.powermeter.config['amp'] = lpwr
 
-                angles, powers = self.calibrate(wait_time=wait_time)
+                angles, powers = self.calibrate(wait_time=wait_time,
+                                                dry_run=dry_run)
                 for an, pw in zip(angles, powers):
                     measpwrs.loc[an, lpwr] = pw
-                self.save_calibration()
 
                 # get model parameters for plotting
                 model_dict = self.instrument.analyzer.get_model()
@@ -216,8 +259,13 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 # calibration state is always set True in each 1D calibration
                 self.instrument.is_calibrated = False
 
+                step += 1
+                if progress_callback:
+                    progress_callback(step, total, laser, lpwr)
+
             self.instrument.laserpower = min(laserpowers)
-            self.instrument.laser_enabled = False
+            if manage_laser_state:
+                self.instrument.laser_enabled = False
             self.plot_model(modelpars, laser)
             self.save_measvals(measpwrs, laser)
         self.plot_device_history()
@@ -235,7 +283,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 'Calibrations',
                 datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
             try:
-                os.mkdirs(sfolder)
+                os.makedirs(sfolder)
             except:
                 pass
             lfolder = self.instrument.config.get('dest_calibration_plot')
