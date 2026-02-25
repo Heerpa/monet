@@ -8,6 +8,7 @@
 """
 import os.path as _ospath
 import yaml as _yaml
+import importlib_resources
 
 import logging
 from logging import handlers
@@ -30,6 +31,7 @@ def config_logger():
     # logger.addHandler(stream_handler)
 
 config_logger()
+logger = logging.getLogger(__name__)
 
 DEVICE_TAG = 'name'
 LASER_TAG = 'wavelength [nm]'
@@ -38,6 +40,14 @@ DATABASE_INDEXLEVELS = [
     DEVICE_TAG, LASER_TAG, POWER_TAG, 'date', 'time'
 ]
 
+try:
+    ref = importlib_resources.files('monet') / '..\\env.yaml'
+    with importlib_resources.as_file(ref) as envpath:
+        with open(envpath, 'r') as f:
+            env = _yaml.full_load(f)
+except:
+    logger.debug('env.yaml cannot be loaded.')
+    env = None
 
 ###########################################################
 #
@@ -177,13 +187,13 @@ test_config_2d = {
 #
 ###########################################################
 
-default_config_paths = [
-    'Z:/users/grabmayr/test_powerbase/configs.yaml',
-    'V:/users/grabmayr/test_powerbase/configs.yaml',
-    ]
-default_protocol_paths = [
-    'Z:/users/grabmayr/test_powerbase/protocols.yaml',
-    'V:/users/grabmayr/test_powerbase/protocols.yaml']
+
+if env:
+    default_config_paths = env['config_paths']
+    default_protocol_paths = env['protocol_paths']
+else:
+    default_config_paths = []
+    default_protocol_paths = []
 
 
 CONFIGS = {}

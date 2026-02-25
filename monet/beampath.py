@@ -202,7 +202,7 @@ class NikonShutter(AbstractBeamPathObject):
 
     def _connect(self, config):
         self.core = get_pycromgr()
-        self.core.set_property('Core', 'AutoShutter', 0)
+        self.core.set_property('Core', 'AutoShutter', '0')
 
     @property
     def autoshutter(self):
@@ -211,9 +211,9 @@ class NikonShutter(AbstractBeamPathObject):
     @autoshutter.setter
     def autoshutter(self, val):
         if val:
-            val = 1
+            val = '1'
         else:
-            val = 0
+            val = '0'
         self.core.set_property('Core', 'AutoShutter', val)
 
     @property

@@ -85,7 +85,7 @@ class CalibrationProtocol1D():
             self.instrument.attenuator.set(ctrlval)
             time.sleep(wait_time)
             powers[i] = self.powermeter.read()
-            print('Position: {:.1f}, Power: {:f}'.format(ctrlval, powers[i]))
+            # print('Position: {:.1f}, Power: {:f}'.format(ctrlval, powers[i]))
 
         # analyze
         self.instrument.analyzer.fit(control_par_vals, powers)
@@ -166,7 +166,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
         super().__init__(config, load_instrument=False)
 
-    def run_protocol(self, wait_time=0):
+    def run_protocol(self, wait_time=0, switch_time=10):
         """Run a protocol: loop through lasers and respective power settings,
         doing calibrations, and saving them for every combination.
         """
@@ -177,18 +177,25 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 os.remove(os.path.join(plotfolder, f))
             except:
                 pass
+        # switch off all lasers
+        for laser in self.protocol['laser_sequence']:
+            self.instrument.laser = laser
+            self.instrument.laser_enabled = False
         # now start calibration
         for laser in self.protocol['laser_sequence']:
             print('switching to laser', laser)
             self.instrument.laser = laser
+            self.instrument.laser_enabled = True
             laserpowers = self.protocol['laser_powers'][laser]
             if self.instrument.use_beampath:
                 self.instrument.beampath.positions = self.protocol['beampath'][laser]
+            self.instrument.attenuator.set_wavelength(laser)
             modelpars = pd.DataFrame(index=laserpowers)
             measpwrs = pd.DataFrame(columns=laserpowers)
             # set powermeter setting
             self.powermeter.wavelength = int(laser)
             # self.instrument.config['index'][LASER_TAG] = laser
+            time.sleep(switch_time)
             for lpwr in laserpowers:
                 print('setting laser power to', lpwr, 'mW')
                 self.instrument.laserpower = lpwr
@@ -220,13 +227,19 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         # self.instrument.is_calibrated = True
         # self.instrument.load_calibration_database()
 
-        # copy all plots from local folder onto the server
-        device = self.instrument.config['index'][DEVICE_TAG]
-        sfolder = os.path.join(
-            os.path.split(self.instrument.config['database'])[0],
-            datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
-        lfolder = self.instrument.config.get('dest_calibration_plot')
-        shutil.copytree(lfolder, sfolder)
+        # copy all plots from local folder onto the server (file-based DB only)
+        if not io._is_server_url(self.instrument.config['database']):
+            device = self.instrument.config['index'][DEVICE_TAG]
+            sfolder = os.path.join(
+                os.path.split(self.instrument.config['database'])[0],
+                'Calibrations',
+                datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
+            try:
+                os.mkdirs(sfolder)
+            except:
+                pass
+            lfolder = self.instrument.config.get('dest_calibration_plot')
+            shutil.copytree(lfolder, sfolder)
 
     def plot_model(self, modeldf, laser):
         fig, ax = plt.subplots(nrows=len(modeldf.columns), sharex=True, squeeze=False)
@@ -240,7 +253,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         fname = self.instrument.config['database']
         folder = self.instrument.config.get('dest_calibration_plot')
         if folder is None:
-            folder = os.path.split(fname)[0]
+            folder = os.getcwd() if io._is_server_url(fname) else os.path.split(fname)[0]
         fnplot = os.path.join(
             folder, '{:d}nm'.format(int(laser)) + '.png')
         fig.savefig(fnplot)
@@ -252,7 +265,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         fname = self.instrument.config['database']
         folder = self.instrument.config.get('dest_calibration_plot')
         if folder is None:
-            folder = os.path.split(fname)[0]
+            folder = os.getcwd() if io._is_server_url(fname) else os.path.split(fname)[0]
         fnplot = os.path.join(
             folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.xlsx')
         measdf.to_excel(fnplot)
@@ -281,3 +294,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         plot_dir = self.instrument.config.get('dest_calibration_plot')
         db_fname = self.instrument.config['database']
         io.plot_device_history(db_fname, device, plot_dir)
+        anaconfig = self.instrument.config['analysis']
+        analyzer = load_class(
+                anaconfig['classpath'], anaconfig['init_kwargs'])
+        io.plot_device_amplitude_history(db_fname, device, plot_dir, analyzer)

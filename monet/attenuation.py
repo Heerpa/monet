@@ -15,9 +15,12 @@ from icecream import ic
 import abc
 import time
 import os
+import serial
+import pandas as pd
 
 from msl.equipment import EquipmentRecord, ConnectionRecord, Backend
 from msl.equipment.resources.thorlabs import MotionControl
+import nidaqmx
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,11 @@ class AbstractAttenuator(abc.ABC):
 
     @abc.abstractmethod
     def home(self):
+        pass
+
+    def set_wavelength(self, wvl):
+        """in case the attenuator is wavelength-sensitive
+        """
         pass
 
 
@@ -253,3 +261,287 @@ class KinesisAttenuator(AbstractAttenuator):
     def __del__(self):
         self.device.stop_polling()
         self.device.disconnect()
+
+
+class AAAOTF_lowlevel(serial.Serial):
+    """Low-level implementation of AA AOTF communication via serial
+    communication
+    https://gitlab.com/nanooptics-code/hyperion/-/blob/master/hyperion/controller/aa/aa_modd18012.py
+
+    Args:
+        port : str
+            the serial port used for the communication.
+            Defaults to '/dev/ttyDAQ' (docker renamed)
+            on a bare system, use sth like /dev/ttyACM0
+            on Windows: COM
+        baudrate : int
+            the baud rate for serial communication
+            Defaults to 115200
+        bytesize : int
+            the byte size for serial communication
+            Defaults to 8
+        parity : one of ['N', 'E', 'O', 'M', 'S']
+            parity for serial communication.
+            N: None, E: Even, O: Odd, M: Mark, S: Space.
+            Defaults to N
+        stopbits : int
+            the # stop bits for serial communication.
+            Defaults to 1
+        timeout : float
+            the timeout for serial communication (in seconds).
+            Defaults to 0.2.
+    """
+    def __init__(self, port='COM10',
+                 baudrate=57600, bytesize=8, parity='N',
+                 stopbits=1, timeout=1):
+        paritydict = {
+            'N': serial.PARITY_NONE,
+            'E': serial.PARITY_EVEN,
+            'O': serial.PARITY_ODD,
+            'M': serial.PARITY_MARK,
+            'S': serial.PARITY_SPACE
+        }
+        bytesizedict = {
+            5: serial.FIVEBITS,
+            6: serial.SIXBITS,
+            7: serial.SEVENBITS,
+            8: serial.EIGHTBITS
+        }
+        stopbitsdict = {
+            1: serial.STOPBITS_ONE,
+            2: serial.STOPBITS_TWO,
+            1.5: serial.STOPBITS_ONE_POINT_FIVE
+        }
+        super().__init__(port=port, baudrate=baudrate,
+                         bytesize=bytesizedict[bytesize],
+                         parity=paritydict[parity],
+                         stopbits=stopbitsdict[stopbits], timeout=timeout)
+
+    def main_enabled(self, value):
+        """Enable the
+        """
+        self.query("I{}".format(value))
+
+    def enable(self, channel, value):
+        """Enable single channels.
+        Args:
+            channel : int
+                channel to use (can be from 1 to 8 inclusive)
+            value : bool
+                True for on and False for off
+        """
+        if value:
+            value = 1
+        else:
+            value = 0
+
+        self.query("L{}O{}".format(channel, value))
+
+    def store(self):
+        """store current parameters into EEPROM
+        """
+        self.query("E")
+
+    def blanking(self, state, mode):
+        """Define the blanking state. If True (False), all channels are on (off).
+        It can be set to 'internal' or 'external', where external means that the modulation voltage
+        of the channel will be used to define the channel output.
+
+        Args:
+            state : bool
+                blanking state: True->channels on
+            mode : str
+                'external' or 'internal'. 
+                'external' is used to follow TTL external modulation
+        """
+        if mode == 'internal':
+            if state:
+                self.query("L0I1O1")
+            else:
+                self.query("L0I1O0")
+        elif mode == 'external':
+            if state:
+                self.query("L0I0O1")
+            else:
+                self.query("L0I0O0")
+        else:
+            raise Warning('Blanking type not known.')
+
+    def get_states(self):
+        """ Gets the status of all the channels
+
+        Returns:
+            states : str
+                message from the driver describing all channel states
+        """
+        return self.query('S')
+
+    def frequency(self, channel, value):
+        """RF frequency for a given channel.
+        Args:
+            channel : int
+                channel to set the frequency.
+            value : float
+                Frequency to set in MHz (it has accepted ranges that depends on the channel)
+        """
+        self.query("L{}F{}".format(channel, value))
+
+    def powerdb(self, channel, value):
+        """Power for a given channel (in db).
+        Range: (0,22) dBm
+
+        Args:
+            channel : int
+                channel to use
+            value : float
+                power value in dBm
+        """
+        self.query("L{}D{}".format(channel, value))
+
+    # def power(self, channel, value):
+    #     """Power for a given channel (in digital units).
+    #     """
+    #     self.query("L{}P{:04d}".format(channel, value), expectanswer=False)
+
+    def query(self, cmd, values=None, expectanswer=True):
+        '''send and receive the answer
+
+        Args:
+            cmd : byte string
+                the command to send. necessary end-of-command syntax will
+                be appended
+            values : dict
+                conversion of possible return values.
+                    keys: required outputs of this query function
+                    values: expected serial answers
+            expectanswer : bool
+                whether or not to wait for an answer
+        '''
+        if self.in_waiting:
+            self.reset_input_buffer()
+        self.write(cmd.encode()+b'\r')
+        time.sleep(0.1)
+
+        if expectanswer:
+            answer = self.read_until()
+            answer = answer.decode().split('\rD')[0]
+
+            if values is not None:
+                valrev = {v: k for k, v in values.items()}
+                answer = valrev[answer]
+            return answer
+
+
+class AAAOTFAttenuator(AbstractAttenuator):
+    """Implementation of the AbstractAttenuator using an AOTF
+    from AA.
+
+    """
+    CHANNELS = list(range(8))
+
+    def __init__(self, attenuation_config, wait_after_move=.5):
+        """Keys in attenuation config:
+            for connection maximally:
+                port, baudrate, bytesize, parity, stopbits, timeout
+            for channel def:
+                channeldef_loc : points to the csv file specifying channels and frequencies
+        """
+        super().__init__(attenuation_config)
+        self.wait_after_move = wait_after_move
+        self.currval = None
+        self.wavelength = None
+
+        self.channeldef = pd.read_csv(attenuation_config['channeldef_loc'], index_col=0)
+
+    def _connect(self):
+        """Keys in attenuation config, maximally:
+        port, baudrate, bytesize, parity, stopbits, timeout
+        """
+        pot_pars = [
+            'port', 'baudrate', 'bytesize',
+            'parity', 'stopbits', 'timeout']
+        connection_pars = {
+            k: v for k, v in self.config.items()
+            if k in pot_pars}
+        self.lowlvl = AAAOTF_lowlevel(**connection_pars)
+
+    def set(self, val):
+        self.currval = val
+        # print('setting power dB to ', val)
+        self.lowlvl.powerdb(self.channel, val)
+        time.sleep(0.1)
+        #print('set power of channel ', self.channel, ' to ', val)
+
+    def curr_pos(self):
+        return self.currval
+
+    def home(self):
+        pass
+
+    def set_wavelength(self, wvl):
+        """in case the attenuator is wavelength-sensitive
+        """
+        wvl = int(wvl)
+        self.wavelength = wvl
+
+        self.channel = int(self.channeldef.loc[self.channeldef['wavelength']==wvl, 'channel'].values[0])
+        self.lowlvl.enable(self.channel, True)
+        # time.sleep(0.05)
+        freq = self.channeldef.loc[self.channeldef['wavelength']==wvl, 'frequency'].values[0]
+        # print('set freq', freq, ' for channel', self.channel, 'for wavelength', wvl)
+        self.lowlvl.frequency(self.channel, freq)
+        # time.sleep(0.05)
+        #print('enabled channel ', self.channel, ' and set its frequency to ', freq)
+
+
+class NIdaqmxAOAttenuator(AbstractAttenuator):
+    """Implementation of the AbstractAttenuator using NIDAQmx analog output.
+
+    """
+    CHANNELS = list(range(8))
+
+    def __init__(self, attenuation_config, wait_after_move=.5):
+        """Keys in attenuation config:
+            lines: dict with
+                keys: wavelength (int)
+                vals: line (e.g. 'Dev1/ao0')
+        """
+        super().__init__(attenuation_config)
+        self.wait_after_move = wait_after_move
+        self.currval = None
+        self.wavelength = None
+
+
+    def _connect(self):
+        """Keys in attenuation config, maximally:
+        port, baudrate, bytesize, parity, stopbits, timeout
+        """
+        self.tasks = {}
+        for wavelength, line in self.config['lines'].items():
+            self.tasks[wavelength] = nidaqmx.Task()
+            self.tasks[wavelength].ao_channels.add_ao_voltage_chan(line)
+
+    def set(self, val):
+        self.currval = val
+        self.tasks[self.wavelength].write(val, auto_start=True)
+        self.tasks[self.wavelength].stop()
+
+    def curr_pos(self):
+        return self.currval
+
+    def home(self):
+        pass
+
+    def set_wavelength(self, wvl):
+        """in case the attenuator is wavelength-sensitive
+        """
+        wvl = int(wvl)
+        self.wavelength = wvl
+
+    def __del__(self):
+        if hasattr(self, 'tasks'):
+            for t in self.tasks.values():
+                try:
+                    t.close()
+                except:
+                    pass

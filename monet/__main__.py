@@ -19,6 +19,7 @@ from io import StringIO
 from contextlib import redirect_stdout
 
 from monet import CONFIGS, CONFIGS_PATH, PROTOCOLS, PROTOCOLS_PATH
+import monet.io as io
 
 
 # configure logger and log that this shouldn't be done here
@@ -48,10 +49,10 @@ def main():
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
         'mode', type=str,
-        help='mode. One of "set", "adjust", or "calibrate".')
+        help='mode. One of "set", "adjust", "caliaotf", "calibrate", "serve", or "migrate".')
     parser.add_argument(
-        'name', type=str,
-        help='Microscope Name, as specified in config.')
+        'name', type=str, nargs='?', default=None,
+        help='Microscope Name, as specified in config. Not required for serve/migrate modes.')
     parser.add_argument(
         '-c', '--configs-file', type=str, required=False,
         default=None,
@@ -65,12 +66,37 @@ def main():
             path to the protocol yaml file (if not supplied, only attenuation
             will be controlled, no laser control).
             - Only for calibration mode''')
+    parser.add_argument(
+        '--host', type=str, default='0.0.0.0',
+        help='Host to bind the server to (serve mode only).')
+    parser.add_argument(
+        '--port', type=int, default=8000,
+        help='Port to bind the server to (serve mode only).')
+    parser.add_argument(
+        '--db-path', type=str, default='calibrations.db',
+        help='Path to the SQLite database file (serve/migrate mode).')
+    parser.add_argument(
+        '--source', type=str, default=None,
+        help='Path to the source Excel database (migrate mode only).')
 
     # Parse
     args = parser.parse_args()
-    if args.mode == 'calibrate':
+    if args.mode == 'serve':
+        import uvicorn
+        os.environ['MONET_DB_PATH'] = args.db_path
+        from monet.server import app
+        uvicorn.run(app, host=args.host, port=args.port)
+    elif args.mode == 'migrate':
+        from monet.migrate import migrate_excel_to_sqlite
+        if args.source is None:
+            parser.error('migrate mode requires --source argument')
+        migrate_excel_to_sqlite(args.source, args.db_path)
+    elif args.mode == 'calibrate':
         MonetCalibrateInteractive(
             args.name, args.configs_file, args.protocol_file).do_calibrate(args={})
+    elif args.mode == 'caliaotf':
+        MonetCalibrateInteractive(
+            args.name, args.configs_file, args.protocol_file).do_calibrate_aotf(args={})
     elif args.mode == 'adjust':
         MonetAdjustInteractive(
             args.name, args.configs_file, args.protocol_file).cmdloop()
@@ -78,7 +104,7 @@ def main():
         MonetSetInteractive(
             args.name).cmdloop()
     else:
-        raise KeyError('monet mode has to be one of "set" and "calibrate".')
+        raise KeyError('monet mode has to be one of "set", "calibrate", "serve", or "migrate".')
 
 
 # def monet_interactive(CONFIG):
@@ -153,6 +179,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
     def __init__(self, config_name, configs_file=None, protocol_file=None):
         super().__init__()
         import monet.calibrate as mca
+
         global CONFIGS, PROTOCOLS
 
         if configs_file is not None:
@@ -199,6 +226,17 @@ class MonetCalibrateInteractive(cmd.Cmd):
             self.pc.calibrate()
         else:
             self.pc.run_protocol()
+
+    def do_calibrate_aotf(self, args):
+        """Perform a calibration of the AOTF settings (especially the frequency).
+        """
+        import monet.aotf_cali as aotf_cali
+        attenuator_classpath = self.pc.instrument.config['attenuation']['classpath']
+        if 'AOTF' not in attenuator_classpath.upper():
+            raise ValueError(
+                'Probably, the attenuator is not an AOTF and thus cannot be calibrated this way.' +
+                ' No mention of "AOTF" is in {:s}'.format(attenuator_classpath))
+        aotf_cali.calibrate_all(self.pc.instrument, self.pc.protocol, self.pc.powermeter)
 
     def do_set(self, power):
         """Set the power to a specified level.
@@ -423,6 +461,7 @@ class MonetAdjustInteractive(cmd.Cmd):
             try:
                 # print('Setting laser')
                 self.pc.instrument.laser = laser
+                self.pc.instrument.attenuator.set_wavelength(laser)
             except Exception as e:
                 print(str(e))
                 print('Available lasers: ', str(self.pc.instrument.laser))
@@ -546,9 +585,12 @@ class MonetSetInteractive(cmd.Cmd):
     intro = '''Welcome to interactive monet - set. Here, Microscope
         illumination power can be set if calibrations exist. A powermeter
         does not need to be plugged in.
+        By default, a laser is switched off when navigating to a different
+        one. Use command 'multi_laser'
         '''
     prompt = '(monet set)'
     file = None
+    multi_laser_operation = True
 
     def __init__(self, config_name):
         super().__init__()
@@ -609,7 +651,23 @@ class MonetSetInteractive(cmd.Cmd):
         self.power_setvalues = {}
         for las in self.instrument.laser:
             self.do_laser(las)
-            self.power_setvalues[las] = round(self.instrument.power)
+            try:
+                self.power_setvalues[las] = 1
+                self.power_setvalues[las] = round(self.instrument.power)
+            except:
+                pass
+
+    def do_multi_laser(self, arg):
+        if arg.upper() == '0' or arg.upper() == 'FALSE':
+            self.multi_laser_operation = False
+            print("""
+                Switching multi-laser operation off.
+                Only one laser is on at a time.""")
+        else:
+            self.multi_laser_operation = True
+            print("""
+                Switching multi-laser operation on.
+                Explicitly switch lasers off when not using.""")
 
     def do_laser(self, laser):
         """Activate a laser, and open the beam path for it.
@@ -648,8 +706,28 @@ class MonetSetInteractive(cmd.Cmd):
             else:
                 try:
                     print('Setting laser {:s}.'.format(str(laser)))
+                    if (self.instrument.curr_laser is not None
+                        and self.instrument.curr_laser != laser
+                        and self.multi_laser_operation
+                    ):
+                        if (self.instrument.lasers[
+                            self.instrument.curr_laser].enabled
+                        ):
+                            print(
+                                f'WARNING: switching to {laser}, but'
+                                + f' laser {self.instrument.curr_laser}'
+                                + 'is still ON!')
+                            logger.debug(
+                                f'WARNING: switching to {laser}, but'
+                                + f' laser {self.instrument.curr_laser}'
+                                + 'is still ON!')
+                    elif not self.multi_laser_operation:
+                        # switch the current laser off
+                        self.instrument.lasers[
+                            self.instrument.curr_laser].enabled = False
                     self.instrument.laser = laser
-                    self.do_open('')
+                    self.instrument.attenuator.set_wavelength(laser)
+                    # self.do_open('')
                     # set laser power back to the value for that laser
                     try:
                         self.do_power(self.power_setvalues[
@@ -802,6 +880,8 @@ class MonetSetInteractive(cmd.Cmd):
         return line
 
     def close(self):
+        print("Switching all lasers off.")
+        self.do_laser('off')
         pass
 
 
