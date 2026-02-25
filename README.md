@@ -31,7 +31,7 @@ conda activate monet
 
 ```bash
 pip install -r requirements.txt
-python setup.py develop
+pip install -e .
 ```
 
 ## Quick Start

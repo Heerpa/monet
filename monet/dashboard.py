@@ -497,34 +497,37 @@ function renderPowerRange(records) {
     card.appendChild(h6);
 
     const traces = [];
+    // Sorted unique powers → index determines marker shape
+    const sortedPowers = [...new Set(recs.map(r => r.laser_power))].sort((a, b) => a - b);
     const byKey  = groupBy(recs, r => r.wavelength + '__' + r.laser_power);
 
     for (const [, kRecs] of Object.entries(byKey)) {
-      const wl    = kRecs[0].wavelength;
-      const lp    = kRecs[0].laser_power;
-      const color = wlColor(wl);
-      const xs    = kRecs.map(r => r.dt);
-      const mt    = modelType(kRecs[0].parameters);
-      const name  = wl + '\\u202fnm / ' + lp + '\\u202fmW';
+      const wl     = kRecs[0].wavelength;
+      const lp     = kRecs[0].laser_power;
+      const color  = wlColor(wl);
+      const symbol = _DEV_MARKERS[sortedPowers.indexOf(lp) % _DEV_MARKERS.length];
+      const xs     = kRecs.map(r => r.dt);
+      const mt     = modelType(kRecs[0].parameters);
+      const name   = wl + '\\u202fnm / ' + lp + '\\u202fmW';
 
       if (mt === 'sinusoidal') {
         traces.push({
           x: xs, y: kRecs.map(r => r.parameters.bkg + r.parameters.amp),
           name: name + ' max', legendgroup: name,
-          mode: 'lines+markers', line: { color }, marker: { color },
+          mode: 'lines+markers', line: { color }, marker: { color, symbol, size: 7 },
           showlegend: true,
         });
         traces.push({
           x: xs, y: kRecs.map(r => r.parameters.bkg),
           name: name + ' bkg', legendgroup: name,
-          mode: 'lines+markers', line: { color, dash: 'dot' }, marker: { color },
+          mode: 'lines+markers', line: { color, dash: 'dot' }, marker: { color, symbol, size: 7 },
           showlegend: true,
         });
       } else if (mt === 'point') {
         traces.push({
           x: xs, y: kRecs.map(r => r.parameters.amp),
           name, legendgroup: name,
-          mode: 'markers', marker: { color, symbol: 'diamond', size: 9 },
+          mode: 'markers', marker: { color, symbol, size: 9 },
           showlegend: true,
         });
       }
