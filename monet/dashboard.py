@@ -218,7 +218,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       <button class="tab-btn"        data-tab="param-history"
               onclick="switchTab('param-history')">Parameter History</button>
       <button class="tab-btn active" data-tab="power-range"
-              onclick="switchTab('power-range')">Power Range</button>
+              onclick="switchTab('power-range')">Power History</button>
       <button class="tab-btn"        data-tab="latest-table"
               onclick="switchTab('latest-table')">Latest Calibrations</button>
     </div>
@@ -542,64 +542,49 @@ function renderLatestCharts(rows) {
   container.innerHTML = '';
   if (!rows.length) return;
 
-  const byDevice = groupBy(rows, r => r.device);
+  // One chart per wavelength; each series = one microscope.
+  // X-axis: laser power setting (mW).  Y-axis: output power (bkg+amp or amp).
+  const byWL = groupBy(rows, r => r.wavelength);
+  const sortedWLs = Object.keys(byWL).map(Number).sort((a, b) => a - b);
 
-  for (const [device, recs] of Object.entries(byDevice)) {
+  for (const wl of sortedWLs) {
+    const wlRecs = byWL[wl].slice().sort((a, b) => a.laser_power - b.laser_power);
+
     const card = document.createElement('div');
     card.className = 'chart-card';
     const h6 = document.createElement('h6');
     h6.className = 'fw-semibold mb-2';
-    h6.textContent = device;
+    h6.style.color = wlColor(wl);
+    h6.textContent = wl + '\\u202fnm';
     card.appendChild(h6);
 
-    const sinRecs = recs.filter(r => modelType(r.parameters) === 'sinusoidal');
-    const ptRecs  = recs.filter(r => modelType(r.parameters) === 'point');
-
     const traces = [];
-    const layout = {
-      margin: { t: 10, b: 50, l: 55, r: 15 },
-      hovermode: 'x unified',
-      legend: { orientation: 'h', y: -0.22, font: { size: 11 } },
-      xaxis: { title: 'Laser power setting (mW)' },
-    };
+    const byDevice = groupBy(wlRecs, r => r.device);
 
-    if (sinRecs.length) {
-      layout.yaxis  = { domain: [0.70, 1.00], title: { text: 'bkg', standoff: 4 } };
-      layout.yaxis2 = { domain: [0.36, 0.64], title: { text: 'amp', standoff: 4 } };
-      layout.yaxis3 = { domain: [0.00, 0.30], title: { text: 'phi', standoff: 4 } };
-      layout.xaxis  = { anchor: 'y3', title: 'Laser power setting (mW)' };
-      layout.height = 500;
+    for (const [device, recs] of Object.entries(byDevice)) {
+      recs.sort((a, b) => a.laser_power - b.laser_power);
+      const xs      = recs.map(r => r.laser_power);
+      const sinRecs = recs.filter(r => modelType(r.parameters) === 'sinusoidal');
+      const ptRecs  = recs.filter(r => modelType(r.parameters) === 'point');
 
-      const sinByWL = groupBy(sinRecs, r => r.wavelength);
-      for (const [wl, wlRecs] of Object.entries(sinByWL)) {
-        const color = wlColor(wl);
-        const xs    = wlRecs.map(r => r.laser_power);
-        const name  = wl + '\\u202fnm';
-        const base  = { x: xs, name, legendgroup: name,
-                         mode: 'lines+markers', line: { color }, marker: { color } };
-        traces.push({ ...base, y: wlRecs.map(r => r.parameters.bkg), yaxis: 'y',
-                                showlegend: true });
-        traces.push({ ...base, y: wlRecs.map(r => r.parameters.amp), yaxis: 'y2',
-                                showlegend: false });
-        traces.push({ ...base, y: wlRecs.map(r => r.parameters.phi), yaxis: 'y3',
-                                showlegend: false });
-      }
-    }
-
-    if (ptRecs.length) {
-      if (!sinRecs.length) {
-        layout.yaxis  = { title: { text: 'amp' } };
-        layout.height = 280;
-      }
-      const ptByWL = groupBy(ptRecs, r => r.wavelength);
-      for (const [wl, wlRecs] of Object.entries(ptByWL)) {
-        const color = wlColor(wl);
+      if (sinRecs.length) {
+        const sxs = sinRecs.map(r => r.laser_power);
         traces.push({
-          x: wlRecs.map(r => r.laser_power),
-          y: wlRecs.map(r => r.parameters.amp),
-          name: wl + '\\u202fnm', legendgroup: wl + '\\u202fnm',
-          mode: 'lines+markers', line: { color }, marker: { color },
-          yaxis: 'y', showlegend: true,
+          x: sxs, y: sinRecs.map(r => r.parameters.bkg + r.parameters.amp),
+          name: device + ' max', legendgroup: device,
+          mode: 'lines+markers', showlegend: true,
+        });
+        traces.push({
+          x: sxs, y: sinRecs.map(r => r.parameters.bkg),
+          name: device + ' bkg', legendgroup: device,
+          mode: 'lines+markers', line: { dash: 'dot' }, showlegend: true,
+        });
+      }
+      if (ptRecs.length) {
+        traces.push({
+          x: ptRecs.map(r => r.laser_power), y: ptRecs.map(r => r.parameters.amp),
+          name: device, legendgroup: device,
+          mode: 'markers', marker: { symbol: 'diamond', size: 9 }, showlegend: true,
         });
       }
     }
@@ -610,9 +595,16 @@ function renderLatestCharts(rows) {
     container.appendChild(card);
 
     if (traces.length) {
-      Plotly.newPlot(chartDiv, traces, layout, { responsive: true, displayModeBar: false });
+      Plotly.newPlot(chartDiv, traces, {
+        margin: { t: 10, b: 50, l: 55, r: 15 },
+        hovermode: 'x unified',
+        legend: { orientation: 'h', y: -0.22, font: { size: 11 } },
+        xaxis: { title: 'Laser power setting (mW)' },
+        yaxis: { title: 'Power (mW)' },
+        height: 300,
+      }, { responsive: true, displayModeBar: false });
     } else {
-      chartDiv.appendChild(emptyMsg('No plottable records for this device.'));
+      chartDiv.appendChild(emptyMsg('No plottable records for this wavelength.'));
     }
   }
 }
