@@ -563,6 +563,13 @@ function renderLatestCharts(rows) {
 
   // One chart per wavelength; each series = one microscope.
   // X-axis: laser power setting (mW).  Y-axis: output power (bkg+amp or amp).
+
+  // Assign a consistent style to each device across all wavelength charts.
+  const allDevices = [...new Set(rows.map(r => r.device))].sort();
+  const devStyleMap = Object.fromEntries(
+    allDevices.map((d, i) => [d, deviceStyle(i)])
+  );
+
   const byWL = groupBy(rows, r => r.wavelength);
   const sortedWLs = Object.keys(byWL).map(Number).sort((a, b) => a - b);
 
@@ -580,9 +587,9 @@ function renderLatestCharts(rows) {
     const traces = [];
     const byDevice = groupBy(wlRecs, r => r.device);
 
-    Object.entries(byDevice).forEach(([device, recs], devIdx) => {
+    Object.entries(byDevice).forEach(([device, recs]) => {
       recs.sort((a, b) => a.laser_power - b.laser_power);
-      const { color, symbol } = deviceStyle(devIdx);
+      const { color, symbol } = devStyleMap[device];
       const sinRecs = recs.filter(r => modelType(r.parameters) === 'sinusoidal');
       const ptRecs  = recs.filter(r => modelType(r.parameters) === 'point');
 
