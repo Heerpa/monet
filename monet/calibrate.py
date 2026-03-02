@@ -181,6 +181,9 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         for laser in self.protocol['laser_sequence']:
             self.instrument.laser = laser
             self.instrument.laser_enabled = False
+        # move beampath to start_calibrate position
+        if start_pos := self.protocol['beampath']['start_calibrate']:
+            self.instrument.beampath.positions = start_pos
         # now start calibration
         for laser in self.protocol['laser_sequence']:
             print('switching to laser', laser)
@@ -222,6 +225,10 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             self.save_measvals(measpwrs, laser)
         self.plot_device_history()
         # post-actions
+        # move beampath to end_calibrate position
+        if end_pos := self.protocol['beampath']['end_calibrate']:
+            self.instrument.beampath.positions = end_pos
+        # move beampath to general end position (which is also used for shutdowbn)
         if self.instrument.use_beampath and 'end' in self.protocol['beampath'].keys():
             self.instrument.beampath.positions = self.protocol['beampath']['end']
         # self.instrument.is_calibrated = True
