@@ -357,7 +357,11 @@ class CalibrateTab(QWidget):
 # ---------------------------------------------------------------------------
 
 class AdjustTab(QWidget):
-    """Tab for direct laser/attenuator adjustment."""
+    """Tab for direct attenuator and laser power adjustment.
+
+    No laser selector — operations act on whichever laser is currently
+    active in the instrument (``instrument.curr_laser``).
+    """
 
     def __init__(self, main_window):
         super().__init__()
@@ -369,22 +373,15 @@ class AdjustTab(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        # Laser selector
-        laser_row = QHBoxLayout()
-        laser_row.addWidget(QLabel('Laser:'))
-        self._laser_combo = QComboBox()
-        self._laser_combo.currentIndexChanged.connect(self._on_laser_changed)
-        laser_row.addWidget(self._laser_combo)
-        self._btn_enable = QPushButton('Enable laser')
-        self._btn_enable.setCheckable(True)
-        self._btn_enable.clicked.connect(self._on_toggle_laser)
-        laser_row.addWidget(self._btn_enable)
+        # Refresh row
+        refresh_row = QHBoxLayout()
         self._btn_refresh = QPushButton('Refresh')
-        self._btn_refresh.setToolTip('Re-read current device values from hardware')
+        self._btn_refresh.setToolTip(
+            'Re-read attenuator position and laser power from hardware')
         self._btn_refresh.clicked.connect(self._on_refresh)
-        laser_row.addWidget(self._btn_refresh)
-        laser_row.addStretch()
-        layout.addLayout(laser_row)
+        refresh_row.addWidget(self._btn_refresh)
+        refresh_row.addStretch()
+        layout.addLayout(refresh_row)
 
         # Attenuator group
         att_group = QGroupBox('Attenuator')
@@ -440,58 +437,30 @@ class AdjustTab(QWidget):
 
     def set_pc(self, pc):
         self._pc = pc
-        self._laser_combo.blockSignals(True)
-        self._laser_combo.clear()
-        if pc is not None:
-            for laser in pc.instrument.lasers:
-                self._laser_combo.addItem(str(laser), laser)
-        self._laser_combo.blockSignals(False)
-        if self._laser_combo.count():
-            self._on_laser_changed(0)
-
-    def _current_laser_key(self):
-        return self._laser_combo.currentData()
-
-    def _on_laser_changed(self, idx):
-        if self._pc is None:
+        if pc is None:
             return
-        laser = self._current_laser_key()
-        if laser is None:
-            return
-        # Update laser enabled button
+        # Populate initial hardware values
         try:
-            enabled = self._pc.instrument.lasers[laser].enabled
-            self._btn_enable.setChecked(enabled)
-            self._btn_enable.setText('Disable laser' if enabled else 'Enable laser')
-        except Exception as exc:
-            self._status.setText(str(exc))
-        # Populate current attenuator position
-        try:
-            pos = self._pc.instrument.attenuator.curr_pos()
+            pos = pc.instrument.attenuator.curr_pos()
             if pos is not None:
                 self._att_spin.setValue(float(pos))
         except Exception:
             pass
-        # Populate current laser power set-point
         try:
-            pwr = self._pc.instrument.lasers[laser].power
+            laser = pc.instrument.curr_laser
+            pwr = pc.instrument.lasers[laser].power
             if pwr is not None:
                 self._pwr_spin.setValue(float(pwr))
         except Exception:
             pass
 
     def _on_refresh(self):
-        """Read current hardware state and update all displayed values."""
+        """Read attenuator position and laser power from hardware."""
         if self._pc is None:
             return
-        laser = self._current_laser_key()
 
         def _do():
             result = {}
-            try:
-                result['enabled'] = self._pc.instrument.lasers[laser].enabled
-            except Exception:
-                pass
             try:
                 pos = self._pc.instrument.attenuator.curr_pos()
                 if pos is not None:
@@ -499,6 +468,7 @@ class AdjustTab(QWidget):
             except Exception:
                 pass
             try:
+                laser = self._pc.instrument.curr_laser
                 pwr = self._pc.instrument.lasers[laser].power
                 if pwr is not None:
                     result['laser_pwr'] = float(pwr)
@@ -507,10 +477,6 @@ class AdjustTab(QWidget):
             return result
 
         def _on_result(result):
-            if 'enabled' in result:
-                enabled = result['enabled']
-                self._btn_enable.setChecked(enabled)
-                self._btn_enable.setText('Disable laser' if enabled else 'Enable laser')
             if 'att_pos' in result:
                 self._att_spin.setValue(result['att_pos'])
             if 'laser_pwr' in result:
@@ -523,7 +489,7 @@ class AdjustTab(QWidget):
     # --- helpers for async hardware ops ---
 
     def _hw_buttons(self, enabled):
-        for btn in (self._btn_enable, self._btn_att_set, self._btn_att_home,
+        for btn in (self._btn_att_set, self._btn_att_home,
                     self._btn_pwr_set, self._btn_bp_open, self._btn_bp_close,
                     self._btn_refresh):
             btn.setEnabled(enabled)
@@ -556,24 +522,6 @@ class AdjustTab(QWidget):
         self._active_worker = worker
         worker.start()
 
-    def _on_toggle_laser(self, checked):
-        if self._pc is None:
-            return
-        laser = self._current_laser_key()
-
-        def _do():
-            self._pc.instrument.laser = laser
-            self._pc.instrument.laser_enabled = checked
-
-        def _done():
-            self._btn_enable.setText('Disable laser' if checked else 'Enable laser')
-            self._status.setText(
-                f'Laser {laser} nm {"enabled" if checked else "disabled"}.')
-            self._main_window.set_status('Ready', 2000)
-
-        self._run_hw(_do, f'{"Enabling" if checked else "Disabling"} laser {laser} nm…',
-                     on_done=_done)
-
     def _on_att_set(self):
         if self._pc is None:
             return
@@ -598,7 +546,7 @@ class AdjustTab(QWidget):
         def _done():
             self._status.setText('Attenuator homed.')
             self._main_window.set_status('Ready', 2000)
-            # Read back new position
+            # Read back new position after homing
             try:
                 pos = self._pc.instrument.attenuator.curr_pos()
                 if pos is not None:
@@ -612,10 +560,8 @@ class AdjustTab(QWidget):
         if self._pc is None:
             return
         pwr = self._pwr_spin.value()
-        laser = self._current_laser_key()
 
         def _do():
-            self._pc.instrument.laser = laser
             self._pc.instrument.laserpower = pwr
 
         def _done():
@@ -627,11 +573,14 @@ class AdjustTab(QWidget):
     def _on_bp_open(self):
         if self._pc is None:
             return
-        laser = self._current_laser_key()
+        try:
+            laser = self._pc.instrument.curr_laser
+        except Exception:
+            laser = None
         protocol = getattr(self._pc, 'protocol', None) or {}
         bp_positions = (protocol.get('beampath') or {}).get(laser)
         if bp_positions is None:
-            self._status.setText('No beampath config for this laser.')
+            self._status.setText('No beampath config for current laser.')
             return
 
         def _do():
