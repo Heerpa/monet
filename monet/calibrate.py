@@ -162,7 +162,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             if k in lasers_present}
         self.protocol['beampath'] = {
             k: v for k, v in self.protocol['beampath'].items()
-            if k in lasers_present or k=='end'}
+            if k in lasers_present or k=='end' or k=='start_calibrate' or k=='end_calibrate'}
 
         super().__init__(config, load_instrument=False)
 
@@ -182,7 +182,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             self.instrument.laser = laser
             self.instrument.laser_enabled = False
         # move beampath to start_calibrate position
-        if start_pos := self.protocol['beampath']['start_calibrate']:
+        # print(self.protocol['beampath'])
+        if start_pos := self.protocol['beampath'].get('start_calibrate'):
             self.instrument.beampath.positions = start_pos
         # now start calibration
         for laser in self.protocol['laser_sequence']:
@@ -226,7 +227,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         self.plot_device_history()
         # post-actions
         # move beampath to end_calibrate position
-        if end_pos := self.protocol['beampath']['end_calibrate']:
+        if end_pos := self.protocol['beampath'].get('end_calibrate'):
             self.instrument.beampath.positions = end_pos
         # move beampath to general end position (which is also used for shutdowbn)
         if self.instrument.use_beampath and 'end' in self.protocol['beampath'].keys():
