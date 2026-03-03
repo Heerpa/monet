@@ -12,7 +12,7 @@
 import json
 import logging
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QApplication,
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Background calibration worker
+# Background workers
 # ---------------------------------------------------------------------------
 
 class CalibrationWorker(QThread):
@@ -92,6 +92,53 @@ class CalibrationWorker(QThread):
             self.error.emit(str(exc))
             return
         self.finished.emit()
+
+
+class ConnectWorker(QThread):
+    """Connects to a microscope configuration in a background thread."""
+
+    connected = pyqtSignal(object)   # calibration protocol object
+    error = pyqtSignal(str)
+
+    def __init__(self, name, config, protocol):
+        super().__init__()
+        self._name = name
+        self._config = config
+        self._protocol = protocol
+
+    def run(self):
+        import monet.calibrate as mca
+        try:
+            if self._protocol:
+                pc = mca.CalibrationProtocol2D(self._config, self._protocol)
+            else:
+                pc = mca.CalibrationProtocol1D(self._config)
+            self.connected.emit(pc)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+class GenericWorker(QThread):
+    """Runs any callable in a background thread.
+
+    Emits result(object) on success, error(str) on failure.
+    The function's return value is passed to result; None is emitted if the
+    function returns nothing.
+    """
+
+    result = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, func):
+        super().__init__()
+        self._func = func
+
+    def run(self):
+        try:
+            val = self._func()
+            self.result.emit(val)
+        except Exception as exc:
+            self.error.emit(str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -227,11 +274,14 @@ class CalibrateTab(QWidget):
                 if reply != QMessageBox.Yes:
                     return
             self._log.append('Starting 1D calibration…')
+            self._main_window.set_status('Running 1D calibration…')
             try:
                 self._pc.calibrate(dry_run=dry_run)
                 self._log.append('Done.')
+                self._main_window.set_status('Calibration complete.', 5000)
             except Exception as exc:
                 QMessageBox.critical(self, 'Error', str(exc))
+                self._main_window.set_status('Calibration failed.', 5000)
             return
 
         selected = self._selected_lasers()
@@ -253,6 +303,7 @@ class CalibrateTab(QWidget):
         self._progress.setFormat('Starting…')
         self._btn_start.setEnabled(False)
         self._btn_cancel.setEnabled(True)
+        self._main_window.set_status('Calibration running…')
 
         self.calibration_started.emit()
 
@@ -268,11 +319,14 @@ class CalibrateTab(QWidget):
         if self._worker:
             self._worker.request_cancel()
             self._btn_cancel.setEnabled(False)
+            self._main_window.set_status('Cancelling calibration…')
 
     def _on_progress(self, step, total, laser, lpwr):
         self._progress.setMaximum(total)
         self._progress.setValue(step)
         self._progress.setFormat(f'{laser} nm / {lpwr} mW  ({step}/{total})')
+        self._main_window.set_status(
+            f'Calibrating: laser {laser} nm at {lpwr} mW  ({step}/{total})')
 
     def _on_finished(self):
         self._log.append('Calibration complete.')
@@ -280,6 +334,7 @@ class CalibrateTab(QWidget):
         self._btn_start.setEnabled(True)
         self._btn_cancel.setEnabled(False)
         self._worker = None
+        self._main_window.set_status('Calibration complete.', 5000)
         self.calibration_finished.emit()
 
     def _on_error(self, msg):
@@ -288,6 +343,7 @@ class CalibrateTab(QWidget):
         self._btn_start.setEnabled(True)
         self._btn_cancel.setEnabled(False)
         self._worker = None
+        self._main_window.set_status(f'Calibration error: {msg}', 5000)
         self.calibration_finished.emit()
 
     def cancel_worker_and_wait(self):
@@ -307,6 +363,7 @@ class AdjustTab(QWidget):
         super().__init__()
         self._main_window = main_window
         self._pc = None
+        self._active_worker = None   # keep alive to prevent GC
         self._build_ui()
 
     def _build_ui(self):
@@ -333,12 +390,12 @@ class AdjustTab(QWidget):
         self._att_spin.setRange(-1e6, 1e6)
         self._att_spin.setDecimals(3)
         att_layout.addWidget(self._att_spin)
-        btn_att_set = QPushButton('Set')
-        btn_att_set.clicked.connect(self._on_att_set)
-        btn_att_home = QPushButton('Home')
-        btn_att_home.clicked.connect(self._on_att_home)
-        att_layout.addWidget(btn_att_set)
-        att_layout.addWidget(btn_att_home)
+        self._btn_att_set = QPushButton('Set')
+        self._btn_att_set.clicked.connect(self._on_att_set)
+        self._btn_att_home = QPushButton('Home')
+        self._btn_att_home.clicked.connect(self._on_att_home)
+        att_layout.addWidget(self._btn_att_set)
+        att_layout.addWidget(self._btn_att_home)
         att_layout.addStretch()
         att_group.setLayout(att_layout)
         layout.addWidget(att_group)
@@ -351,21 +408,21 @@ class AdjustTab(QWidget):
         self._pwr_spin.setRange(0, 10000)
         self._pwr_spin.setDecimals(1)
         pwr_layout.addWidget(self._pwr_spin)
-        btn_pwr_set = QPushButton('Set')
-        btn_pwr_set.clicked.connect(self._on_pwr_set)
-        pwr_layout.addWidget(btn_pwr_set)
+        self._btn_pwr_set = QPushButton('Set')
+        self._btn_pwr_set.clicked.connect(self._on_pwr_set)
+        pwr_layout.addWidget(self._btn_pwr_set)
         pwr_layout.addStretch()
         pwr_group.setLayout(pwr_layout)
         layout.addWidget(pwr_group)
 
         # Beampath controls
         bp_row = QHBoxLayout()
-        btn_open = QPushButton('Open beampath')
-        btn_close = QPushButton('Close beampath')
-        btn_open.clicked.connect(self._on_bp_open)
-        btn_close.clicked.connect(self._on_bp_close)
-        bp_row.addWidget(btn_open)
-        bp_row.addWidget(btn_close)
+        self._btn_bp_open = QPushButton('Open beampath')
+        self._btn_bp_close = QPushButton('Close beampath')
+        self._btn_bp_open.clicked.connect(self._on_bp_open)
+        self._btn_bp_close.clicked.connect(self._on_bp_close)
+        bp_row.addWidget(self._btn_bp_open)
+        bp_row.addWidget(self._btn_bp_close)
         self._autoshutter_cb = QCheckBox('Autoshutter')
         self._autoshutter_cb.stateChanged.connect(self._on_autoshutter)
         bp_row.addWidget(self._autoshutter_cb)
@@ -397,76 +454,165 @@ class AdjustTab(QWidget):
         laser = self._current_laser_key()
         if laser is None:
             return
+        # Update laser enabled button
         try:
             enabled = self._pc.instrument.lasers[laser].enabled
             self._btn_enable.setChecked(enabled)
             self._btn_enable.setText('Disable laser' if enabled else 'Enable laser')
         except Exception as exc:
             self._status.setText(str(exc))
+        # Populate current attenuator position
+        try:
+            pos = self._pc.instrument.attenuator.curr_pos()
+            if pos is not None:
+                self._att_spin.setValue(float(pos))
+        except Exception:
+            pass
+        # Populate current laser power set-point
+        try:
+            pwr = self._pc.instrument.lasers[laser].power
+            if pwr is not None:
+                self._pwr_spin.setValue(float(pwr))
+        except Exception:
+            pass
+
+    # --- helpers for async hardware ops ---
+
+    def _hw_buttons(self, enabled):
+        for btn in (self._btn_enable, self._btn_att_set, self._btn_att_home,
+                    self._btn_pwr_set, self._btn_bp_open, self._btn_bp_close):
+            btn.setEnabled(enabled)
+
+    def _run_hw(self, func, status_msg, on_done=None):
+        """Run a hardware callable in a GenericWorker, updating status bar."""
+        self._hw_buttons(False)
+        self._main_window.set_status(status_msg)
+
+        worker = GenericWorker(func)
+
+        def _on_result(_val):
+            if on_done:
+                on_done()
+
+        def _on_error(msg):
+            self._status.setText(f'Error: {msg}')
+            self._main_window.set_status(f'Error: {msg}', 5000)
+            QMessageBox.critical(self, 'Error', msg)
+
+        def _on_finished():
+            self._hw_buttons(True)
+            self._active_worker = None
+
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_error)
+        worker.finished.connect(_on_finished)
+        self._active_worker = worker
+        worker.start()
 
     def _on_toggle_laser(self, checked):
         if self._pc is None:
             return
         laser = self._current_laser_key()
-        try:
+
+        def _do():
             self._pc.instrument.laser = laser
             self._pc.instrument.laser_enabled = checked
+
+        def _done():
             self._btn_enable.setText('Disable laser' if checked else 'Enable laser')
-            self._status.setText(f'Laser {laser} nm {"enabled" if checked else "disabled"}.')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._status.setText(
+                f'Laser {laser} nm {"enabled" if checked else "disabled"}.')
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, f'{"Enabling" if checked else "Disabling"} laser {laser} nm…',
+                     on_done=_done)
 
     def _on_att_set(self):
         if self._pc is None:
             return
         pos = self._att_spin.value()
-        try:
+
+        def _do():
             self._pc.instrument.attenuator.set(pos)
+
+        def _done():
             self._status.setText(f'Attenuator set to {pos}.')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, f'Setting attenuator to {pos}…', on_done=_done)
 
     def _on_att_home(self):
         if self._pc is None:
             return
-        try:
+
+        def _do():
             self._pc.instrument.attenuator.home()
+
+        def _done():
             self._status.setText('Attenuator homed.')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._main_window.set_status('Ready', 2000)
+            # Read back new position
+            try:
+                pos = self._pc.instrument.attenuator.curr_pos()
+                if pos is not None:
+                    self._att_spin.setValue(float(pos))
+            except Exception:
+                pass
+
+        self._run_hw(_do, 'Homing attenuator…', on_done=_done)
 
     def _on_pwr_set(self):
         if self._pc is None:
             return
         pwr = self._pwr_spin.value()
-        try:
-            laser = self._current_laser_key()
+        laser = self._current_laser_key()
+
+        def _do():
             self._pc.instrument.laser = laser
             self._pc.instrument.laserpower = pwr
+
+        def _done():
             self._status.setText(f'Laser power set to {pwr} mW.')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, f'Setting laser power to {pwr} mW…', on_done=_done)
 
     def _on_bp_open(self):
         if self._pc is None:
             return
-        try:
-            laser = self._current_laser_key()
-            self._pc.instrument.beampath.positions = (
-                self._pc.protocol['beampath'][laser])
+        laser = self._current_laser_key()
+        protocol = getattr(self._pc, 'protocol', None) or {}
+        bp_positions = (protocol.get('beampath') or {}).get(laser)
+        if bp_positions is None:
+            self._status.setText('No beampath config for this laser.')
+            return
+
+        def _do():
+            self._pc.instrument.beampath.positions = bp_positions
+
+        def _done():
             self._status.setText('Beampath opened.')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, 'Opening beampath…', on_done=_done)
 
     def _on_bp_close(self):
         if self._pc is None:
             return
-        try:
-            self._pc.instrument.beampath.positions = (
-                self._pc.protocol['beampath']['end'])
+        protocol = getattr(self._pc, 'protocol', None) or {}
+        end_pos = (protocol.get('beampath') or {}).get('end')
+        if end_pos is None:
+            self._status.setText('No beampath end position configured.')
+            return
+
+        def _do():
+            self._pc.instrument.beampath.positions = end_pos
+
+        def _done():
             self._status.setText('Beampath closed.')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, 'Closing beampath…', on_done=_done)
 
     def _on_autoshutter(self, state):
         if self._pc is None:
@@ -489,6 +635,7 @@ class SetPowerTab(QWidget):
         super().__init__()
         self._main_window = main_window
         self._pc = None
+        self._active_worker = None   # keep alive to prevent GC
         self._build_ui()
 
     def _build_ui(self):
@@ -514,9 +661,9 @@ class SetPowerTab(QWidget):
         self._pwr_spin.setRange(0, 10000)
         self._pwr_spin.setDecimals(2)
         pwr_row.addWidget(self._pwr_spin)
-        btn_set = QPushButton('Set')
-        btn_set.clicked.connect(self._on_set_power)
-        pwr_row.addWidget(btn_set)
+        self._btn_set = QPushButton('Set')
+        self._btn_set.clicked.connect(self._on_set_power)
+        pwr_row.addWidget(self._btn_set)
         pwr_row.addStretch()
         layout.addLayout(pwr_row)
 
@@ -524,14 +671,25 @@ class SetPowerTab(QWidget):
         self._multi_cb = QCheckBox('Multi-laser mode (keep other lasers on when switching)')
         layout.addWidget(self._multi_cb)
 
+        # Beampath controls
+        bp_row = QHBoxLayout()
+        self._btn_bp_open = QPushButton('Open beampath')
+        self._btn_bp_close = QPushButton('Close beampath')
+        self._btn_bp_open.clicked.connect(self._on_bp_open)
+        self._btn_bp_close.clicked.connect(self._on_bp_close)
+        bp_row.addWidget(self._btn_bp_open)
+        bp_row.addWidget(self._btn_bp_close)
+        bp_row.addStretch()
+        layout.addLayout(bp_row)
+
         # Measure + All off
         misc_row = QHBoxLayout()
-        btn_measure = QPushButton('Measure')
-        btn_measure.clicked.connect(self._on_measure)
-        btn_alloff = QPushButton('All lasers OFF')
-        btn_alloff.clicked.connect(self._on_all_off)
-        misc_row.addWidget(btn_measure)
-        misc_row.addWidget(btn_alloff)
+        self._btn_measure = QPushButton('Measure')
+        self._btn_measure.clicked.connect(self._on_measure)
+        self._btn_alloff = QPushButton('All lasers OFF')
+        self._btn_alloff.clicked.connect(self._on_all_off)
+        misc_row.addWidget(self._btn_measure)
+        misc_row.addWidget(self._btn_alloff)
         misc_row.addStretch()
         layout.addLayout(misc_row)
 
@@ -567,54 +725,174 @@ class SetPowerTab(QWidget):
         except Exception as exc:
             self._status.setText(str(exc))
 
+    # --- helpers for async hardware ops ---
+
+    def _action_buttons(self, enabled):
+        for btn in (self._btn_onoff, self._btn_set, self._btn_bp_open,
+                    self._btn_bp_close, self._btn_measure, self._btn_alloff):
+            btn.setEnabled(enabled)
+
+    def _run_hw(self, func, status_msg, on_done=None, on_result=None):
+        """Run a hardware callable in a GenericWorker."""
+        self._action_buttons(False)
+        self._main_window.set_status(status_msg)
+
+        worker = GenericWorker(func)
+
+        def _on_success(val):
+            if on_result:
+                on_result(val)
+            if on_done:
+                on_done()
+
+        def _on_error(msg):
+            self._status.setText(f'Error: {msg}')
+            self._main_window.set_status(f'Error: {msg}', 5000)
+            QMessageBox.critical(self, 'Error', msg)
+
+        def _on_finished():
+            self._action_buttons(True)
+            self._active_worker = None
+
+        worker.result.connect(_on_success)
+        worker.error.connect(_on_error)
+        worker.finished.connect(_on_finished)
+        self._active_worker = worker
+        worker.start()
+
     def _on_toggle_laser(self, checked):
         if self._pc is None:
             return
         laser = self._laser_combo.currentData()
-        try:
+
+        def _do():
             if not self._multi_cb.isChecked():
                 for lsr in self._pc.instrument.lasers:
                     if lsr != laser:
                         self._pc.instrument.lasers[lsr].enabled = False
             self._pc.instrument.laser = laser
             self._pc.instrument.laser_enabled = checked
+
+        def _done():
             self._btn_onoff.setText('OFF' if checked else 'ON')
             self._status.setText(f'Laser {laser} nm {"on" if checked else "off"}.')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, f'{"Enabling" if checked else "Disabling"} laser {laser} nm…',
+                     on_done=_done)
 
     def _on_set_power(self):
         if self._pc is None:
             return
         pwr = self._pwr_spin.value()
         laser = self._laser_combo.currentData()
-        try:
+
+        def _do():
             self._pc.instrument.laser = laser
             self._pc.instrument.power = pwr
+
+        def _done():
             self._status.setText(f'Power set to {pwr} mW for laser {laser} nm.')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, f'Setting power to {pwr} mW…', on_done=_done)
+
+    def _on_bp_open(self):
+        if self._pc is None:
+            return
+        laser = self._laser_combo.currentData()
+        protocol = getattr(self._pc, 'protocol', None) or {}
+        bp_positions = (protocol.get('beampath') or {}).get(laser)
+        if bp_positions is None:
+            self._status.setText('No beampath config for this laser.')
+            return
+
+        def _do():
+            self._pc.instrument.beampath.positions = bp_positions
+
+        def _done():
+            self._status.setText('Beampath opened.')
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, 'Opening beampath…', on_done=_done)
+
+    def _on_bp_close(self):
+        if self._pc is None:
+            return
+        protocol = getattr(self._pc, 'protocol', None) or {}
+        end_pos = (protocol.get('beampath') or {}).get('end')
+        if end_pos is None:
+            self._status.setText('No beampath end position configured.')
+            return
+
+        def _do():
+            self._pc.instrument.beampath.positions = end_pos
+
+        def _done():
+            self._status.setText('Beampath closed.')
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, 'Closing beampath…', on_done=_done)
 
     def _on_measure(self):
         if self._pc is None:
             return
-        try:
-            val = self._pc.powermeter.read()
-            self._status.setText(f'Measured power: {val:.3f} {self._pc.powermeter.unit}')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+        laser = self._laser_combo.currentData()
+        protocol = getattr(self._pc, 'protocol', None) or {}
+        bp_dict = protocol.get('beampath') or {}
+
+        # Ask about start_calibrate before launching background thread
+        do_start_cal = False
+        if 'start_calibrate' in bp_dict:
+            reply = QMessageBox.question(
+                self, 'Measurement beampath',
+                'Set beampath to "start_calibrate" position before measuring?',
+                QMessageBox.Yes | QMessageBox.No)
+            do_start_cal = (reply == QMessageBox.Yes)
+
+        bp_for_laser = bp_dict.get(laser)
+        bp_start_cal = bp_dict.get('start_calibrate')
+
+        def _do():
+            # Open beampath for this laser
+            if bp_for_laser is not None:
+                try:
+                    self._pc.instrument.beampath.positions = bp_for_laser
+                except Exception:
+                    pass
+            # Optionally move to start_calibrate position
+            if do_start_cal and bp_start_cal is not None:
+                try:
+                    self._pc.instrument.beampath.positions = bp_start_cal
+                except Exception:
+                    pass
+            return self._pc.powermeter.read()
+
+        def _on_val(val):
+            try:
+                unit = self._pc.powermeter.unit
+            except Exception:
+                unit = 'a.u.'
+            self._status.setText(f'Measured power: {val:.3f} {unit}')
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, 'Measuring power…', on_result=_on_val)
 
     def _on_all_off(self):
         if self._pc is None:
             return
-        try:
+
+        def _do():
             for laser in self._pc.instrument.lasers:
                 self._pc.instrument.lasers[laser].enabled = False
+
+        def _done():
             self._status.setText('All lasers switched off.')
             self._btn_onoff.setChecked(False)
             self._btn_onoff.setText('ON')
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, 'Switching all lasers off…', on_done=_done)
 
 
 # ---------------------------------------------------------------------------
@@ -800,7 +1078,7 @@ class MonetMainWindow(QMainWindow):
     def __init__(self, initial_microscope=None):
         super().__init__()
         self._pc = None
-        self._worker = None
+        self._connect_worker = None
         self.setWindowTitle('Monet — Laser Power Calibration')
         self.resize(900, 650)
         self._build_ui()
@@ -808,6 +1086,8 @@ class MonetMainWindow(QMainWindow):
             idx = self._scope_combo.findText(initial_microscope)
             if idx >= 0:
                 self._scope_combo.setCurrentIndex(idx)
+                # Auto-connect after the event loop starts and window is shown
+                QTimer.singleShot(100, self._on_connect)
 
     def _build_ui(self):
         # Toolbar
@@ -820,9 +1100,9 @@ class MonetMainWindow(QMainWindow):
             self._scope_combo.addItem(name)
         toolbar.addWidget(self._scope_combo)
 
-        btn_connect = QPushButton('Connect')
-        btn_connect.clicked.connect(self._on_connect)
-        toolbar.addWidget(btn_connect)
+        self._btn_connect = QPushButton('Connect')
+        self._btn_connect.clicked.connect(self._on_connect)
+        toolbar.addWidget(self._btn_connect)
 
         # Central widget with tabs
         self._tabs = QTabWidget()
@@ -842,8 +1122,14 @@ class MonetMainWindow(QMainWindow):
         self._tab_calibrate.calibration_started.connect(self._on_calibration_started)
         self._tab_calibrate.calibration_finished.connect(self._on_calibration_finished)
 
+        # Status bar
+        self.statusBar().showMessage('Not connected')
+
+    def set_status(self, msg, timeout_ms=0):
+        """Update the status bar. timeout_ms=0 means persistent."""
+        self.statusBar().showMessage(msg, timeout_ms)
+
     def _on_connect(self):
-        import monet.calibrate as mca
         name = self._scope_combo.currentText()
         if not name:
             QMessageBox.warning(self, 'No microscope', 'Select a microscope first.')
@@ -856,17 +1142,31 @@ class MonetMainWindow(QMainWindow):
             QMessageBox.critical(self, 'Config not found', str(exc))
             return
 
-        try:
-            if protocol:
-                self._pc = mca.CalibrationProtocol2D(config, protocol)
-            else:
-                self._pc = mca.CalibrationProtocol1D(config)
-        except Exception as exc:
-            QMessageBox.critical(self, 'Connection error', str(exc))
-            return
+        self._btn_connect.setEnabled(False)
+        self._scope_combo.setEnabled(False)
+        self.set_status(f'Connecting to {name}…')
 
+        self._connect_worker = ConnectWorker(name, config, protocol)
+        self._connect_worker.connected.connect(self._on_connected)
+        self._connect_worker.error.connect(self._on_connect_error)
+        self._connect_worker.finished.connect(self._on_connect_finished)
+        self._connect_worker.start()
+
+    def _on_connected(self, pc):
+        self._pc = pc
+        name = self._scope_combo.currentText()
+        self.set_status(f'Loading data for {name}…')
         self._refresh_all_tabs()
         self.setWindowTitle(f'Monet — {name}')
+        self.set_status(f'Connected to {name}.')
+
+    def _on_connect_error(self, msg):
+        QMessageBox.critical(self, 'Connection error', msg)
+        self.set_status(f'Connection failed: {msg}', 8000)
+
+    def _on_connect_finished(self):
+        self._btn_connect.setEnabled(True)
+        self._scope_combo.setEnabled(True)
 
     def _refresh_all_tabs(self):
         self._tab_calibrate.set_pc(self._pc)
