@@ -144,12 +144,7 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
                 the file name to save the plot at.
 
         """
-        # there was a QT error on voyager (220726) - avoid it by using tkagg
-        import matplotlib
-        matplotlib.use('tkagg')
-        # fig, ax = plt.subplots()
-        # print('abstract plotting with', xlabel, ylabel, title)
-        # print('filename', fname)
+        plt.switch_backend('agg')
         fig = self.fit_result.plot(
             show_init=False, xlabel=xlabel, ylabel=ylabel, title=title)
         # switch on gridlines
@@ -756,12 +751,7 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             xlabel = 'input variable (e.g. power[dBm])'
         if ylabel is None:
             ylabel = 'Beam Power [mW]'
-        # print('plotting with', xlabel, ylabel, title)
-        import matplotlib
-        matplotlib.use('tkagg')
-        # fig, ax = plt.subplots()
-        # print('abstract plotting with', xlabel, ylabel, title)
-        # print('filename', fname)
+        plt.switch_backend('agg')
         fig, ax = plt.subplots()
         xmock = np.linspace(
             self.analysis_parameters['min'],

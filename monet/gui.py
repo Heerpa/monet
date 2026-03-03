@@ -379,6 +379,10 @@ class AdjustTab(QWidget):
         self._btn_enable.setCheckable(True)
         self._btn_enable.clicked.connect(self._on_toggle_laser)
         laser_row.addWidget(self._btn_enable)
+        self._btn_refresh = QPushButton('Refresh')
+        self._btn_refresh.setToolTip('Re-read current device values from hardware')
+        self._btn_refresh.clicked.connect(self._on_refresh)
+        laser_row.addWidget(self._btn_refresh)
         laser_row.addStretch()
         layout.addLayout(laser_row)
 
@@ -476,21 +480,64 @@ class AdjustTab(QWidget):
         except Exception:
             pass
 
+    def _on_refresh(self):
+        """Read current hardware state and update all displayed values."""
+        if self._pc is None:
+            return
+        laser = self._current_laser_key()
+
+        def _do():
+            result = {}
+            try:
+                result['enabled'] = self._pc.instrument.lasers[laser].enabled
+            except Exception:
+                pass
+            try:
+                pos = self._pc.instrument.attenuator.curr_pos()
+                if pos is not None:
+                    result['att_pos'] = float(pos)
+            except Exception:
+                pass
+            try:
+                pwr = self._pc.instrument.lasers[laser].power
+                if pwr is not None:
+                    result['laser_pwr'] = float(pwr)
+            except Exception:
+                pass
+            return result
+
+        def _on_result(result):
+            if 'enabled' in result:
+                enabled = result['enabled']
+                self._btn_enable.setChecked(enabled)
+                self._btn_enable.setText('Disable laser' if enabled else 'Enable laser')
+            if 'att_pos' in result:
+                self._att_spin.setValue(result['att_pos'])
+            if 'laser_pwr' in result:
+                self._pwr_spin.setValue(result['laser_pwr'])
+            self._status.setText('Values refreshed.')
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, 'Refreshing device values…', on_result=_on_result)
+
     # --- helpers for async hardware ops ---
 
     def _hw_buttons(self, enabled):
         for btn in (self._btn_enable, self._btn_att_set, self._btn_att_home,
-                    self._btn_pwr_set, self._btn_bp_open, self._btn_bp_close):
+                    self._btn_pwr_set, self._btn_bp_open, self._btn_bp_close,
+                    self._btn_refresh):
             btn.setEnabled(enabled)
 
-    def _run_hw(self, func, status_msg, on_done=None):
+    def _run_hw(self, func, status_msg, on_done=None, on_result=None):
         """Run a hardware callable in a GenericWorker, updating status bar."""
         self._hw_buttons(False)
         self._main_window.set_status(status_msg)
 
         worker = GenericWorker(func)
 
-        def _on_result(_val):
+        def _on_success(val):
+            if on_result:
+                on_result(val)
             if on_done:
                 on_done()
 
@@ -503,7 +550,7 @@ class AdjustTab(QWidget):
             self._hw_buttons(True)
             self._active_worker = None
 
-        worker.result.connect(_on_result)
+        worker.result.connect(_on_success)
         worker.error.connect(_on_error)
         worker.finished.connect(_on_finished)
         self._active_worker = worker
@@ -854,18 +901,25 @@ class SetPowerTab(QWidget):
         bp_start_cal = bp_dict.get('start_calibrate')
 
         def _do():
+            import time
+            moved = False
             # Open beampath for this laser
             if bp_for_laser is not None:
                 try:
                     self._pc.instrument.beampath.positions = bp_for_laser
+                    moved = True
                 except Exception:
                     pass
             # Optionally move to start_calibrate position
             if do_start_cal and bp_start_cal is not None:
                 try:
                     self._pc.instrument.beampath.positions = bp_start_cal
+                    moved = True
                 except Exception:
                     pass
+            # Wait for beampath hardware to settle (no polling API available)
+            if moved:
+                time.sleep(2)
             return self._pc.powermeter.read()
 
         def _on_val(val):
@@ -1121,6 +1175,15 @@ class MonetMainWindow(QMainWindow):
         # Connect calibration signals
         self._tab_calibrate.calibration_started.connect(self._on_calibration_started)
         self._tab_calibrate.calibration_finished.connect(self._on_calibration_finished)
+
+        # Switch matplotlib to non-interactive Agg backend before any
+        # calibration plotting runs.  Must happen before pyplot creates
+        # any Qt-backed figures.  Failures are non-fatal.
+        try:
+            import matplotlib.pyplot as _plt
+            _plt.switch_backend('agg')
+        except Exception:
+            pass
 
         # Status bar
         self.statusBar().showMessage('Not connected')

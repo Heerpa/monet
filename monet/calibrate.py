@@ -294,6 +294,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             shutil.copytree(lfolder, sfolder)
 
     def plot_model(self, modeldf, laser):
+        plt.switch_backend('agg')
         fig, ax = plt.subplots(nrows=len(modeldf.columns), sharex=True, squeeze=False)
         for i, col in enumerate(modeldf.columns):
             ax[i, 0].plot(modeldf.index.to_numpy(), modeldf[col].to_numpy(),
@@ -322,6 +323,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.xlsx')
         measdf.to_excel(fnplot)
 
+        plt.switch_backend('agg')
         fig, ax = plt.subplots()
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
@@ -335,12 +337,12 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.png')
         fig.tight_layout()
         plt.savefig(fnplot)
+        plt.close(fig)
 
     def plot_device_history(self):
         """Plot the historic evolution of model parameters
         """
-        import matplotlib
-        matplotlib.use('Agg')
+        plt.switch_backend('agg')
         device = self.instrument.config['index'][DEVICE_TAG]
         plot_dir = self.instrument.config.get('dest_calibration_plot')
         db_fname = self.instrument.config['database']

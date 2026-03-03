@@ -417,9 +417,7 @@ def plot_device_history(db_fname, device, plot_dir):
         plot_dir : str
             the directory to save the plots in.
     """
-    # there was a QT error on voyager (220726) - avoid it by using tkagg
-    import matplotlib
-    matplotlib.use('tkagg')
+    plt.switch_backend('agg')
 
     index = {DEVICE_TAG: device}
     db = load_database(db_fname, index, 'all')
@@ -466,9 +464,7 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
         plot_dir : str
             the directory to save the plots in.
     """
-    # there was a QT error on voyager (220726) - avoid it by using tkagg
-    import matplotlib
-    matplotlib.use('tkagg')
+    plt.switch_backend('agg')
 
     index = {DEVICE_TAG: device}
     db = load_database(db_fname, index, 'all')
