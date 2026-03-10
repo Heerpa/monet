@@ -220,10 +220,10 @@ class KinesisAttenuator(AbstractAttenuator):
         """Move to an absolute position
 
         Args:
-            pos : int
-                the position to move to in internal steps
+            pos : float
+                the position in real-world units (degrees).
+                get_device_unit_from_real_value converts this to encoder steps.
         """
-        # logger.debug('Moving to {:d}...'.format(pos))
         pos_devu = self.device.get_device_unit_from_real_value(
             pos, 'DISTANCE')
         self.device.move_to_position(pos_devu)
@@ -255,8 +255,7 @@ class KinesisAttenuator(AbstractAttenuator):
             val : float
                 the value to set to.
         """
-        pos = int(val)
-        self._move_absolute(pos)
+        self._move_absolute(val)
 
     def __del__(self):
         self.device.stop_polling()
