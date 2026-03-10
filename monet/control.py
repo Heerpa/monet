@@ -448,6 +448,44 @@ class IlluminationLaserControl(IlluminationControl):
 
         self.lasers[laser].power = laser_pwr_needed
 
+    def predict_power_fixed_attenuator(self, laser_pwr, laser=None):
+        """Predict output power at the current attenuator position for a given
+        laser power, using the same linear interpolation as
+        set_power_fixed_attenuator.  Used to compute calibration deviation
+        after a fixed-attenuator feedback cycle.
+
+        Args:
+            laser_pwr : float
+                the laser power currently set (mW)
+            laser : int or str, optional
+                laser wavelength; defaults to curr_laser
+        Returns:
+            float : predicted output power in mW
+        """
+        if not self.is_calibrated:
+            raise ValueError('Not calibrated.')
+        if laser is None:
+            laser = self.curr_laser
+
+        analyzers, _ = self._populate_analyzers(self.cali_db, laser)
+        att_pos = self.attenuator.curr_pos()
+
+        laser_pwrs = []
+        output_pwrs = []
+        for lpwr, analyzer in analyzers.items():
+            try:
+                out = analyzer.estimate_power(att_pos)
+                laser_pwrs.append(float(lpwr))
+                output_pwrs.append(float(out))
+            except Exception:
+                pass
+
+        if len(laser_pwrs) < 2:
+            raise ValueError('Need at least 2 calibrated power levels.')
+
+        a, b = np.polyfit(np.array(laser_pwrs), np.array(output_pwrs), 1)
+        return float(a * float(laser_pwr) + b)
+
     def load_calibration_database(self):
         load_index = {DEVICE_TAG: self.config['index'][DEVICE_TAG]}
         self.cali_db = io.load_database(

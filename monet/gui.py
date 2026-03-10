@@ -660,18 +660,10 @@ class SetPowerTab(QWidget):
         laser_row.addStretch()
         layout.addLayout(laser_row)
 
-        # Power setting
-        pwr_row = QHBoxLayout()
-        pwr_row.addWidget(QLabel('Target power (mW):'))
-        self._pwr_spin = QDoubleSpinBox()
-        self._pwr_spin.setRange(0, 10000)
-        self._pwr_spin.setDecimals(2)
-        pwr_row.addWidget(self._pwr_spin)
-        self._btn_set = QPushButton('Set')
-        self._btn_set.clicked.connect(self._on_set_power)
-        pwr_row.addWidget(self._btn_set)
-        pwr_row.addStretch()
-        layout.addLayout(pwr_row)
+        # ── Adjustment group box ──────────────────────────────────────────
+        adj_group = QGroupBox('Power adjustment')
+        adj_layout = QVBoxLayout()
+        adj_group.setLayout(adj_layout)
 
         # Mode selector
         mode_row = QHBoxLayout()
@@ -681,7 +673,7 @@ class SetPowerTab(QWidget):
         self._mode_combo.addItem('Adjust laser power (fixed attenuator)', 'laser')
         mode_row.addWidget(self._mode_combo)
         mode_row.addStretch()
-        layout.addLayout(mode_row)
+        adj_layout.addLayout(mode_row)
 
         # Feedback control
         feedback_row = QHBoxLayout()
@@ -695,7 +687,23 @@ class SetPowerTab(QWidget):
         self._feedback_tol_spin.setSuffix(' %')
         feedback_row.addWidget(self._feedback_tol_spin)
         feedback_row.addStretch()
-        layout.addLayout(feedback_row)
+        adj_layout.addLayout(feedback_row)
+
+        # Target power + Set button
+        pwr_row = QHBoxLayout()
+        pwr_row.addWidget(QLabel('Target power (mW):'))
+        self._pwr_spin = QDoubleSpinBox()
+        self._pwr_spin.setRange(0, 10000)
+        self._pwr_spin.setDecimals(2)
+        pwr_row.addWidget(self._pwr_spin)
+        self._btn_set = QPushButton('Set')
+        self._btn_set.clicked.connect(self._on_set_power)
+        pwr_row.addWidget(self._btn_set)
+        pwr_row.addStretch()
+        adj_layout.addLayout(pwr_row)
+
+        layout.addWidget(adj_group)
+        # ─────────────────────────────────────────────────────────────────
 
         # Multi-laser checkbox
         self._multi_cb = QCheckBox('Multi-laser mode (keep other lasers on when switching)')
@@ -755,7 +763,18 @@ class SetPowerTab(QWidget):
         except Exception as exc:
             self._status.setText(str(exc))
 
-    # --- helpers for async hardware ops ---
+    # --- helpers ---
+
+    def _beampath_matches(self, target_positions):
+        """Return True if every key in target_positions already matches the
+        current beampath position, so the move can be skipped."""
+        try:
+            if not getattr(self._pc.instrument, 'use_beampath', False):
+                return False
+            current = self._pc.instrument.beampath.positions
+            return all(current.get(k) == v for k, v in target_positions.items())
+        except Exception:
+            return False
 
     def _action_buttons(self, enabled):
         for btn in (self._btn_onoff, self._btn_set, self._btn_bp_open,
@@ -825,20 +844,22 @@ class SetPowerTab(QWidget):
                 'with calibrations at multiple laser power levels.')
             return
 
-        # --- Resolve feedback settings on the main thread ---
+        # --- Resolve feedback / beampath settings on the main thread ---
         use_feedback = (self._feedback_cb.isChecked()
                         and getattr(self._pc, 'powermeter_available', False))
+        protocol = getattr(self._pc, 'protocol', None) or {}
+        bp_dict = protocol.get('beampath') or {}
+        bp_for_laser = bp_dict.get(laser)          # (1) open for wavelength
+        bp_start_cal = bp_dict.get('start_calibrate')
+        bp_end_calibrate = bp_dict.get('end_calibrate')
+        bp_end = bp_dict.get('end')
+
         do_start_cal = False
-        bp_start_cal = None
-        bp_end_calibrate = None
-        bp_end = None
-        if use_feedback:
-            protocol = getattr(self._pc, 'protocol', None) or {}
-            bp_dict = protocol.get('beampath') or {}
-            bp_start_cal = bp_dict.get('start_calibrate')
-            bp_end_calibrate = bp_dict.get('end_calibrate')
-            bp_end = bp_dict.get('end')
-            if bp_start_cal is not None:
+        if use_feedback and bp_start_cal is not None:
+            # (2) skip question if beampath is already at start_calibrate
+            if self._beampath_matches(bp_start_cal):
+                do_start_cal = True
+            else:
                 reply = QMessageBox.question(
                     self, 'Feedback — beampath',
                     'Move beampath to "start_calibrate" position before '
@@ -877,6 +898,7 @@ class SetPowerTab(QWidget):
         else:
             def _do():
                 import time
+                import numpy as _np
 
                 # Initial power setting
                 if mode == 'laser':
@@ -885,13 +907,21 @@ class SetPowerTab(QWidget):
                     self._pc.instrument.laser = laser
                     self._pc.instrument.power = pwr
 
-                # Move beampath to measurement position and settle
+                # (1) Open beampath for the selected wavelength first
+                if bp_for_laser is not None:
+                    self._pc.instrument.beampath.positions = bp_for_laser
+
+                # Move to measurement position (start_calibrate) and settle
+                moved_to_meas = False
                 if do_start_cal and bp_start_cal is not None:
                     self._pc.instrument.beampath.positions = bp_start_cal
+                    moved_to_meas = True
+                if bp_for_laser is not None or moved_to_meas:
                     time.sleep(2)
 
                 # Feedback loop
                 converged = False
+                out_of_range_warned = False
                 measured = self._pc.powermeter.read()
                 for _ in range(MAX_ITER):
                     dev_pct = (abs(measured - pwr) / pwr * 100.0
@@ -900,17 +930,30 @@ class SetPowerTab(QWidget):
                         converged = True
                         break
                     if measured <= 0:
-                        break  # cannot correct if no light detected
-                    # Proportional correction
+                        break  # cannot correct without light
                     if mode == 'laser':
-                        # Linear relationship assumed: scale current laser power
+                        # Proportional correction: scale current laser power
                         curr_lp = self._pc.instrument.lasers[laser].power
                         self._pc.instrument.lasers[laser].power = (
                             curr_lp * pwr / measured)
                     else:
-                        # Attenuator: pwr²/measured corrects for a systematic
-                        # scaling offset in the calibration
+                        # (4) Attenuator: clamp corrected target to analyzer
+                        # output range before calling estimate() — without
+                        # clamping, the ValueError raised by the analyzer for
+                        # out-of-range targets would abort the loop.
                         corrected_target = pwr * pwr / measured
+                        try:
+                            out_range = (
+                                self._pc.instrument.analyzer.output_range())
+                            lo = float(out_range[0])
+                            hi = float(out_range[1])
+                            clamped = float(
+                                _np.clip(corrected_target, lo, hi))
+                            if abs(clamped - corrected_target) > 1e-9:
+                                out_of_range_warned = True
+                            corrected_target = clamped
+                        except Exception:
+                            corrected_target = max(0.0, corrected_target)
                         att_pos = self._pc.instrument.analyzer.estimate(
                             corrected_target)
                         self._pc.instrument.attenuator.set(att_pos)
@@ -923,26 +966,38 @@ class SetPowerTab(QWidget):
                 if bp_end is not None:
                     self._pc.instrument.beampath.positions = bp_end
 
-                # Calibration deviation: compare measured to what the
-                # calibration predicts at the current hardware state.
-                # instrument.power reads attenuator position through the
-                # analyzer, giving the calibration's current prediction.
+                # (5) Calibration deviation — for laser-power mode use the
+                # linear interpolation model so that the intermediate laser
+                # power set by feedback is properly accounted for.
+                cali_pred = None
                 try:
-                    cali_pred = self._pc.instrument.power
+                    if (mode == 'laser' and
+                            hasattr(self._pc.instrument,
+                                    'predict_power_fixed_attenuator')):
+                        curr_lp = self._pc.instrument.lasers[laser].power
+                        cali_pred = (
+                            self._pc.instrument
+                            .predict_power_fixed_attenuator(curr_lp, laser))
+                    else:
+                        # Attenuator mode: calibration reads att pos through
+                        # the analyzer directly
+                        cali_pred = self._pc.instrument.power
                 except Exception:
                     cali_pred = None
 
-                return measured, converged, cali_pred
+                return measured, converged, cali_pred, out_of_range_warned
 
             def _on_result(res):
-                measured, converged, cali_pred = res
+                measured, converged, cali_pred, out_of_range_warned = res
                 dev_pct = (abs(measured - pwr) / pwr * 100.0
                            if pwr > 0 else 0.0)
-                suffix = ('' if converged
-                          else f'  (did not converge within {MAX_ITER} steps)')
-                self._status.setText(
-                    f'Target {pwr} mW → measured {measured:.3f} mW '
-                    f'({dev_pct:.1f}% deviation){suffix}')
+                parts = [f'Target {pwr} mW → measured {measured:.3f} mW '
+                         f'({dev_pct:.1f}% deviation)']
+                if not converged:
+                    parts.append(f'(did not converge within {MAX_ITER} steps)')
+                if out_of_range_warned:
+                    parts.append('(attenuator range limit reached)')
+                self._status.setText('  '.join(parts))
                 if cali_pred is not None and cali_pred > 0:
                     cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
                     self._main_window.set_status(
@@ -999,17 +1054,20 @@ class SetPowerTab(QWidget):
         protocol = getattr(self._pc, 'protocol', None) or {}
         bp_dict = protocol.get('beampath') or {}
 
-        # Ask about start_calibrate before launching background thread
-        do_start_cal = False
-        if 'start_calibrate' in bp_dict:
-            reply = QMessageBox.question(
-                self, 'Measurement beampath',
-                'Set beampath to "start_calibrate" position before measuring?',
-                QMessageBox.Yes | QMessageBox.No)
-            do_start_cal = (reply == QMessageBox.Yes)
-
         bp_for_laser = bp_dict.get(laser)
         bp_start_cal = bp_dict.get('start_calibrate')
+
+        # Ask about start_calibrate only when beampath is not already there
+        do_start_cal = False
+        if bp_start_cal is not None:
+            if self._beampath_matches(bp_start_cal):
+                do_start_cal = True   # already in position, no need to ask
+            else:
+                reply = QMessageBox.question(
+                    self, 'Measurement beampath',
+                    'Set beampath to "start_calibrate" position before measuring?',
+                    QMessageBox.Yes | QMessageBox.No)
+                do_start_cal = (reply == QMessageBox.Yes)
 
         def _do():
             import time
