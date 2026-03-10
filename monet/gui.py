@@ -1089,15 +1089,28 @@ class SetPowerTab(QWidget):
             # Wait for beampath hardware to settle (no polling API available)
             if moved:
                 time.sleep(2)
-            return self._pc.powermeter.read()
+            measured = self._pc.powermeter.read()
+            try:
+                cali_pred = self._pc.instrument.power
+            except Exception:
+                cali_pred = None
+            return measured, cali_pred
 
-        def _on_val(val):
+        def _on_val(res):
+            measured, cali_pred = res
             try:
                 unit = self._pc.powermeter.unit
             except Exception:
                 unit = 'a.u.'
-            self._status.setText(f'Measured power: {val:.3f} {unit}')
-            self._main_window.set_status('Ready', 2000)
+            self._status.setText(f'Measured power: {measured:.3f} {unit}')
+            if cali_pred is not None and cali_pred > 0:
+                cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
+                self._main_window.set_status(
+                    f'Calibration deviation: {cali_dev_pct:+.1f}%'
+                    f'  (calibration predicts {cali_pred:.3f} {unit},'
+                    f' measured {measured:.3f} {unit})')
+            else:
+                self._main_window.set_status('Ready', 2000)
 
         self._run_hw(_do, 'Measuring power…', on_result=_on_val)
 
