@@ -386,6 +386,68 @@ class IlluminationLaserControl(IlluminationControl):
         super(self.__class__, self.__class__).power.__set__(self, newpwr)
         # IlluminationControl.power.fset(self, pwr)
 
+    def set_power_fixed_attenuator(self, pwr, laser=None):
+        """Set output power by adjusting laser power only, keeping attenuator fixed.
+
+        Uses calibrations at multiple laser power levels. At the current
+        attenuator position, each calibration gives an expected output power.
+        A linear fit across those (laser_power, output_power) pairs is inverted
+        to find the laser power needed to reach *pwr*.
+
+        Args:
+            pwr : float
+                desired output power in mW
+            laser : int or str, optional
+                laser wavelength to target; defaults to curr_laser
+        Raises:
+            ValueError if not calibrated or fewer than 2 laser power levels exist.
+        """
+        if not self.is_calibrated:
+            raise ValueError('Not calibrated. Cannot set power.')
+
+        if laser is None:
+            laser = self.curr_laser
+
+        analyzers, _ = self._populate_analyzers(self.cali_db, laser)
+        if len(analyzers) < 2:
+            raise ValueError(
+                'At least 2 calibrated laser power levels are required for '
+                'fixed-attenuator mode.')
+
+        att_pos = self.attenuator.curr_pos()
+
+        laser_pwrs = []
+        output_pwrs = []
+        for lpwr, analyzer in analyzers.items():
+            try:
+                out = analyzer.estimate_power(att_pos)
+                laser_pwrs.append(float(lpwr))
+                output_pwrs.append(float(out))
+            except Exception:
+                pass
+
+        if len(laser_pwrs) < 2:
+            raise ValueError(
+                'Could not evaluate enough analyzer curves at the current '
+                'attenuator position.')
+
+        laser_pwrs = np.array(laser_pwrs)
+        output_pwrs = np.array(output_pwrs)
+
+        # Linear fit: output ≈ a·laser_pwr + b  →  laser_pwr = (output − b) / a
+        a, b = np.polyfit(laser_pwrs, output_pwrs, 1)
+        if abs(a) < 1e-12:
+            raise ValueError(
+                'Linear fit slope is near zero — cannot determine laser power.')
+
+        laser_pwr_needed = float(
+            np.clip((pwr - b) / a, laser_pwrs.min(), laser_pwrs.max()))
+        logger.debug(
+            'Fixed-attenuator mode: target %.3f mW → laser power %.3f mW '
+            '(fit: a=%.4f, b=%.4f)', pwr, laser_pwr_needed, a, b)
+
+        self.lasers[laser].power = laser_pwr_needed
+
     def load_calibration_database(self):
         load_index = {DEVICE_TAG: self.config['index'][DEVICE_TAG]}
         self.cali_db = io.load_database(

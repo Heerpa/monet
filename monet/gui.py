@@ -673,6 +673,16 @@ class SetPowerTab(QWidget):
         pwr_row.addStretch()
         layout.addLayout(pwr_row)
 
+        # Mode selector
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel('Mode:'))
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItem('Adjust attenuator', 'attenuator')
+        self._mode_combo.addItem('Adjust laser power (fixed attenuator)', 'laser')
+        mode_row.addWidget(self._mode_combo)
+        mode_row.addStretch()
+        layout.addLayout(mode_row)
+
         # Multi-laser checkbox
         self._multi_cb = QCheckBox('Multi-laser mode (keep other lasers on when switching)')
         layout.addWidget(self._multi_cb)
@@ -792,16 +802,36 @@ class SetPowerTab(QWidget):
             return
         pwr = self._pwr_spin.value()
         laser = self._laser_combo.currentData()
+        mode = self._mode_combo.currentData()
 
-        def _do():
-            self._pc.instrument.laser = laser
-            self._pc.instrument.power = pwr
+        if mode == 'laser':
+            if not hasattr(self._pc.instrument, 'set_power_fixed_attenuator'):
+                QMessageBox.warning(
+                    self, 'Not supported',
+                    'Fixed-attenuator mode requires a multi-laser instrument '
+                    'with calibrations at multiple laser power levels.')
+                return
 
-        def _done():
-            self._status.setText(f'Power set to {pwr} mW for laser {laser} nm.')
-            self._main_window.set_status('Ready', 2000)
+            def _do():
+                self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
 
-        self._run_hw(_do, f'Setting power to {pwr} mW…', on_done=_done)
+            def _done():
+                self._status.setText(
+                    f'Laser power adjusted for {pwr} mW output '
+                    f'(laser {laser} nm, attenuator fixed).')
+                self._main_window.set_status('Ready', 2000)
+
+            self._run_hw(_do, f'Adjusting laser power for {pwr} mW…', on_done=_done)
+        else:
+            def _do():
+                self._pc.instrument.laser = laser
+                self._pc.instrument.power = pwr
+
+            def _done():
+                self._status.setText(f'Power set to {pwr} mW for laser {laser} nm.')
+                self._main_window.set_status('Ready', 2000)
+
+            self._run_hw(_do, f'Setting power to {pwr} mW…', on_done=_done)
 
     def _on_bp_open(self):
         if self._pc is None:
