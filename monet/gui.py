@@ -98,6 +98,7 @@ class ConnectWorker(QThread):
     """Connects to a microscope configuration in a background thread."""
 
     connected = pyqtSignal(object)   # calibration protocol object
+    warning = pyqtSignal(str)        # non-fatal warning (e.g. no powermeter)
     error = pyqtSignal(str)
 
     def __init__(self, name, config, protocol):
@@ -113,6 +114,8 @@ class ConnectWorker(QThread):
                 pc = mca.CalibrationProtocol2D(self._config, self._protocol)
             else:
                 pc = mca.CalibrationProtocol1D(self._config)
+            if not getattr(pc, 'powermeter_available', True):
+                self.warning.emit('PowerMeter not available — calibration and power measurement disabled.')
             self.connected.emit(pc)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -345,6 +348,13 @@ class CalibrateTab(QWidget):
         self._worker = None
         self._main_window.set_status(f'Calibration error: {msg}', 5000)
         self.calibration_finished.emit()
+
+    def set_powermeter_available(self, available):
+        """Enable or disable calibration controls based on powermeter availability."""
+        self._btn_start.setEnabled(available)
+        if not available:
+            self._log.append(
+                'WARNING: PowerMeter not available. Calibration is disabled.')
 
     def cancel_worker_and_wait(self):
         if self._worker and self._worker.isRunning():
@@ -881,6 +891,10 @@ class SetPowerTab(QWidget):
 
         self._run_hw(_do, 'Measuring power…', on_result=_on_val)
 
+    def set_powermeter_available(self, available):
+        """Enable or disable the Measure button based on powermeter availability."""
+        self._btn_measure.setEnabled(available)
+
     def _on_all_off(self):
         if self._pc is None:
             return
@@ -1160,6 +1174,7 @@ class MonetMainWindow(QMainWindow):
 
         self._connect_worker = ConnectWorker(name, config, protocol)
         self._connect_worker.connected.connect(self._on_connected)
+        self._connect_worker.warning.connect(self._on_connect_warning)
         self._connect_worker.error.connect(self._on_connect_error)
         self._connect_worker.finished.connect(self._on_connect_finished)
         self._connect_worker.start()
@@ -1169,8 +1184,22 @@ class MonetMainWindow(QMainWindow):
         name = self._scope_combo.currentText()
         self.set_status(f'Loading data for {name}…')
         self._refresh_all_tabs()
+        powermeter_ok = getattr(pc, 'powermeter_available', True)
+        self._apply_powermeter_state(powermeter_ok)
         self.setWindowTitle(f'Monet — {name}')
-        self.set_status(f'Connected to {name}.')
+        status = f'Connected to {name}.'
+        if not powermeter_ok:
+            status += '  [PowerMeter unavailable]'
+        self.set_status(status)
+
+    def _apply_powermeter_state(self, available):
+        """Grey out calibrate tab and measure button when powermeter is absent."""
+        self._tabs.setTabEnabled(0, available)   # Calibrate tab
+        self._tab_calibrate.set_powermeter_available(available)
+        self._tab_setpower.set_powermeter_available(available)
+
+    def _on_connect_warning(self, msg):
+        QMessageBox.warning(self, 'PowerMeter unavailable', msg)
 
     def _on_connect_error(self, msg):
         QMessageBox.critical(self, 'Connection error', msg)

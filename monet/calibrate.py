@@ -59,8 +59,14 @@ class CalibrationProtocol1D():
             self.instrument = IlluminationControl(config, do_load_cal=False)
 
         pwrconfig = config['powermeter']
-        self.powermeter = load_class(
-            pwrconfig['classpath'], pwrconfig['init_kwargs'])
+        try:
+            self.powermeter = load_class(
+                pwrconfig['classpath'], pwrconfig['init_kwargs'])
+            self.powermeter_available = True
+        except Exception as exc:
+            logger.warning('PowerMeter not available: %s', exc)
+            self.powermeter = None
+            self.powermeter_available = False
 
     def calibrate(self, wait_time=0.1, dry_run=False):
         """Calibrate power, with parameters according to the
