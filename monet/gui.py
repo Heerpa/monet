@@ -683,6 +683,20 @@ class SetPowerTab(QWidget):
         mode_row.addStretch()
         layout.addLayout(mode_row)
 
+        # Feedback control
+        feedback_row = QHBoxLayout()
+        self._feedback_cb = QCheckBox('Feedback control')
+        feedback_row.addWidget(self._feedback_cb)
+        feedback_row.addWidget(QLabel('  Max deviation:'))
+        self._feedback_tol_spin = QDoubleSpinBox()
+        self._feedback_tol_spin.setRange(0.1, 50.0)
+        self._feedback_tol_spin.setDecimals(1)
+        self._feedback_tol_spin.setValue(1.0)
+        self._feedback_tol_spin.setSuffix(' %')
+        feedback_row.addWidget(self._feedback_tol_spin)
+        feedback_row.addStretch()
+        layout.addLayout(feedback_row)
+
         # Multi-laser checkbox
         self._multi_cb = QCheckBox('Multi-laser mode (keep other lasers on when switching)')
         layout.addWidget(self._multi_cb)
@@ -804,34 +818,142 @@ class SetPowerTab(QWidget):
         laser = self._laser_combo.currentData()
         mode = self._mode_combo.currentData()
 
-        if mode == 'laser':
-            if not hasattr(self._pc.instrument, 'set_power_fixed_attenuator'):
-                QMessageBox.warning(
-                    self, 'Not supported',
-                    'Fixed-attenuator mode requires a multi-laser instrument '
-                    'with calibrations at multiple laser power levels.')
-                return
+        if mode == 'laser' and not hasattr(self._pc.instrument, 'set_power_fixed_attenuator'):
+            QMessageBox.warning(
+                self, 'Not supported',
+                'Fixed-attenuator mode requires a multi-laser instrument '
+                'with calibrations at multiple laser power levels.')
+            return
 
-            def _do():
-                self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
+        # --- Resolve feedback settings on the main thread ---
+        use_feedback = (self._feedback_cb.isChecked()
+                        and getattr(self._pc, 'powermeter_available', False))
+        do_start_cal = False
+        bp_start_cal = None
+        bp_end_calibrate = None
+        bp_end = None
+        if use_feedback:
+            protocol = getattr(self._pc, 'protocol', None) or {}
+            bp_dict = protocol.get('beampath') or {}
+            bp_start_cal = bp_dict.get('start_calibrate')
+            bp_end_calibrate = bp_dict.get('end_calibrate')
+            bp_end = bp_dict.get('end')
+            if bp_start_cal is not None:
+                reply = QMessageBox.question(
+                    self, 'Feedback — beampath',
+                    'Move beampath to "start_calibrate" position before '
+                    'feedback measurement?\n\n'
+                    'Click Cancel to perform the initial set without feedback.',
+                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+                if reply == QMessageBox.Cancel:
+                    use_feedback = False
+                elif reply == QMessageBox.Yes:
+                    do_start_cal = True
+
+        max_dev_pct = self._feedback_tol_spin.value()
+        MAX_ITER = 20
+
+        # --- Build the background callable ---
+        if not use_feedback:
+            if mode == 'laser':
+                def _do():
+                    self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
+                done_msg = (f'Laser power adjusted for {pwr} mW output '
+                            f'(laser {laser} nm, attenuator fixed).')
+                status_msg = f'Adjusting laser power for {pwr} mW…'
+            else:
+                def _do():
+                    self._pc.instrument.laser = laser
+                    self._pc.instrument.power = pwr
+                done_msg = f'Power set to {pwr} mW for laser {laser} nm.'
+                status_msg = f'Setting power to {pwr} mW…'
 
             def _done():
-                self._status.setText(
-                    f'Laser power adjusted for {pwr} mW output '
-                    f'(laser {laser} nm, attenuator fixed).')
+                self._status.setText(done_msg)
                 self._main_window.set_status('Ready', 2000)
 
-            self._run_hw(_do, f'Adjusting laser power for {pwr} mW…', on_done=_done)
+            self._run_hw(_do, status_msg, on_done=_done)
+
         else:
             def _do():
-                self._pc.instrument.laser = laser
-                self._pc.instrument.power = pwr
+                import time
 
-            def _done():
-                self._status.setText(f'Power set to {pwr} mW for laser {laser} nm.')
-                self._main_window.set_status('Ready', 2000)
+                # Initial power setting
+                if mode == 'laser':
+                    self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
+                else:
+                    self._pc.instrument.laser = laser
+                    self._pc.instrument.power = pwr
 
-            self._run_hw(_do, f'Setting power to {pwr} mW…', on_done=_done)
+                # Move beampath to measurement position and settle
+                if do_start_cal and bp_start_cal is not None:
+                    self._pc.instrument.beampath.positions = bp_start_cal
+                    time.sleep(2)
+
+                # Feedback loop
+                converged = False
+                measured = self._pc.powermeter.read()
+                for _ in range(MAX_ITER):
+                    dev_pct = (abs(measured - pwr) / pwr * 100.0
+                               if pwr > 0 else 0.0)
+                    if dev_pct <= max_dev_pct:
+                        converged = True
+                        break
+                    if measured <= 0:
+                        break  # cannot correct if no light detected
+                    # Proportional correction
+                    if mode == 'laser':
+                        # Linear relationship assumed: scale current laser power
+                        curr_lp = self._pc.instrument.lasers[laser].power
+                        self._pc.instrument.lasers[laser].power = (
+                            curr_lp * pwr / measured)
+                    else:
+                        # Attenuator: pwr²/measured corrects for a systematic
+                        # scaling offset in the calibration
+                        corrected_target = pwr * pwr / measured
+                        att_pos = self._pc.instrument.analyzer.estimate(
+                            corrected_target)
+                        self._pc.instrument.attenuator.set(att_pos)
+                    time.sleep(0.5)
+                    measured = self._pc.powermeter.read()
+
+                # Restore beampath, mirroring the calibration routine
+                if bp_end_calibrate is not None:
+                    self._pc.instrument.beampath.positions = bp_end_calibrate
+                if bp_end is not None:
+                    self._pc.instrument.beampath.positions = bp_end
+
+                # Calibration deviation: compare measured to what the
+                # calibration predicts at the current hardware state.
+                # instrument.power reads attenuator position through the
+                # analyzer, giving the calibration's current prediction.
+                try:
+                    cali_pred = self._pc.instrument.power
+                except Exception:
+                    cali_pred = None
+
+                return measured, converged, cali_pred
+
+            def _on_result(res):
+                measured, converged, cali_pred = res
+                dev_pct = (abs(measured - pwr) / pwr * 100.0
+                           if pwr > 0 else 0.0)
+                suffix = ('' if converged
+                          else f'  (did not converge within {MAX_ITER} steps)')
+                self._status.setText(
+                    f'Target {pwr} mW → measured {measured:.3f} mW '
+                    f'({dev_pct:.1f}% deviation){suffix}')
+                if cali_pred is not None and cali_pred > 0:
+                    cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
+                    self._main_window.set_status(
+                        f'Calibration deviation: {cali_dev_pct:+.1f}%'
+                        f'  (calibration predicts {cali_pred:.3f} mW,'
+                        f' measured {measured:.3f} mW)')
+                else:
+                    self._main_window.set_status('Ready', 2000)
+
+            self._run_hw(_do, f'Setting {pwr} mW with feedback…',
+                         on_result=_on_result)
 
     def _on_bp_open(self):
         if self._pc is None:
@@ -922,8 +1044,12 @@ class SetPowerTab(QWidget):
         self._run_hw(_do, 'Measuring power…', on_result=_on_val)
 
     def set_powermeter_available(self, available):
-        """Enable or disable the Measure button based on powermeter availability."""
+        """Enable or disable powermeter-dependent controls."""
         self._btn_measure.setEnabled(available)
+        self._feedback_cb.setEnabled(available)
+        self._feedback_tol_spin.setEnabled(available)
+        if not available:
+            self._feedback_cb.setChecked(False)
 
     def _on_all_off(self):
         if self._pc is None:
