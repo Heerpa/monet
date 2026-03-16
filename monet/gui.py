@@ -957,6 +957,7 @@ class SetPowerTab(QWidget):
                         att_pos = self._pc.instrument.analyzer.estimate(
                             corrected_target)
                         self._pc.instrument.attenuator.set(att_pos)
+                        time.sleep(2)
                     time.sleep(0.5)
                     measured = self._pc.powermeter.read()
 
