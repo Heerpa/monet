@@ -780,8 +780,40 @@ class SetPowerTab(QWidget):
         self._feedback_tol_spin.setValue(1.0)
         self._feedback_tol_spin.setSuffix(' %')
         feedback_row.addWidget(self._feedback_tol_spin)
+        self._btn_pi_params = QPushButton('▶ PI parameters')
+        self._btn_pi_params.setFlat(True)
+        self._btn_pi_params.clicked.connect(self._toggle_pi_params)
+        feedback_row.addWidget(self._btn_pi_params)
         feedback_row.addStretch()
         adj_layout.addLayout(feedback_row)
+
+        # PI parameters panel (hidden by default)
+        self._pi_panel = QWidget()
+        pi_layout = QHBoxLayout(self._pi_panel)
+        pi_layout.setContentsMargins(16, 0, 0, 0)
+        pi_layout.addWidget(QLabel('Kp:'))
+        self._kp_spin = QDoubleSpinBox()
+        self._kp_spin.setRange(0.01, 5.0)
+        self._kp_spin.setDecimals(2)
+        self._kp_spin.setSingleStep(0.05)
+        self._kp_spin.setValue(0.85)
+        self._kp_spin.setToolTip(
+            'Proportional gain — fraction of current error applied per step.\n'
+            'Lower values converge more slowly but without overshoot.')
+        pi_layout.addWidget(self._kp_spin)
+        pi_layout.addWidget(QLabel('  Ki:'))
+        self._ki_spin = QDoubleSpinBox()
+        self._ki_spin.setRange(0.0, 2.0)
+        self._ki_spin.setDecimals(3)
+        self._ki_spin.setSingleStep(0.01)
+        self._ki_spin.setValue(0.15)
+        self._ki_spin.setToolTip(
+            'Integral gain — accumulates past error to eliminate steady-state offset.\n'
+            'Set to 0 to disable integral action.')
+        pi_layout.addWidget(self._ki_spin)
+        pi_layout.addStretch()
+        self._pi_panel.setVisible(False)
+        adj_layout.addWidget(self._pi_panel)
 
         # Power range label
         self._range_label = QLabel('Range: N/A')
@@ -1076,6 +1108,10 @@ class SetPowerTab(QWidget):
             self._run_hw(_do, status_msg, on_done=_done)
 
         else:
+            # Capture PI gains on the main thread before the worker starts.
+            kp_att = self._kp_spin.value()
+            ki_att = self._ki_spin.value()
+
             # Mutable relay so _do() can call worker.progress.emit once the
             # worker object exists (set just before worker.start() below).
             progress_relay = [None]
@@ -1109,12 +1145,9 @@ class SetPowerTab(QWidget):
                 if bp_for_laser is not None or moved_to_meas:
                     time.sleep(2)
 
-                # Feedback loop
-                # PI gains for attenuator mode (normalized error).
-                # Kp < 1 prevents the full-correction overshoot of a pure
-                # ratio step; Ki eliminates steady-state error.
-                KP_ATT = 0.85
-                KI_ATT = 0.15
+                # Feedback loop — PI gains captured from GUI spinboxes.
+                KP_ATT = kp_att
+                KI_ATT = ki_att
                 integral_e = 0.0   # accumulated normalized error
 
                 converged = False
@@ -1351,6 +1384,12 @@ class SetPowerTab(QWidget):
                 self._main_window.set_status('Ready', 2000)
 
         self._run_hw(_do, 'Measuring power…', on_result=_on_val)
+
+    def _toggle_pi_params(self):
+        visible = not self._pi_panel.isVisible()
+        self._pi_panel.setVisible(visible)
+        self._btn_pi_params.setText(
+            '▼ PI parameters' if visible else '▶ PI parameters')
 
     def _on_mode_changed(self, _idx):
         """Enable feedback only for single-axis modes (not combined)."""
