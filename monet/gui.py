@@ -1059,9 +1059,11 @@ class SetPowerTab(QWidget):
                         att_pos = self._pc.instrument.analyzer.estimate(
                             corrected_target)
                         self._pc.instrument.attenuator.set(att_pos)
-                        time.sleep(2)
+                        time.sleep(3)
                     time.sleep(0.5)
-                    measured = self._pc.powermeter.read()
+                    measured = self._pc.powermeter.read(5)
+                    time.sleep(0.5)
+                    measured = self._pc.powermeter.read(50)
 
                 # Restore beampath, mirroring the calibration routine
                 if bp_end_calibrate is not None:
@@ -1472,7 +1474,7 @@ class DatabaseTab(QWidget):
     def _update_db_link(self):
         db = self._db_fname or ''
         if db.startswith('http://') or db.startswith('https://'):
-            docs_url = db.rstrip('/') + '/docs'
+            docs_url = db.rstrip('/') + '/dashboard'
             self._db_link_label.setText(
                 f'Server: <a href="{docs_url}">{docs_url}</a>')
         else:
@@ -1637,8 +1639,8 @@ class MonetMainWindow(QMainWindow):
         self._tab_setpower = SetPowerTab(self)
         self._tab_database = DatabaseTab(self)
 
-        self._tabs.addTab(self._tab_calibrate, 'Calibrate')
         self._tabs.addTab(self._tab_setpower, 'Set Power')
+        self._tabs.addTab(self._tab_calibrate, 'Calibrate')
         self._tabs.addTab(self._tab_database, 'Database')
 
         # Connect calibration signals
