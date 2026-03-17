@@ -127,10 +127,12 @@ class GenericWorker(QThread):
 
     Emits result(object) on success, error(str) on failure.
     The function's return value is passed to result; None is emitted if the
-    function returns nothing.
+    function returns nothing.  progress(object) is available for intermediate
+    updates emitted during the run.
     """
 
     result = pyqtSignal(object)
+    progress = pyqtSignal(object)
     error = pyqtSignal(str)
 
     def __init__(self, func):
@@ -143,6 +145,95 @@ class GenericWorker(QThread):
             self.result.emit(val)
         except Exception as exc:
             self.error.emit(str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Feedback live-plot dialog
+# ---------------------------------------------------------------------------
+
+class FeedbackPlotDialog(QDialog):
+    """Non-modal dialog showing measured power and setpoint vs. iteration
+    during the feedback control loop.  Updated via add_point() which is
+    connected to GenericWorker.progress (queued cross-thread connection).
+    """
+
+    def __init__(self, target_pwr, max_dev_pct, mode, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Feedback — live progress')
+        self.setModal(False)
+        self.resize(540, 380)
+
+        self._target = target_pwr
+        self._tol = max_dev_pct
+        self._mode = mode   # 'attenuator_only' or 'laser'
+        self._iters = []
+        self._measured_vals = []
+        self._setpoint_vals = []
+
+        layout = QVBoxLayout(self)
+
+        try:
+            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+
+            self._fig = Figure(figsize=(5.4, 3.5), tight_layout=True)
+            self._ax = self._fig.add_subplot(111)
+            self._canvas = FigureCanvasQTAgg(self._fig)
+            layout.addWidget(self._canvas)
+            self._has_mpl = True
+            self._init_plot()
+        except Exception:
+            self._has_mpl = False
+            layout.addWidget(QLabel(
+                'matplotlib not available — cannot show live plot.'))
+
+        btn = QPushButton('Close')
+        btn.clicked.connect(self.close)
+        layout.addWidget(btn)
+
+    def _init_plot(self):
+        ax = self._ax
+        lo = self._target * (1.0 - self._tol / 100.0)
+        hi = self._target * (1.0 + self._tol / 100.0)
+
+        ax.axhline(self._target, color='green', linestyle='--', linewidth=1.5,
+                   label=f'Target ({self._target:.2f} mW)', zorder=2)
+        ax.axhspan(lo, hi, alpha=0.15, color='green',
+                   label=f'±{self._tol:.1f}% band')
+
+        self._line_meas, = ax.plot(
+            [], [], 'o-', color='royalblue', label='Measured', zorder=3)
+        # Setpoint line only meaningful for attenuator mode (PI corrects target)
+        self._line_set, = ax.plot(
+            [], [], 's--', color='darkorange', alpha=0.7,
+            label='PI setpoint',
+            visible=(self._mode == 'attenuator_only'))
+
+        ax.set_xlabel('Iteration')
+        ax.set_ylabel('Power (mW)')
+        ax.set_title('Feedback convergence')
+        ax.legend(loc='best', fontsize=8)
+        self._canvas.draw()
+
+    def add_point(self, data):
+        """Slot connected to GenericWorker.progress (called on main thread)."""
+        if not self._has_mpl:
+            return
+        iteration, setpoint, measured = data
+        self._iters.append(iteration)
+        self._measured_vals.append(measured)
+        self._setpoint_vals.append(setpoint)
+
+        self._line_meas.set_data(self._iters, self._measured_vals)
+        self._line_set.set_data(self._iters, self._setpoint_vals)
+
+        # Auto-scale y to data + target band
+        all_y = self._measured_vals + self._setpoint_vals + [self._target]
+        margin = max(abs(self._target) * 0.05, 0.01)
+        self._ax.set_xlim(-0.5, max(self._iters) + 0.5)
+        self._ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
+
+        self._canvas.draw_idle()
 
 
 # ---------------------------------------------------------------------------
@@ -985,9 +1076,17 @@ class SetPowerTab(QWidget):
             self._run_hw(_do, status_msg, on_done=_done)
 
         else:
+            # Mutable relay so _do() can call worker.progress.emit once the
+            # worker object exists (set just before worker.start() below).
+            progress_relay = [None]
+
             def _do():
                 import time
                 import numpy as _np
+
+                def _emit(iteration, setpoint, meas):
+                    if progress_relay[0] is not None:
+                        progress_relay[0]((iteration, setpoint, meas))
 
                 # Initial power setting
                 if mode == 'laser':
@@ -1020,8 +1119,12 @@ class SetPowerTab(QWidget):
 
                 converged = False
                 out_of_range_warned = False
+                last_setpoint = pwr   # initial setpoint = calibration target
+
                 measured = self._pc.powermeter.read()
-                for _ in range(MAX_ITER):
+                _emit(0, last_setpoint, measured)   # iteration 0: after initial set
+
+                for iter_num in range(MAX_ITER):
                     dev_pct = (abs(measured - pwr) / pwr * 100.0
                                if pwr > 0 else 0.0)
                     if dev_pct <= max_dev_pct:
@@ -1034,6 +1137,7 @@ class SetPowerTab(QWidget):
                         curr_lp = self._pc.instrument.lasers[laser].power
                         self._pc.instrument.lasers[laser].power = (
                             curr_lp * pwr / measured)
+                        last_setpoint = pwr  # output target always pwr
                     else:
                         # PI controller in attenuator-only mode.
                         # e is the normalised error (dimensionless).
@@ -1059,11 +1163,13 @@ class SetPowerTab(QWidget):
                         att_pos = self._pc.instrument.analyzer.estimate(
                             corrected_target)
                         self._pc.instrument.attenuator.set(att_pos)
+                        last_setpoint = corrected_target
                         time.sleep(3)
                     time.sleep(0.5)
                     measured = self._pc.powermeter.read(5)
                     time.sleep(0.5)
                     measured = self._pc.powermeter.read(50)
+                    _emit(iter_num + 1, last_setpoint, measured)
 
                 # Restore beampath, mirroring the calibration routine
                 if bp_end_calibrate is not None:
@@ -1071,9 +1177,7 @@ class SetPowerTab(QWidget):
                 if bp_end is not None:
                     self._pc.instrument.beampath.positions = bp_end
 
-                # (5) Calibration deviation — for laser-power mode use the
-                # linear interpolation model so that the intermediate laser
-                # power set by feedback is properly accounted for.
+                # Calibration deviation
                 cali_pred = None
                 try:
                     if (mode == 'laser' and
@@ -1084,8 +1188,6 @@ class SetPowerTab(QWidget):
                             self._pc.instrument
                             .predict_power_fixed_attenuator(curr_lp, laser))
                     else:
-                        # Attenuator mode: calibration reads att pos through
-                        # the analyzer directly
                         cali_pred = self._pc.instrument.power
                 except Exception:
                     cali_pred = None
@@ -1114,8 +1216,37 @@ class SetPowerTab(QWidget):
                 self._refresh_hw_state(laser)
                 self._update_range_label()
 
-            self._run_hw(_do, f'Setting {pwr} mW with feedback…',
-                         on_result=_on_result)
+            # Open the live-plot dialog and wire everything up manually
+            # (cannot use _run_hw because we need access to the worker object
+            # to hook up the progress signal before the thread starts).
+            plot_dialog = FeedbackPlotDialog(pwr, max_dev_pct, mode, self)
+            plot_dialog.show()
+            self._feedback_dialog = plot_dialog  # keep alive (prevent GC)
+
+            self._action_buttons(False)
+            self._main_window.set_status(f'Setting {pwr} mW with feedback…')
+
+            worker = GenericWorker(_do)
+            progress_relay[0] = worker.progress.emit
+            worker.progress.connect(plot_dialog.add_point)
+
+            def _on_success(val):
+                _on_result(val)
+
+            def _on_error(msg):
+                self._status.setText(f'Error: {msg}')
+                self._main_window.set_status(f'Error: {msg}', 5000)
+                QMessageBox.critical(self, 'Error', msg)
+
+            def _on_finished():
+                self._action_buttons(True)
+                self._active_worker = None
+
+            worker.result.connect(_on_success)
+            worker.error.connect(_on_error)
+            worker.finished.connect(_on_finished)
+            self._active_worker = worker
+            worker.start()
 
     def _on_bp_open(self):
         if self._pc is None:
@@ -1702,7 +1833,8 @@ class MonetMainWindow(QMainWindow):
 
     def _apply_powermeter_state(self, available):
         """Grey out calibrate tab and measure button when powermeter is absent."""
-        self._tabs.setTabEnabled(0, available)   # Calibrate tab
+        self._tabs.setTabEnabled(
+            self._tabs.indexOf(self._tab_calibrate), available)
         self._tab_calibrate.set_powermeter_available(available)
         self._tab_setpower.set_powermeter_available(available)
 
@@ -1723,10 +1855,12 @@ class MonetMainWindow(QMainWindow):
         self._tab_database.set_pc(self._pc)
 
     def _on_calibration_started(self):
-        self._tabs.setTabEnabled(1, False)   # Set Power
+        self._tabs.setTabEnabled(
+            self._tabs.indexOf(self._tab_setpower), False)
 
     def _on_calibration_finished(self):
-        self._tabs.setTabEnabled(1, True)
+        self._tabs.setTabEnabled(
+            self._tabs.indexOf(self._tab_setpower), True)
 
     def closeEvent(self, event):
         # Cancel any running calibration
