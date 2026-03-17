@@ -1011,6 +1011,13 @@ class SetPowerTab(QWidget):
                     time.sleep(2)
 
                 # Feedback loop
+                # PI gains for attenuator mode (normalized error).
+                # Kp < 1 prevents the full-correction overshoot of a pure
+                # ratio step; Ki eliminates steady-state error.
+                KP_ATT = 0.5
+                KI_ATT = 0.15
+                integral_e = 0.0   # accumulated normalized error
+
                 converged = False
                 out_of_range_warned = False
                 measured = self._pc.powermeter.read()
@@ -1028,11 +1035,14 @@ class SetPowerTab(QWidget):
                         self._pc.instrument.lasers[laser].power = (
                             curr_lp * pwr / measured)
                     else:
-                        # (4) Attenuator: clamp corrected target to analyzer
-                        # output range before calling estimate() — without
-                        # clamping, the ValueError raised by the analyzer for
-                        # out-of-range targets would abort the loop.
-                        corrected_target = pwr * pwr / measured
+                        # PI controller in attenuator-only mode.
+                        # e is the normalised error (dimensionless).
+                        e = (pwr - measured) / pwr
+                        integral_e += e
+                        # Anti-windup: bound integral contribution
+                        integral_e = float(_np.clip(integral_e, -5.0, 5.0))
+                        corrected_target = pwr * (
+                            1.0 + KP_ATT * e + KI_ATT * integral_e)
                         try:
                             out_range = (
                                 self._pc.instrument.analyzer.output_range())
@@ -1042,6 +1052,7 @@ class SetPowerTab(QWidget):
                                 _np.clip(corrected_target, lo, hi))
                             if abs(clamped - corrected_target) > 1e-9:
                                 out_of_range_warned = True
+                                integral_e = 0.0  # reset on clamp (anti-windup)
                             corrected_target = clamped
                         except Exception:
                             corrected_target = max(0.0, corrected_target)
@@ -1430,6 +1441,12 @@ class DatabaseTab(QWidget):
         ctrl_row.addWidget(btn_restart)
         layout.addLayout(ctrl_row)
 
+        # Database link (shown when database is an HTTP server URL)
+        self._db_link_label = QLabel('')
+        self._db_link_label.setOpenExternalLinks(True)
+        self._db_link_label.setTextFormat(Qt.RichText)
+        layout.addWidget(self._db_link_label)
+
         # Table
         self._table = QTableWidget(0, len(self.COLUMNS))
         self._table.setHorizontalHeaderLabels(self.COLUMNS)
@@ -1449,7 +1466,18 @@ class DatabaseTab(QWidget):
             self._db_fname = pc.instrument.config.get('database')
         else:
             self._db_fname = None
+        self._update_db_link()
         self._on_refresh()
+
+    def _update_db_link(self):
+        db = self._db_fname or ''
+        if db.startswith('http://') or db.startswith('https://'):
+            docs_url = db.rstrip('/') + '/docs'
+            self._db_link_label.setText(
+                f'Server: <a href="{docs_url}">{docs_url}</a>')
+        else:
+            self._db_link_label.setText(
+                f'File: {db}' if db else '')
 
     def _on_refresh(self):
         if self._db_fname is None:
