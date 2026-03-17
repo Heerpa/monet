@@ -1113,7 +1113,7 @@ class SetPowerTab(QWidget):
                 # PI gains for attenuator mode (normalized error).
                 # Kp < 1 prevents the full-correction overshoot of a pure
                 # ratio step; Ki eliminates steady-state error.
-                KP_ATT = 0.5
+                KP_ATT = 0.85
                 KI_ATT = 0.15
                 integral_e = 0.0   # accumulated normalized error
 
