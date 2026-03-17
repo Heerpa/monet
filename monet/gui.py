@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -691,6 +692,10 @@ class SetPowerTab(QWidget):
         feedback_row.addStretch()
         adj_layout.addLayout(feedback_row)
 
+        # Power range label
+        self._range_label = QLabel('Range: N/A')
+        adj_layout.addWidget(self._range_label)
+
         # Target power + Set button
         pwr_row = QHBoxLayout()
         pwr_row.addWidget(QLabel('Target power (mW):'))
@@ -735,6 +740,61 @@ class SetPowerTab(QWidget):
 
         self._status = QLabel('')
         layout.addWidget(self._status)
+
+        # ── Separator ────────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(sep)
+
+        # ── Hardware state section (formerly Adjust tab) ──────────────────
+        hw_refresh_row = QHBoxLayout()
+        self._btn_hw_refresh = QPushButton('Refresh hardware state')
+        self._btn_hw_refresh.setToolTip(
+            'Re-read attenuator position and laser power from hardware')
+        self._btn_hw_refresh.clicked.connect(self._on_hw_refresh)
+        hw_refresh_row.addWidget(self._btn_hw_refresh)
+        hw_refresh_row.addStretch()
+        layout.addLayout(hw_refresh_row)
+
+        # Attenuator direct control
+        hw_att_group = QGroupBox('Attenuator (direct)')
+        hw_att_layout = QHBoxLayout()
+        hw_att_layout.addWidget(QLabel('Position:'))
+        self._hw_att_spin = QDoubleSpinBox()
+        self._hw_att_spin.setRange(-1e6, 1e6)
+        self._hw_att_spin.setDecimals(3)
+        hw_att_layout.addWidget(self._hw_att_spin)
+        self._btn_hw_att_set = QPushButton('Set')
+        self._btn_hw_att_set.clicked.connect(self._on_hw_att_set)
+        self._btn_hw_att_home = QPushButton('Home')
+        self._btn_hw_att_home.clicked.connect(self._on_hw_att_home)
+        hw_att_layout.addWidget(self._btn_hw_att_set)
+        hw_att_layout.addWidget(self._btn_hw_att_home)
+        hw_att_layout.addStretch()
+        hw_att_group.setLayout(hw_att_layout)
+        layout.addWidget(hw_att_group)
+
+        # Laser power direct control
+        hw_pwr_group = QGroupBox('Laser power (direct)')
+        hw_pwr_layout = QHBoxLayout()
+        hw_pwr_layout.addWidget(QLabel('Power (mW):'))
+        self._hw_pwr_spin = QDoubleSpinBox()
+        self._hw_pwr_spin.setRange(0, 10000)
+        self._hw_pwr_spin.setDecimals(1)
+        hw_pwr_layout.addWidget(self._hw_pwr_spin)
+        self._btn_hw_pwr_set = QPushButton('Set')
+        self._btn_hw_pwr_set.clicked.connect(self._on_hw_pwr_set)
+        hw_pwr_layout.addWidget(self._btn_hw_pwr_set)
+        hw_pwr_layout.addStretch()
+        hw_pwr_group.setLayout(hw_pwr_layout)
+        layout.addWidget(hw_pwr_group)
+
+        # Autoshutter
+        self._autoshutter_cb = QCheckBox('Autoshutter')
+        self._autoshutter_cb.stateChanged.connect(self._on_autoshutter)
+        layout.addWidget(self._autoshutter_cb)
+
         layout.addStretch()
 
     def set_pc(self, pc):
@@ -751,6 +811,21 @@ class SetPowerTab(QWidget):
         self._laser_combo.blockSignals(False)
         if self._laser_combo.count():
             self._on_laser_changed(0)
+        # Populate hardware spinboxes
+        if pc is not None:
+            try:
+                pos = pc.instrument.attenuator.curr_pos()
+                if pos is not None:
+                    self._hw_att_spin.setValue(float(pos))
+            except Exception:
+                pass
+            try:
+                laser = pc.instrument.curr_laser
+                pwr = pc.instrument.lasers[laser].power
+                if pwr is not None:
+                    self._hw_pwr_spin.setValue(float(pwr))
+            except Exception:
+                pass
 
     def _on_laser_changed(self, idx):
         if self._pc is None:
@@ -764,6 +839,7 @@ class SetPowerTab(QWidget):
             self._btn_onoff.setText('OFF' if enabled else 'ON')
         except Exception as exc:
             self._status.setText(str(exc))
+        self._update_range_label()
 
     # --- helpers ---
 
@@ -780,7 +856,9 @@ class SetPowerTab(QWidget):
 
     def _action_buttons(self, enabled):
         for btn in (self._btn_onoff, self._btn_set, self._btn_bp_open,
-                    self._btn_bp_close, self._btn_measure, self._btn_alloff):
+                    self._btn_bp_close, self._btn_measure, self._btn_alloff,
+                    self._btn_hw_refresh, self._btn_hw_att_set,
+                    self._btn_hw_att_home, self._btn_hw_pwr_set):
             btn.setEnabled(enabled)
 
     def _run_hw(self, func, status_msg, on_done=None, on_result=None):
@@ -901,6 +979,8 @@ class SetPowerTab(QWidget):
             def _done():
                 self._status.setText(done_msg)
                 self._main_window.set_status('Ready', 2000)
+                self._refresh_hw_state(laser)
+                self._update_range_label()
 
             self._run_hw(_do, status_msg, on_done=_done)
 
@@ -1018,6 +1098,8 @@ class SetPowerTab(QWidget):
                         f' measured {measured:.3f} mW)')
                 else:
                     self._main_window.set_status('Ready', 2000)
+                self._refresh_hw_state(laser)
+                self._update_range_label()
 
             self._run_hw(_do, f'Setting {pwr} mW with feedback…',
                          on_result=_on_result)
@@ -1129,6 +1211,7 @@ class SetPowerTab(QWidget):
     def _on_mode_changed(self, _idx):
         """Enable feedback only for single-axis modes (not combined)."""
         self._update_feedback_enabled()
+        self._update_range_label()
 
     def _update_feedback_enabled(self):
         mode = self._mode_combo.currentData()
@@ -1159,6 +1242,154 @@ class SetPowerTab(QWidget):
             self._main_window.set_status('Ready', 2000)
 
         self._run_hw(_do, 'Switching all lasers off…', on_done=_done)
+
+    # ── Hardware state helpers ───────────────────────────────────────────────
+
+    def _refresh_hw_state(self, laser=None):
+        """Read back attenuator position and laser power and update spinboxes.
+        Called on the main thread immediately after a set-power action finishes."""
+        if self._pc is None:
+            return
+        if laser is None:
+            laser = self._laser_combo.currentData()
+        try:
+            pos = self._pc.instrument.attenuator.curr_pos()
+            if pos is not None:
+                self._hw_att_spin.setValue(float(pos))
+        except Exception:
+            pass
+        try:
+            if laser and hasattr(self._pc.instrument, 'lasers'):
+                pwr = self._pc.instrument.lasers[laser].power
+                if pwr is not None:
+                    self._hw_pwr_spin.setValue(float(pwr))
+        except Exception:
+            pass
+
+    def _update_range_label(self):
+        """Compute and display the accessible power range for the current mode."""
+        if self._pc is None or not getattr(
+                self._pc.instrument, 'is_calibrated', False):
+            self._range_label.setText('Range: N/A (not calibrated)')
+            return
+        laser = self._laser_combo.currentData()
+        mode = self._mode_combo.currentData()
+        try:
+            inst = self._pc.instrument
+            pr = getattr(inst, '_power_ranges', None)
+            if pr is None or pr.empty:
+                self._range_label.setText('Range: N/A')
+                return
+            if mode == 'attenuator':
+                lo = float(pr['min'].min())
+                hi = float(pr['max'].max())
+            elif mode == 'attenuator_only':
+                curr_lp = 0.0
+                try:
+                    curr_lp = float(inst.lasers[laser].power)
+                except Exception:
+                    pass
+                closest = min(pr.index, key=lambda x: abs(float(x) - curr_lp))
+                lo = float(pr.loc[closest, 'min'])
+                hi = float(pr.loc[closest, 'max'])
+            else:  # laser — fixed attenuator
+                min_lp = float(pr.index.min())
+                max_lp = float(pr.index.max())
+                lo = inst.predict_power_fixed_attenuator(min_lp, laser)
+                hi = inst.predict_power_fixed_attenuator(max_lp, laser)
+                if lo > hi:
+                    lo, hi = hi, lo
+            self._range_label.setText(f'Range: {lo:.2f} – {hi:.2f} mW')
+        except Exception:
+            self._range_label.setText('Range: N/A')
+
+    def _on_hw_refresh(self):
+        """Read attenuator position and laser power from hardware."""
+        if self._pc is None:
+            return
+
+        def _do():
+            result = {}
+            try:
+                pos = self._pc.instrument.attenuator.curr_pos()
+                if pos is not None:
+                    result['att_pos'] = float(pos)
+            except Exception:
+                pass
+            try:
+                laser = self._pc.instrument.curr_laser
+                pwr = self._pc.instrument.lasers[laser].power
+                if pwr is not None:
+                    result['laser_pwr'] = float(pwr)
+            except Exception:
+                pass
+            return result
+
+        def _on_result(result):
+            if 'att_pos' in result:
+                self._hw_att_spin.setValue(result['att_pos'])
+            if 'laser_pwr' in result:
+                self._hw_pwr_spin.setValue(result['laser_pwr'])
+            self._status.setText('Hardware state refreshed.')
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, 'Refreshing hardware state…', on_result=_on_result)
+
+    def _on_hw_att_set(self):
+        if self._pc is None:
+            return
+        pos = self._hw_att_spin.value()
+
+        def _do():
+            self._pc.instrument.attenuator.set(pos)
+
+        def _done():
+            self._status.setText(f'Attenuator set to {pos:.3f}.')
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, f'Setting attenuator to {pos:.3f}…', on_done=_done)
+
+    def _on_hw_att_home(self):
+        if self._pc is None:
+            return
+
+        def _do():
+            self._pc.instrument.attenuator.home()
+
+        def _done():
+            self._status.setText('Attenuator homed.')
+            self._main_window.set_status('Ready', 2000)
+            try:
+                pos = self._pc.instrument.attenuator.curr_pos()
+                if pos is not None:
+                    self._hw_att_spin.setValue(float(pos))
+            except Exception:
+                pass
+
+        self._run_hw(_do, 'Homing attenuator…', on_done=_done)
+
+    def _on_hw_pwr_set(self):
+        if self._pc is None:
+            return
+        pwr = self._hw_pwr_spin.value()
+
+        def _do():
+            self._pc.instrument.laserpower = pwr
+
+        def _done():
+            self._status.setText(f'Laser power set to {pwr} mW.')
+            self._main_window.set_status('Ready', 2000)
+
+        self._run_hw(_do, f'Setting laser power to {pwr} mW…', on_done=_done)
+
+    def _on_autoshutter(self, state):
+        if self._pc is None:
+            return
+        try:
+            self._pc.instrument.beampath.objects['shutter'].autoshutter = (
+                state == Qt.Checked)
+        except Exception as exc:
+            QMessageBox.critical(self, 'Error', str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -1375,12 +1606,10 @@ class MonetMainWindow(QMainWindow):
         self.setCentralWidget(self._tabs)
 
         self._tab_calibrate = CalibrateTab(self)
-        self._tab_adjust = AdjustTab(self)
         self._tab_setpower = SetPowerTab(self)
         self._tab_database = DatabaseTab(self)
 
         self._tabs.addTab(self._tab_calibrate, 'Calibrate')
-        self._tabs.addTab(self._tab_adjust, 'Adjust')
         self._tabs.addTab(self._tab_setpower, 'Set Power')
         self._tabs.addTab(self._tab_database, 'Database')
 
@@ -1460,17 +1689,14 @@ class MonetMainWindow(QMainWindow):
 
     def _refresh_all_tabs(self):
         self._tab_calibrate.set_pc(self._pc)
-        self._tab_adjust.set_pc(self._pc)
         self._tab_setpower.set_pc(self._pc)
         self._tab_database.set_pc(self._pc)
 
     def _on_calibration_started(self):
-        self._tabs.setTabEnabled(1, False)   # Adjust
-        self._tabs.setTabEnabled(2, False)   # Set Power
+        self._tabs.setTabEnabled(1, False)   # Set Power
 
     def _on_calibration_finished(self):
         self._tabs.setTabEnabled(1, True)
-        self._tabs.setTabEnabled(2, True)
 
     def closeEvent(self, event):
         # Cancel any running calibration
