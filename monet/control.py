@@ -448,6 +448,38 @@ class IlluminationLaserControl(IlluminationControl):
 
         self.lasers[laser].power = laser_pwr_needed
 
+    def set_power_fixed_laser(self, pwr, laser=None):
+        """Set output power by adjusting the attenuator only, keeping laser
+        power fixed at its current hardware value.
+
+        Uses the calibration curve for the nearest calibrated laser power
+        level to estimate the required attenuator position.
+
+        Args:
+            pwr : float
+                desired output power in mW
+            laser : int or str, optional
+                laser wavelength; defaults to curr_laser
+        Raises:
+            ValueError if not calibrated.
+        """
+        if not self.is_calibrated:
+            raise ValueError('Not calibrated. Cannot set power.')
+        if laser is None:
+            laser = self.curr_laser
+
+        analyzers, _ = self._populate_analyzers(self.cali_db, laser)
+
+        # Find the calibrated level nearest to the current hardware laser power
+        curr_lp = float(self.lasers[laser].power)
+        closest_level = min(analyzers.keys(),
+                            key=lambda x: abs(float(x) - curr_lp))
+        logger.debug('Fixed-laser mode: using calibrated level %s mW '
+                     '(hardware laser power %.3f mW)', closest_level, curr_lp)
+
+        ctrlval = analyzers[closest_level].estimate(pwr)
+        self.set_attenuator(ctrlval)
+
     def predict_power_fixed_attenuator(self, laser_pwr, laser=None):
         """Predict output power at the current attenuator position for a given
         laser power, using the same linear interpolation as

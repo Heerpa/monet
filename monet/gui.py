@@ -669,8 +669,10 @@ class SetPowerTab(QWidget):
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel('Mode:'))
         self._mode_combo = QComboBox()
-        self._mode_combo.addItem('Adjust attenuator', 'attenuator')
-        self._mode_combo.addItem('Adjust laser power (fixed attenuator)', 'laser')
+        self._mode_combo.addItem('Combined: laser power + attenuator', 'attenuator')
+        self._mode_combo.addItem('Fixed laser power: adjust attenuator only', 'attenuator_only')
+        self._mode_combo.addItem('Fixed attenuator: adjust laser power only', 'laser')
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         mode_row.addWidget(self._mode_combo)
         mode_row.addStretch()
         adj_layout.addLayout(mode_row)
@@ -837,10 +839,11 @@ class SetPowerTab(QWidget):
         laser = self._laser_combo.currentData()
         mode = self._mode_combo.currentData()
 
-        if mode == 'laser' and not hasattr(self._pc.instrument, 'set_power_fixed_attenuator'):
+        if mode in ('laser', 'attenuator_only') and not hasattr(
+                self._pc.instrument, 'set_power_fixed_attenuator'):
             QMessageBox.warning(
                 self, 'Not supported',
-                'Fixed-attenuator mode requires a multi-laser instrument '
+                'This mode requires a multi-laser instrument '
                 'with calibrations at multiple laser power levels.')
             return
 
@@ -882,6 +885,12 @@ class SetPowerTab(QWidget):
                 done_msg = (f'Laser power adjusted for {pwr} mW output '
                             f'(laser {laser} nm, attenuator fixed).')
                 status_msg = f'Adjusting laser power for {pwr} mW…'
+            elif mode == 'attenuator_only':
+                def _do():
+                    self._pc.instrument.set_power_fixed_laser(pwr, laser)
+                done_msg = (f'Attenuator set for {pwr} mW '
+                            f'(laser {laser} nm, laser power fixed).')
+                status_msg = f'Setting attenuator for {pwr} mW…'
             else:
                 def _do():
                     self._pc.instrument.laser = laser
@@ -903,6 +912,8 @@ class SetPowerTab(QWidget):
                 # Initial power setting
                 if mode == 'laser':
                     self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
+                elif mode == 'attenuator_only':
+                    self._pc.instrument.set_power_fixed_laser(pwr, laser)
                 else:
                     self._pc.instrument.laser = laser
                     self._pc.instrument.power = pwr
@@ -1115,13 +1126,23 @@ class SetPowerTab(QWidget):
 
         self._run_hw(_do, 'Measuring power…', on_result=_on_val)
 
+    def _on_mode_changed(self, _idx):
+        """Enable feedback only for single-axis modes (not combined)."""
+        self._update_feedback_enabled()
+
+    def _update_feedback_enabled(self):
+        mode = self._mode_combo.currentData()
+        powermeter_ok = self._btn_measure.isEnabled()
+        feedback_ok = powermeter_ok and mode != 'attenuator'
+        self._feedback_cb.setEnabled(feedback_ok)
+        self._feedback_tol_spin.setEnabled(feedback_ok)
+        if not feedback_ok:
+            self._feedback_cb.setChecked(False)
+
     def set_powermeter_available(self, available):
         """Enable or disable powermeter-dependent controls."""
         self._btn_measure.setEnabled(available)
-        self._feedback_cb.setEnabled(available)
-        self._feedback_tol_spin.setEnabled(available)
-        if not available:
-            self._feedback_cb.setChecked(False)
+        self._update_feedback_enabled()
 
     def _on_all_off(self):
         if self._pc is None:
