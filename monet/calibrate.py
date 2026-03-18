@@ -68,7 +68,7 @@ class CalibrationProtocol1D():
             self.powermeter = None
             self.powermeter_available = False
 
-    def calibrate(self, wait_time=0.1, dry_run=False):
+    def calibrate(self, wait_time=0.1, dry_run=False, powermeter_type='manual'):
         """Calibrate power, with parameters according to the
         configuration file.
 
@@ -77,6 +77,8 @@ class CalibrationProtocol1D():
                 time to wait between attenuator steps [s]
             dry_run : bool
                 if True, calibration is performed but not saved to the database
+            powermeter_type : str
+                'manual' or 'beampath' — annotated in the database
 
         Returns:
             control_par_vals : 1D np array
@@ -104,11 +106,11 @@ class CalibrationProtocol1D():
         # print(self.instrument.analyzer.fit_result.fit_report())
         self.instrument.is_calibrated = True
 
-        self.save_calibration(dry_run=dry_run)
+        self.save_calibration(dry_run=dry_run, powermeter_type=powermeter_type)
 
         return control_par_vals, powers
 
-    def save_calibration(self, save_plot=True, dry_run=False):
+    def save_calibration(self, save_plot=True, dry_run=False, powermeter_type='manual'):
         """Save the calibration to the database
 
         Args:
@@ -116,8 +118,11 @@ class CalibrationProtocol1D():
                 whether to save a plot of the calibration
             dry_run : bool
                 if True, skip writing to the database
+            powermeter_type : str
+                'manual' or 'beampath' — stored as a column in the database
         """
         cali_pars = self.instrument.analyzer.get_model()
+        cali_pars['powermeter_type'] = powermeter_type
 
         fname = self.instrument.config['database']
         # print('saving calibration into index', self.instrument.config['index'])
@@ -192,7 +197,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
     def run_protocol(self, wait_time=0, switch_time=10,
                      laser_filter=None, dry_run=False,
-                     progress_callback=None, manage_laser_state=True):
+                     progress_callback=None, manage_laser_state=True,
+                     powermeter_type='manual'):
         """Run a protocol: loop through lasers and respective power settings,
         doing calibrations, and saving them for every combination.
 
@@ -210,6 +216,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             manage_laser_state : bool
                 if True (CLI mode), switch off all lasers at start and after
                 each wavelength. If False (GUI mode), leave laser state as-is.
+            powermeter_type : str
+                'manual' or 'beampath' — annotated in every saved calibration
         """
         # delete previous calibration plots
         plotfolder = self.instrument.config.get('dest_calibration_plot')
@@ -254,7 +262,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     self.powermeter.config['amp'] = lpwr
 
                 angles, powers = self.calibrate(wait_time=wait_time,
-                                                dry_run=dry_run)
+                                                dry_run=dry_run,
+                                                powermeter_type=powermeter_type)
                 for an, pw in zip(angles, powers):
                     measpwrs.loc[an, lpwr] = pw
 
@@ -274,6 +283,12 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 self.instrument.laser_enabled = False
             self.plot_model(modelpars, laser)
             self.save_measvals(measpwrs, laser)
+            if not dry_run:
+                io.compute_and_save_factor(
+                    self.instrument.config['database'],
+                    self.instrument.config['index'][DEVICE_TAG],
+                    laser,
+                    self.instrument.config['analysis'])
         self.plot_device_history()
         # post-actions
         # move beampath to end_calibrate position

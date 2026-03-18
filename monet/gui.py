@@ -58,13 +58,15 @@ class CalibrationWorker(QThread):
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, pc, laser_filter, dry_run, wait_time=0.1, switch_time=10):
+    def __init__(self, pc, laser_filter, dry_run, wait_time=0.1, switch_time=10,
+                 powermeter_type='manual'):
         super().__init__()
         self._pc = pc
         self._laser_filter = laser_filter
         self._dry_run = dry_run
         self._wait_time = wait_time
         self._switch_time = switch_time
+        self._powermeter_type = powermeter_type
         self._cancel_requested = False
 
     def request_cancel(self):
@@ -86,6 +88,7 @@ class CalibrationWorker(QThread):
                 dry_run=self._dry_run,
                 progress_callback=_progress_callback,
                 manage_laser_state=False,
+                powermeter_type=self._powermeter_type,
             )
         except InterruptedError:
             self.log_message.emit('Calibration cancelled.')
@@ -278,6 +281,15 @@ class CalibrateTab(QWidget):
         self._dry_run_cb = QCheckBox('Dry run (calibrate without saving to database)')
         layout.addWidget(self._dry_run_cb)
 
+        # Beampath powermeter checkbox
+        self._beampath_pm_cb = QCheckBox('Use beampath powermeter')
+        self._beampath_pm_cb.setEnabled(False)
+        self._beampath_pm_cb.setToolTip(
+            'When checked, the beampath is moved to the powermeter position '
+            'during calibration. A correction factor is computed if both '
+            'manual and beampath calibrations exist for the same day.')
+        layout.addWidget(self._beampath_pm_cb)
+
         # Progress bar
         self._progress = QProgressBar()
         self._progress.setFormat('Waiting…')
@@ -306,6 +318,11 @@ class CalibrateTab(QWidget):
     def set_pc(self, pc):
         self._pc = pc
         self._rebuild_checkboxes()
+        has_beampath = (pc is not None and
+                        hasattr(pc, 'instrument') and
+                        hasattr(pc.instrument, 'use_beampath') and
+                        pc.instrument.use_beampath)
+        self._beampath_pm_cb.setEnabled(has_beampath)
 
     def _rebuild_checkboxes(self):
         # Remove old checkboxes (keep the button row at index 0)
@@ -402,8 +419,12 @@ class CalibrateTab(QWidget):
 
         self.calibration_started.emit()
 
+        powermeter_type = ('beampath'
+                           if self._beampath_pm_cb.isChecked()
+                           else 'manual')
         self._worker = CalibrationWorker(
-            self._pc, laser_filter=selected, dry_run=dry_run)
+            self._pc, laser_filter=selected, dry_run=dry_run,
+            powermeter_type=powermeter_type)
         self._worker.progress.connect(self._on_progress)
         self._worker.log_message.connect(self._log.append)
         self._worker.finished.connect(self._on_finished)
@@ -1632,6 +1653,24 @@ class DatabaseTab(QWidget):
         self._status = QLabel('')
         layout.addWidget(self._status)
 
+        # Correction factors section
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(sep)
+        layout.addWidget(QLabel('Objective Transmission (manual / beampath)'))
+        self._factors_table = QTableWidget(0, 5)
+        self._factors_table.setHorizontalHeaderLabels(
+            ['Microscope', 'Wavelength (nm)', 'Date',
+             'transmission_objective', 'Std Dev'])
+        self._factors_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self._factors_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._factors_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents)
+        self._factors_table.horizontalHeader().setStretchLastSection(True)
+        self._factors_table.setMaximumHeight(150)
+        layout.addWidget(self._factors_table)
+
     def set_pc(self, pc):
         self._pc = pc
         if pc is not None:
@@ -1705,6 +1744,33 @@ class DatabaseTab(QWidget):
 
         total = self._table.rowCount()
         self._status.setText(f'{total} record(s)')
+
+        # Refresh factors table
+        self._factors_table.setRowCount(0)
+        if self._db_fname is not None:
+            try:
+                scope_filter = self._scope_combo.currentData()
+                factors_df = io.load_factors(
+                    self._db_fname,
+                    device=scope_filter if scope_filter else None)
+                if hasattr(factors_df, 'iterrows') and not factors_df.empty:
+                    for idx, row in factors_df.iterrows():
+                        if not isinstance(idx, tuple):
+                            idx = (idx,)
+                        r = self._factors_table.rowCount()
+                        self._factors_table.insertRow(r)
+                        device_val = idx[0] if len(idx) > 0 else ''
+                        wl_val = idx[1] if len(idx) > 1 else ''
+                        date_val = idx[2] if len(idx) > 2 else ''
+                        factor_val = row.get('transmission_objective_mean', '')
+                        std_val = row.get('transmission_objective_std', '')
+                        vals = [str(device_val), str(wl_val), str(date_val),
+                                f'{factor_val:.4f}' if isinstance(factor_val, float) else str(factor_val),
+                                f'{std_val:.4f}' if isinstance(std_val, float) else str(std_val)]
+                        for c, v in enumerate(vals):
+                            self._factors_table.setItem(r, c, QTableWidgetItem(v))
+            except Exception:
+                pass
 
     def _selected_row_indices(self):
         rows = sorted({idx.row() for idx in self._table.selectedIndexes()})

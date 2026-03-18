@@ -23,6 +23,9 @@ import requests
 from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 from monet import DATABASE_INDEXLEVELS
 
+FACTOR_SHEET = 'factors'
+FACTOR_INDEXLEVELS = [DEVICE_TAG, LASER_TAG, 'date']
+
 logger = logging.getLogger(__name__)
 ic.configureOutput(outputFunction=logger.debug)
 
@@ -121,7 +124,13 @@ def _save_calibration_excel(fname, index, cali_pars):
     for k, v in cali_pars.items():
         db.loc[indexvals, k] = v
         db = db.sort_index()
-    db.to_excel(fname)
+
+    if os.path.exists(fname):
+        with pd.ExcelWriter(fname, engine='openpyxl', mode='a',
+                            if_sheet_exists='replace') as writer:
+            db.to_excel(writer)
+    else:
+        db.to_excel(fname)
 
     return indexnames, indexvals
 
@@ -151,10 +160,13 @@ def load_calibration(fname, index, time_idx='latest'):
     """
     db_select = load_database(fname, index, time_idx=time_idx)
 
-    cali_pars = {col: val
-                 for col, val
-                 in zip(db_select.index, db_select.values)
-                 if not np.isnan(val)}
+    cali_pars = {}
+    for col, val in zip(db_select.index, db_select.values):
+        try:
+            if not np.isnan(val):
+                cali_pars[col] = val
+        except (TypeError, ValueError):
+            cali_pars[col] = val  # string columns pass through
     return cali_pars
 
 
@@ -481,7 +493,14 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
             minpower = np.zeros(len(dates))
             maxpower = np.zeros(len(dates))
             for i, (idx, row) in enumerate(power_df.iterrows()):
-                pars = {col: row[col] for col in row.index}
+                pars = {}
+                for col in row.index:
+                    val = row[col]
+                    try:
+                        if not np.isnan(val):
+                            pars[col] = val
+                    except (TypeError, ValueError):
+                        pass  # skip non-numeric columns
                 analyzer.load_model(pars)
                 output_range = analyzer.output_range()
                 minpower[i] = np.real(output_range[0])
@@ -507,3 +526,195 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
         fig.set_size_inches((8, 7))
         fig.savefig(plot_fname)
         plt.close(fig)
+
+
+# ──────────────────────────────────────────────
+# Powermeter correction factors
+# ──────────────────────────────────────────────
+
+def compute_and_save_factor(db_fname, device, laser, ana_config):
+    """Compute and save the objective transmission factor from paired
+    beampath vs manual calibrations recorded on the same day.
+
+    transmission_objective = P_manual / P_beampath, sampled at 50 attenuator
+    positions per common laser-power level. Saved to the 'factors' sheet.
+    Silently skipped for HTTP databases.
+
+    Args:
+        db_fname : str
+            Excel database path
+        device : str
+            Device name
+        laser : int or str
+            Laser wavelength
+        ana_config : dict
+            Analysis config with 'classpath' and 'init_kwargs'
+    """
+    if _is_server_url(db_fname):
+        logger.debug('HTTP database: skipping factor computation.')
+        return
+    if not os.path.exists(db_fname):
+        return
+
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    try:
+        index = {DEVICE_TAG: device, LASER_TAG: int(laser)}
+        db = load_database(db_fname, index, time_idx='all')
+    except Exception as exc:
+        logger.debug('compute_and_save_factor: could not load db: %s', exc)
+        return
+
+    if db.empty or 'powermeter_type' not in db.columns:
+        return
+
+    # Filter to today
+    if 'date' in db.index.names:
+        db = db.loc[db.index.get_level_values('date') == today]
+    if db.empty:
+        return
+
+    db_manual = db.loc[db['powermeter_type'] == 'manual']
+    db_beampath = db.loc[db['powermeter_type'] == 'beampath']
+    if db_manual.empty or db_beampath.empty:
+        logger.debug('compute_and_save_factor: need both manual and beampath.')
+        return
+
+    from monet.util import load_class
+
+    manual_lpwrs = set(db_manual.index.get_level_values(POWER_TAG))
+    beampath_lpwrs = set(db_beampath.index.get_level_values(POWER_TAG))
+    common_lpwrs = manual_lpwrs & beampath_lpwrs
+    if not common_lpwrs:
+        logger.debug('compute_and_save_factor: no common laser power levels.')
+        return
+
+    att_min = ana_config['init_kwargs'].get('min', 0)
+    att_max = ana_config['init_kwargs'].get('max', 180)
+    positions = np.linspace(att_min, att_max, 50)
+
+    all_ratios = []
+    for lpwr in common_lpwrs:
+        manual_rows = db_manual.loc[
+            db_manual.index.get_level_values(POWER_TAG) == lpwr]
+        beampath_rows = db_beampath.loc[
+            db_beampath.index.get_level_values(POWER_TAG) == lpwr]
+
+        manual_pars = {}
+        beampath_pars = {}
+        for col in manual_rows.columns:
+            val = manual_rows.iloc[-1][col]
+            try:
+                if not np.isnan(val):
+                    manual_pars[col] = val
+            except (TypeError, ValueError):
+                pass
+        for col in beampath_rows.columns:
+            val = beampath_rows.iloc[-1][col]
+            try:
+                if not np.isnan(val):
+                    beampath_pars[col] = val
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            ana_m = load_class(ana_config['classpath'], ana_config['init_kwargs'])
+            ana_m.load_model(manual_pars)
+            ana_b = load_class(ana_config['classpath'], ana_config['init_kwargs'])
+            ana_b.load_model(beampath_pars)
+        except Exception as exc:
+            logger.debug('compute_and_save_factor: analyzer error: %s', exc)
+            continue
+
+        for pos in positions:
+            try:
+                p_m = ana_m.estimate_power(pos)
+                p_b = ana_b.estimate_power(pos)
+                if p_m > 0 and p_b > 0:
+                    all_ratios.append(p_m / p_b)
+            except Exception:
+                pass
+
+    if not all_ratios:
+        logger.debug('compute_and_save_factor: no valid ratios.')
+        return
+
+    factor_mean = float(np.mean(all_ratios))
+    factor_std = float(np.std(all_ratios))
+    n_points = len(all_ratios)
+    logger.debug('transmission_objective %s/%s: mean=%.4f std=%.4f n=%d',
+                 device, laser, factor_mean, factor_std, n_points)
+    _save_factor_excel(db_fname, device, laser, today, factor_mean, factor_std, n_points)
+
+
+def _save_factor_excel(db_fname, device, laser, date, factor_mean, factor_std, n_points):
+    """Write or update a transmission_objective row in the 'factors' sheet."""
+    index_key = (device, int(laser), date)
+    try:
+        if os.path.exists(db_fname):
+            try:
+                df = pd.read_excel(
+                    db_fname, sheet_name=FACTOR_SHEET,
+                    index_col=list(range(len(FACTOR_INDEXLEVELS))))
+            except Exception:
+                df = pd.DataFrame(
+                    columns=['transmission_objective_mean',
+                             'transmission_objective_std', 'n_points'],
+                    index=pd.MultiIndex.from_tuples([], names=FACTOR_INDEXLEVELS))
+        else:
+            df = pd.DataFrame(
+                columns=['transmission_objective_mean',
+                         'transmission_objective_std', 'n_points'],
+                index=pd.MultiIndex.from_tuples([], names=FACTOR_INDEXLEVELS))
+
+        df.loc[index_key, 'transmission_objective_mean'] = factor_mean
+        df.loc[index_key, 'transmission_objective_std'] = factor_std
+        df.loc[index_key, 'n_points'] = n_points
+        df.index.names = FACTOR_INDEXLEVELS
+
+        with pd.ExcelWriter(db_fname, engine='openpyxl', mode='a',
+                            if_sheet_exists='replace') as writer:
+            df.to_excel(writer, sheet_name=FACTOR_SHEET)
+    except Exception as exc:
+        logger.warning('Failed to save factor: %s', exc)
+
+
+def load_factors(db_fname, device=None, laser=None):
+    """Load powermeter correction factors from the database.
+
+    Args:
+        db_fname : str
+            Excel database path or server URL
+        device : str or None
+            Filter by device name
+        laser : int/str or None
+            Filter by laser wavelength
+
+    Returns:
+        df : pandas DataFrame
+            index: (device, wavelength, date);
+            columns: transmission_objective_mean, transmission_objective_std, n_points
+            Empty DataFrame if not found.
+    """
+    if _is_server_url(db_fname):
+        return pd.DataFrame()
+    if not os.path.exists(db_fname):
+        return pd.DataFrame()
+    try:
+        df = pd.read_excel(
+            db_fname, sheet_name=FACTOR_SHEET,
+            index_col=list(range(len(FACTOR_INDEXLEVELS))))
+    except Exception:
+        return pd.DataFrame()
+
+    if device is not None:
+        mask = df.index.get_level_values(DEVICE_TAG) == device
+        df = df.loc[mask]
+    if laser is not None:
+        try:
+            laser = int(laser)
+        except (ValueError, TypeError):
+            pass
+        mask = df.index.get_level_values(LASER_TAG) == laser
+        df = df.loc[mask]
+    return df

@@ -185,6 +185,8 @@ class IlluminationLaserControl(IlluminationControl):
 
         self.curr_laser = list(self.lasers.keys())[0]
 
+        self._factors = {}         # {laser: transmission_objective}; = P_manual/P_beampath
+        self._powermeter_type = {} # {laser: 'manual'/'beampath'}
 
         if 'beampath' in config.keys():
             self.beampath = BeamPath(config['beampath'])
@@ -222,7 +224,14 @@ class IlluminationLaserControl(IlluminationControl):
         analyzers = {}
         power_ranges = pd.DataFrame(columns=['min', 'max'])
         for pwr, cali_pars in subdb.groupby(POWER_TAG):
-            pars = {col: cali_pars[col].to_numpy()[0] for col in cali_pars.columns}
+            pars = {}
+            for col in cali_pars.columns:
+                val = cali_pars[col].to_numpy()[0]
+                try:
+                    if not np.isnan(val):
+                        pars[col] = val
+                except (TypeError, ValueError):
+                    pass  # skip non-numeric columns (e.g. powermeter_type)
             analyzers[pwr] = load_class(
                 anaconfig['classpath'], anaconfig['init_kwargs'])
             analyzers[pwr].load_model(pars)
@@ -293,10 +302,20 @@ class IlluminationLaserControl(IlluminationControl):
     def laser_enabled(self, value):
         self.lasers[self.curr_laser].enabled = value
 
+    def _beampath_factor(self, laser=None):
+        """Return transmission_objective = P_manual / P_beampath if the latest
+        calibration used the beampath powermeter, else 1.0."""
+        if laser is None:
+            laser = self.curr_laser
+        if self._powermeter_type.get(laser, 'manual') == 'beampath':
+            return self._factors.get(laser, 1.0)
+        return 1.0
+
     @property
     def power(self):
         attpos = self.attenuator.curr_pos()
-        return self.analyzer.estimate_power(attpos)
+        raw = self.analyzer.estimate_power(attpos)
+        return raw * self._beampath_factor()
 
     @power.setter
     def power(self, pwr):
@@ -382,7 +401,9 @@ class IlluminationLaserControl(IlluminationControl):
             print('setting laser power to {:s}'.format(str(laserpwr_best)))
             self.laserpower = laserpwr_best
 
-        # super().power = pwr
+        # Apply beampath correction: convert manual target → beampath-equivalent
+        # P_beampath = P_manual / transmission_objective
+        newpwr = newpwr / self._beampath_factor()
         super(self.__class__, self.__class__).power.__set__(self, newpwr)
         # IlluminationControl.power.fset(self, pwr)
 
@@ -440,8 +461,11 @@ class IlluminationLaserControl(IlluminationControl):
             raise ValueError(
                 'Linear fit slope is near zero — cannot determine laser power.')
 
+        # output_pwrs are in beampath units if beampath-calibrated; convert target
+        # P_beampath_target = P_manual / transmission_objective
+        factor = self._beampath_factor(laser)
         laser_pwr_needed = float(
-            np.clip((pwr - b) / a, laser_pwrs.min(), laser_pwrs.max()))
+            np.clip((pwr / factor - b) / a, laser_pwrs.min(), laser_pwrs.max()))
         logger.debug(
             'Fixed-attenuator mode: target %.3f mW → laser power %.3f mW '
             '(fit: a=%.4f, b=%.4f)', pwr, laser_pwr_needed, a, b)
@@ -477,7 +501,8 @@ class IlluminationLaserControl(IlluminationControl):
         logger.debug('Fixed-laser mode: using calibrated level %s mW '
                      '(hardware laser power %.3f mW)', closest_level, curr_lp)
 
-        ctrlval = analyzers[closest_level].estimate(pwr)
+        factor = self._beampath_factor(laser)
+        ctrlval = analyzers[closest_level].estimate(pwr / factor)
         self.set_attenuator(ctrlval)
 
     def predict_power_fixed_attenuator(self, laser_pwr, laser=None):
@@ -516,7 +541,8 @@ class IlluminationLaserControl(IlluminationControl):
             raise ValueError('Need at least 2 calibrated power levels.')
 
         a, b = np.polyfit(np.array(laser_pwrs), np.array(output_pwrs), 1)
-        return float(a * float(laser_pwr) + b)
+        raw = float(a * float(laser_pwr) + b)
+        return raw * self._beampath_factor(laser)
 
     def load_calibration_database(self):
         load_index = {DEVICE_TAG: self.config['index'][DEVICE_TAG]}
@@ -533,6 +559,37 @@ class IlluminationLaserControl(IlluminationControl):
             index_combi.loc[index_combi[LASER_TAG]==self.curr_laser,
                             POWER_TAG])
         self.is_calibrated = True
+
+        # Load powermeter types and correction factors
+        self._powermeter_type = {}
+        if 'powermeter_type' in self.cali_db.columns:
+            for laser in self.lasers.keys():
+                try:
+                    laser_int = int(laser)
+                    sub = self.cali_db.loc[
+                        self.cali_db.index.get_level_values(LASER_TAG) == laser_int]
+                    if not sub.empty:
+                        self._powermeter_type[laser] = str(sub.iloc[-1]['powermeter_type'])
+                except Exception:
+                    pass
+
+        self._factors = {}
+        try:
+            device = self.config['index'][DEVICE_TAG]
+            factors_df = io.load_factors(self.config['database'], device=device)
+            if not factors_df.empty:
+                for laser in self.lasers.keys():
+                    try:
+                        laser_int = int(laser)
+                        sub = factors_df.loc[
+                            factors_df.index.get_level_values(LASER_TAG) == laser_int]
+                        if not sub.empty:
+                            self._factors[laser] = float(
+                                sub.iloc[-1]['transmission_objective_mean'])
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.debug('Could not load powermeter factors: %s', exc)
 
         self.laser = self.curr_laser  # to populate the analyzers
         self.laserpower = self.curr_laserpower
