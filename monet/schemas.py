@@ -50,3 +50,32 @@ class CalibrationDeleteQuery(BaseModel):
 
 class CalibrationDeleteResponse(BaseModel):
     deleted_count: int
+
+
+class FactorCreate(BaseModel):
+    device_name: str
+    wavelength_nm: float
+    calibration_date: str
+    transmission_objective_mean: float
+    transmission_objective_std: float
+    n_points: int
+
+
+class FactorRecord(BaseModel):
+    device_name: str
+    wavelength_nm: float
+    calibration_date: str
+    transmission_objective_mean: float
+    transmission_objective_std: float
+    n_points: int
+
+
+class FactorQuery(BaseModel):
+    device_name: Optional[str] = None
+    wavelength_nm: Optional[float] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+
+class FactorListResponse(BaseModel):
+    records: List[FactorRecord]

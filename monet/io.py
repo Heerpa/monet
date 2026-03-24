@@ -550,10 +550,7 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
         ana_config : dict
             Analysis config with 'classpath' and 'init_kwargs'
     """
-    if _is_server_url(db_fname):
-        logger.debug('HTTP database: skipping factor computation.')
-        return
-    if not os.path.exists(db_fname):
+    if not _is_server_url(db_fname) and not os.path.exists(db_fname):
         return
 
     today = datetime.now().strftime('%Y-%m-%d')
@@ -644,7 +641,29 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
     n_points = len(all_ratios)
     logger.debug('transmission_objective %s/%s: mean=%.4f std=%.4f n=%d',
                  device, laser, factor_mean, factor_std, n_points)
-    _save_factor_excel(db_fname, device, laser, today, factor_mean, factor_std, n_points)
+    if _is_server_url(db_fname):
+        _save_factor_http(db_fname, device, laser, today, factor_mean, factor_std, n_points)
+    else:
+        _save_factor_excel(db_fname, device, laser, today, factor_mean, factor_std, n_points)
+
+
+def _save_factor_http(server_url, device, laser, date, factor_mean, factor_std, n_points):
+    """Save transmission_objective factor via HTTP server."""
+    try:
+        resp = requests.post(
+            f'{server_url}/factors',
+            json={
+                'device_name': device,
+                'wavelength_nm': int(laser),
+                'calibration_date': date,
+                'transmission_objective_mean': factor_mean,
+                'transmission_objective_std': factor_std,
+                'n_points': n_points,
+            },
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning('Failed to save factor via HTTP: %s', exc)
 
 
 def _save_factor_excel(db_fname, device, laser, date, factor_mean, factor_std, n_points):
@@ -697,7 +716,34 @@ def load_factors(db_fname, device=None, laser=None):
             Empty DataFrame if not found.
     """
     if _is_server_url(db_fname):
-        return pd.DataFrame()
+        try:
+            payload = {}
+            if device is not None:
+                payload['device_name'] = device
+            if laser is not None:
+                try:
+                    payload['wavelength_nm'] = float(int(laser))
+                except (ValueError, TypeError):
+                    pass
+            resp = requests.post(f'{db_fname}/factors/query', json=payload)
+            resp.raise_for_status()
+            records = resp.json().get('records', [])
+            if not records:
+                return pd.DataFrame()
+            rows = []
+            index_tuples = []
+            for r in records:
+                index_tuples.append((r['device_name'], r['wavelength_nm'], r['calibration_date']))
+                rows.append({
+                    'transmission_objective_mean': r['transmission_objective_mean'],
+                    'transmission_objective_std': r['transmission_objective_std'],
+                    'n_points': r['n_points'],
+                })
+            midx = pd.MultiIndex.from_tuples(index_tuples, names=FACTOR_INDEXLEVELS)
+            return pd.DataFrame(rows, index=midx)
+        except Exception as exc:
+            logger.debug('load_factors HTTP error: %s', exc)
+            return pd.DataFrame()
     if not os.path.exists(db_fname):
         return pd.DataFrame()
     try:

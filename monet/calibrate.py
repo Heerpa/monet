@@ -246,6 +246,10 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             laserpowers = self.protocol['laser_powers'][laser]
             if self.instrument.use_beampath:
                 self.instrument.beampath.positions = self.protocol['beampath'][laser]
+                if powermeter_type == 'beampath':
+                    start_cal_pos = self.protocol['beampath'].get('start_calibrate')
+                    if start_cal_pos:
+                        self.instrument.beampath.positions = start_cal_pos
             self.instrument.attenuator.set_wavelength(laser)
             modelpars = pd.DataFrame(index=laserpowers)
             measpwrs = pd.DataFrame(columns=laserpowers)
