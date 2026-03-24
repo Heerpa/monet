@@ -1611,6 +1611,7 @@ class DatabaseTab(QWidget):
         self._main_window = main_window
         self._pc = None
         self._db_fname = None
+        self._active_worker = None
         self._build_ui()
 
     def _build_ui(self):
@@ -1658,7 +1659,14 @@ class DatabaseTab(QWidget):
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Sunken)
         layout.addWidget(sep)
-        layout.addWidget(QLabel('Objective Transmission (manual / beampath)'))
+        factors_hdr = QHBoxLayout()
+        factors_hdr.addWidget(QLabel('Objective Transmission (manual / beampath)'))
+        factors_hdr.addStretch()
+        self._btn_compute_transmission = QPushButton('Compute transmission')
+        self._btn_compute_transmission.setEnabled(False)
+        self._btn_compute_transmission.clicked.connect(self._on_compute_transmission)
+        factors_hdr.addWidget(self._btn_compute_transmission)
+        layout.addLayout(factors_hdr)
         self._factors_table = QTableWidget(0, 5)
         self._factors_table.setHorizontalHeaderLabels(
             ['Microscope', 'Wavelength (nm)', 'Date',
@@ -1677,6 +1685,7 @@ class DatabaseTab(QWidget):
             self._db_fname = pc.instrument.config.get('database')
         else:
             self._db_fname = None
+        self._btn_compute_transmission.setEnabled(pc is not None)
         self._update_db_link()
         self._on_refresh()
 
@@ -1829,6 +1838,43 @@ class DatabaseTab(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, 'Error', str(exc))
         self._on_refresh()
+
+    def _on_compute_transmission(self):
+        if self._pc is None or self._db_fname is None:
+            return
+
+        try:
+            device = self._pc.instrument.config['index']['name']
+            lasers = list(self._pc.instrument.lasers.keys())
+            ana_config = self._pc.instrument.config['analysis']
+        except Exception as exc:
+            QMessageBox.critical(self, 'Error', f'Could not read microscope config: {exc}')
+            return
+
+        self._btn_compute_transmission.setEnabled(False)
+        self._main_window.set_status('Computing objective transmission…')
+
+        def _do():
+            for laser in lasers:
+                io.compute_and_save_factor(self._db_fname, device, laser, ana_config)
+
+        def _on_done():
+            self._btn_compute_transmission.setEnabled(True)
+            self._active_worker = None
+            self._main_window.set_status('Objective transmission computed.', 4000)
+            self._on_refresh()
+
+        def _on_error(msg):
+            self._btn_compute_transmission.setEnabled(True)
+            self._active_worker = None
+            self._main_window.set_status('', 0)
+            QMessageBox.critical(self, 'Error', msg)
+
+        worker = GenericWorker(_do)
+        worker.finished.connect(_on_done)
+        worker.error.connect(_on_error)
+        self._active_worker = worker
+        worker.start()
 
 
 # ---------------------------------------------------------------------------

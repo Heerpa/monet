@@ -245,9 +245,11 @@ def _load_database_http(server_url, index, time_idx):
         midx = pd.MultiIndex.from_tuples(
             index_tuples, names=DATABASE_INDEXLEVELS)
         df = pd.DataFrame(rows, index=midx)
-        # Convert numeric columns
+        # Convert numeric columns, but preserve string columns (e.g. powermeter_type)
         for col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            converted = pd.to_numeric(df[col], errors='coerce')
+            if converted.notna().any():
+                df[col] = converted
         return df
 
 
@@ -556,25 +558,57 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
     today = datetime.now().strftime('%Y-%m-%d')
 
     try:
-        index = {DEVICE_TAG: device, LASER_TAG: int(laser)}
-        db = load_database(db_fname, index, time_idx='all')
+        if _is_server_url(db_fname):
+            index = {DEVICE_TAG: device, LASER_TAG: int(laser)}
+            db = load_database(db_fname, index, time_idx='all')
+        else:
+            # Read directly to avoid _load_database_excel's fragile slice-based
+            # loc selection which can silently return empty for type mismatches.
+            db = pd.read_excel(
+                db_fname, sheet_name=0,
+                index_col=list(range(len(DATABASE_INDEXLEVELS))))
+            device_mask = db.index.get_level_values(DEVICE_TAG) == device
+            laser_float = float(int(laser))
+            try:
+                laser_mask = (
+                    db.index.get_level_values(LASER_TAG).astype(float) == laser_float)
+            except Exception:
+                laser_mask = db.index.get_level_values(LASER_TAG) == int(laser)
+            db = db.loc[device_mask & laser_mask]
     except Exception as exc:
-        logger.debug('compute_and_save_factor: could not load db: %s', exc)
+        logger.warning('compute_and_save_factor: could not load db: %s', exc)
         return
 
-    if db.empty or 'powermeter_type' not in db.columns:
-        return
-
-    # Filter to today
-    if 'date' in db.index.names:
-        db = db.loc[db.index.get_level_values('date') == today]
     if db.empty:
+        logger.warning(
+            'compute_and_save_factor: no calibrations found for %s / %s nm',
+            device, laser)
+        return
+    if 'powermeter_type' not in db.columns:
+        logger.warning(
+            'compute_and_save_factor: powermeter_type column missing — '
+            'calibrations were likely recorded before this feature was added')
+        return
+
+    # Filter to today — normalize dates to 'YYYY-MM-DD' strings regardless of
+    # whether Excel stored them as strings or Timestamps.
+    if 'date' in db.index.names:
+        dates_str = [str(d)[:10] for d in db.index.get_level_values('date')]
+        db = db.loc[[d == today for d in dates_str]]
+    if db.empty:
+        logger.warning(
+            'compute_and_save_factor: no calibrations for today (%s) for '
+            '%s / %s nm — both types must be calibrated on the same day',
+            today, device, laser)
         return
 
     db_manual = db.loc[db['powermeter_type'] == 'manual']
     db_beampath = db.loc[db['powermeter_type'] == 'beampath']
     if db_manual.empty or db_beampath.empty:
-        logger.debug('compute_and_save_factor: need both manual and beampath.')
+        logger.warning(
+            'compute_and_save_factor: need both manual and beampath calibrations '
+            'on the same day; found manual=%d beampath=%d',
+            len(db_manual), len(db_beampath))
         return
 
     from monet.util import load_class
@@ -583,7 +617,9 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
     beampath_lpwrs = set(db_beampath.index.get_level_values(POWER_TAG))
     common_lpwrs = manual_lpwrs & beampath_lpwrs
     if not common_lpwrs:
-        logger.debug('compute_and_save_factor: no common laser power levels.')
+        logger.warning(
+            'compute_and_save_factor: no common laser power levels between '
+            'manual %s and beampath %s', manual_lpwrs, beampath_lpwrs)
         return
 
     att_min = ana_config['init_kwargs'].get('min', 0)
@@ -620,7 +656,8 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
             ana_b = load_class(ana_config['classpath'], ana_config['init_kwargs'])
             ana_b.load_model(beampath_pars)
         except Exception as exc:
-            logger.debug('compute_and_save_factor: analyzer error: %s', exc)
+            logger.warning('compute_and_save_factor: analyzer error at %s mW: %s',
+                           lpwr, exc)
             continue
 
         for pos in positions:
@@ -633,7 +670,8 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
                 pass
 
     if not all_ratios:
-        logger.debug('compute_and_save_factor: no valid ratios.')
+        logger.warning('compute_and_save_factor: no valid power ratios computed '
+                       '(all powers were zero or negative at sampled positions)')
         return
 
     factor_mean = float(np.mean(all_ratios))
