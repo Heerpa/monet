@@ -1000,3 +1000,84 @@ class Cobolt(AbstractLaser):
             self.laser.disconnect()
         except:
             pass
+
+class Cobolt_OEM(AbstractLaser):
+    """Implementation of the Cobolt lasers
+
+    """
+    def __init__(self, connection_parameters, warmup_delay=.1):
+        """
+        Args:
+            connection_parameters : dict
+                port : str
+                    the COM port to use
+                serialnumber : str
+                    the serial number (optional, can be used instead of port)
+                baudrate : int
+                    the baud rate. default: 115200
+            warmup_delay : scalar
+                time delay in seconds to wait for stabilization after
+                changing power
+        """
+        super().__init__(warmup_delay)
+        self.laser = pycobolt.CoboltLaser(**connection_parameters)
+        self.laser.constant_power()
+
+        self.laser.turn_on()
+        self._enabled = True
+        self._power = 0
+
+    @property
+    def enabled(self):
+        """After turning on the laser, the key needs to be switched every
+        time. Therefore, keep the laser enabled all the time, and use
+        'software-enabling'
+        """
+        #return self._enabled
+        return self.laser.is_on()
+
+    @enabled.setter
+    def enabled(self, value):
+        """After turning on the laser, the key needs to be switched every
+        time. Therefore, keep the laser enabled all the time, and use
+        'software-enabling'
+        """
+        self._enabled = value
+        if value:
+            # self.laser.turn_on()  # key would need to be switched
+            self.laser.constant_power()  # from modulation or current modes
+            self.power = self._power
+        else:
+            self.laser.set_power(0)
+            # self.laser.turn_off()  # key would need to be switched for on
+
+            # switch to modulation mode, as no modulation signal is applied
+            # the laser will be off
+            self.laser.send_cmd('em')
+
+            # # alternatively, switch to constant current mode, with current
+            # # below laser threshold (e.g. 0 or 1)
+            # self.laser.constant_current(0)
+
+    @property
+    def power(self):
+        return self.laser.get_power()
+
+    @power.setter
+    def power(self, power):
+        self.laser.set_power(power)
+        self._power = power
+
+    @property
+    def min_power(self):
+        return None
+
+    @property
+    def max_power(self):
+        return None
+
+    def __del__(self):
+        try:
+            self.laser.disconnect()
+        except:
+            pass
