@@ -1395,6 +1395,27 @@ class SetPowerTab(QWidget):
             except Exception:
                 unit = 'a.u.'
             self._status.setText(f'Measured power: {measured:.3f} {unit}')
+            # set Micromanager Acquisition Comment accordingly
+            def replace_or_append(multiline_txt: str, pattern: str, new_str: str) -> str:
+                import re
+                result, count = re.subn(r"^" + pattern + r".*$", new_str, multiline_txt, flags=re.MULTILINE)
+                if count == 0:
+                    result = multiline_txt + ("\n" if not multiline_txt.endswith("\n") else "") + new_str
+                return result
+
+            try:
+                from pycromanager import Studio
+                studio = Studio(convert_camel_case=True)
+                acqmgr = studio.getAcquisitionManager()
+                acqsttgs = acqmgr.getAcquisitionSettings()
+                curr_acqcomment = acqsttgs.comment
+                pwr_str = f"Power {laser}nm: {measured:.3f} unit"
+                new_acqcomment = replace_or_append(curr_acqcomment, "Power {}nm:", pwr_str)
+                acqsttgs.comment = new_acqcomment
+                acqmgr.setAcquisitionSettings(acqsttgs)
+            except:
+                pass
+
             if cali_pred is not None and cali_pred > 0:
                 cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
                 self._main_window.set_status(
