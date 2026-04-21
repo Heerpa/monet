@@ -22,6 +22,7 @@ import requests
 
 from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
 from monet import DATABASE_INDEXLEVELS
+from monet.cache import _get_cache
 
 FACTOR_SHEET = 'factors'
 FACTOR_INDEXLEVELS = [DEVICE_TAG, LASER_TAG, 'date']
@@ -29,10 +30,108 @@ FACTOR_INDEXLEVELS = [DEVICE_TAG, LASER_TAG, 'date']
 logger = logging.getLogger(__name__)
 ic.configureOutput(outputFunction=logger.debug)
 
+# Exceptions that mean the server is unreachable (not a logical HTTP error)
+_CONNECTION_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+)
+
+# Per-server timestamp of the last flush attempt that failed due to connectivity.
+# Prevents hammering the server on every call when it is down.
+_last_flush_failure: dict = {}
+_FLUSH_COOLDOWN_SECS = 30
+
 
 def _is_server_url(fname):
     """Check if fname is a server URL rather than a file path."""
     return fname.startswith('http://') or fname.startswith('https://')
+
+
+def _flush_outbox(server_url: str) -> None:
+    """Replay any queued outbox entries against the server.
+
+    Called at the start of every HTTP operation so that offline-queued writes
+    are delivered as soon as connectivity is restored.  Stops immediately on
+    the first connection error (server still down) to avoid redundant retries.
+    """
+    import time as _time
+
+    # Honour the cooldown to avoid spamming a server that is still down.
+    # None means "never failed" — cooldown only applies after an actual failure.
+    last_fail = _last_flush_failure.get(server_url)
+    if last_fail is not None and _time.monotonic() - last_fail < _FLUSH_COOLDOWN_SECS:
+        return
+
+    cache = _get_cache(server_url)
+    pending = cache.get_pending_outbox()
+    if not pending:
+        return
+
+    logger.info('Flushing %d outbox entries to %s', len(pending), server_url)
+    for entry_id, endpoint, payload, local_key in pending:
+        try:
+            resp = requests.post(
+                f'{server_url}{endpoint}', json=payload, timeout=10)
+            resp.raise_for_status()
+
+            # On success: update the local cache to reflect the server's state
+            if endpoint == '/calibrations':
+                rec = resp.json()
+                cache.upsert_calibration({**rec, 'parameters': payload['parameters']})
+                # Remove the entry that was saved with a locally-generated timestamp
+                if local_key is not None:
+                    cache.delete_calibrations(local_key)
+            elif endpoint == '/factors':
+                cache.upsert_factor(resp.json())
+            # For '/calibrations/delete' the local cache was already updated offline
+
+            cache.remove_outbox_entry(entry_id)
+            logger.debug('Synced outbox entry %d (%s)', entry_id, endpoint)
+
+        except _CONNECTION_ERRORS as exc:
+            # Server is still unreachable — record failure and stop
+            cache.record_outbox_failure(entry_id, str(exc))
+            _last_flush_failure[server_url] = _time.monotonic()
+            logger.debug(
+                'Outbox flush aborted — server still unreachable: %s', exc)
+            return
+
+        except Exception as exc:
+            # Logical error on this specific entry (e.g. 4xx); skip and continue
+            cache.record_outbox_failure(entry_id, str(exc))
+            logger.warning(
+                'Outbox entry %d (%s) failed with server error: %s',
+                entry_id, endpoint, exc)
+
+
+def _records_to_pandas(records: list, time_idx) -> 'pd.Series | pd.DataFrame':
+    """Convert a list of calibration record dicts to the appropriate pandas type.
+
+    Mirrors the structure returned by the server so that the offline cache path
+    produces the same types as the online path.
+    """
+    if time_idx is None or time_idx == 'latest':
+        return pd.Series(records[0]['parameters'])
+
+    rows = []
+    index_tuples = []
+    for rec in records:
+        index_tuples.append((
+            rec['device_name'],
+            rec['wavelength_nm'],
+            rec['laser_power_mw'],
+            rec['calibration_date'],
+            rec['calibration_time'],
+        ))
+        rows.append(rec['parameters'])
+
+    midx = pd.MultiIndex.from_tuples(index_tuples, names=DATABASE_INDEXLEVELS)
+    df = pd.DataFrame(rows, index=midx)
+    for col in df.columns:
+        converted = pd.to_numeric(df[col], errors='coerce')
+        if converted.notna().any():
+            df[col] = converted
+    return df
 
 
 # ──────────────────────────────────────────────
@@ -62,13 +161,44 @@ def save_calibration(fname, index, cali_pars):
 
 
 def _save_calibration_http(server_url, index, cali_pars):
-    """Save calibration via HTTP server."""
-    resp = requests.post(
-        f'{server_url}/calibrations',
-        json={'index': index, 'parameters': cali_pars},
-    )
-    resp.raise_for_status()
-    record = resp.json()
+    """Save calibration via HTTP server, falling back to the local cache if unreachable."""
+    _flush_outbox(server_url)
+    cache = _get_cache(server_url)
+    try:
+        resp = requests.post(
+            f'{server_url}/calibrations',
+            json={'index': index, 'parameters': cali_pars},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        record = resp.json()
+        # Keep the local cache in sync with what the server stored
+        cache.upsert_calibration({**record, 'parameters': cali_pars})
+    except _CONNECTION_ERRORS:
+        # Server unreachable — save locally and queue for later sync
+        local_date = datetime.now().strftime('%Y-%m-%d')
+        local_time = datetime.now().strftime('%H:%M')
+        record = {
+            'device_name': index.get('name', ''),
+            'wavelength_nm': float(index.get('wavelength [nm]', 0)),
+            'laser_power_mw': float(index.get('laser_power [mW]', 0)),
+            'calibration_date': local_date,
+            'calibration_time': local_time,
+        }
+        cache.upsert_calibration({**record, 'parameters': cali_pars})
+        # local_key lets _flush_outbox clean up this offline entry after sync
+        local_key = {
+            'name': index.get('name'),
+            'wavelength [nm]': index.get('wavelength [nm]'),
+            'laser_power [mW]': index.get('laser_power [mW]'),
+            'date': local_date,
+            'time': local_time,
+        }
+        cache.add_to_outbox(
+            '/calibrations',
+            {'index': index, 'parameters': cali_pars},
+            local_key=local_key,
+        )
 
     indexnames = DATABASE_INDEXLEVELS
     indexvals = (
@@ -199,58 +329,37 @@ def load_database(fname, index, time_idx='last combinations'):
 
 
 def _load_database_http(server_url, index, time_idx):
-    """Load database via HTTP server.
+    """Load database via HTTP server, falling back to local cache if unreachable.
 
     Returns a Series for time_idx='latest'/None, DataFrame otherwise.
     """
-    # Convert slice(None) values to None for JSON serialization
-    json_index = {}
-    for k, v in index.items():
-        if isinstance(v, slice) and v == slice(None):
-            json_index[k] = None
-        else:
-            json_index[k] = v
-
-    resp = requests.post(
-        f'{server_url}/calibrations/query',
-        json={'index': json_index, 'time_idx': time_idx},
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    records = data['records']
+    # Convert slice(None) values to None for JSON serialisation
+    json_index = {
+        k: (None if isinstance(v, slice) and v == slice(None) else v)
+        for k, v in index.items()
+    }
+    _flush_outbox(server_url)
+    cache = _get_cache(server_url)
+    try:
+        resp = requests.post(
+            f'{server_url}/calibrations/query',
+            json={'index': json_index, 'time_idx': time_idx},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        records = resp.json()['records']
+        # Populate the local cache so reads work offline later
+        for rec in records:
+            cache.upsert_calibration(rec)
+    except _CONNECTION_ERRORS:
+        logger.warning(
+            'Server unreachable — loading calibrations from local cache')
+        records = cache.query_calibrations(json_index, time_idx)
 
     if not records:
         raise KeyError(f'index {index} not found in database.')
 
-    # Reconstruct pandas structures matching Excel behavior
-    if time_idx is None or time_idx == 'latest':
-        # Single record → return Series (like iloc[-1, :])
-        rec = records[0]
-        params = rec['parameters']
-        return pd.Series(params)
-    else:
-        # Multiple records → return DataFrame with MultiIndex
-        rows = []
-        index_tuples = []
-        for rec in records:
-            index_tuples.append((
-                rec['device_name'],
-                rec['wavelength_nm'],
-                rec['laser_power_mw'],
-                rec['calibration_date'],
-                rec['calibration_time'],
-            ))
-            rows.append(rec['parameters'])
-
-        midx = pd.MultiIndex.from_tuples(
-            index_tuples, names=DATABASE_INDEXLEVELS)
-        df = pd.DataFrame(rows, index=midx)
-        # Convert numeric columns, but preserve string columns (e.g. powermeter_type)
-        for col in df.columns:
-            converted = pd.to_numeric(df[col], errors='coerce')
-            if converted.notna().any():
-                df[col] = converted
-        return df
+    return _records_to_pandas(records, time_idx)
 
 
 def _load_database_excel(fname, index, time_idx):
@@ -322,7 +431,7 @@ def restart_database(db_fname):
 
 def _restart_database_http(server_url):
     """Restart database via HTTP server."""
-    resp = requests.post(f'{server_url}/database/restart')
+    resp = requests.post(f'{server_url}/database/restart', timeout=30)
     resp.raise_for_status()
     data = resp.json()
     return data['backup_path']
@@ -363,7 +472,8 @@ def delete_calibration(fname, index):
 
 
 def _delete_calibration_http(server_url, index):
-    """Delete calibration records via HTTP server."""
+    """Delete calibration records via HTTP server, queuing offline if unreachable."""
+    _flush_outbox(server_url)
     payload = {
         'device_name': index.get('name'),
         'wavelength_nm': index.get('wavelength [nm]'),
@@ -371,9 +481,21 @@ def _delete_calibration_http(server_url, index):
         'calibration_date': index.get('date'),
         'calibration_time': index.get('time'),
     }
-    resp = requests.post(f'{server_url}/calibrations/delete', json=payload)
-    resp.raise_for_status()
-    return resp.json()['deleted_count']
+    cache = _get_cache(server_url)
+    try:
+        resp = requests.post(
+            f'{server_url}/calibrations/delete', json=payload, timeout=10)
+        resp.raise_for_status()
+        count = resp.json()['deleted_count']
+        # Mirror the deletion in the local cache
+        cache.delete_calibrations(index)
+        return count
+    except _CONNECTION_ERRORS:
+        logger.warning(
+            'Server unreachable — applying delete to local cache and queuing outbox')
+        count = cache.delete_calibrations(index)
+        cache.add_to_outbox('/calibrations/delete', payload)
+        return count
 
 
 def _delete_calibration_excel(fname, index):
@@ -686,20 +808,25 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
 
 
 def _save_factor_http(server_url, device, laser, date, factor_mean, factor_std, n_points):
-    """Save transmission_objective factor via HTTP server."""
+    """Save transmission_objective factor via HTTP server, with offline fallback."""
+    payload = {
+        'device_name': device,
+        'wavelength_nm': int(laser),
+        'calibration_date': date,
+        'transmission_objective_mean': factor_mean,
+        'transmission_objective_std': factor_std,
+        'n_points': n_points,
+    }
+    cache = _get_cache(server_url)
     try:
-        resp = requests.post(
-            f'{server_url}/factors',
-            json={
-                'device_name': device,
-                'wavelength_nm': int(laser),
-                'calibration_date': date,
-                'transmission_objective_mean': factor_mean,
-                'transmission_objective_std': factor_std,
-                'n_points': n_points,
-            },
-        )
+        resp = requests.post(f'{server_url}/factors', json=payload, timeout=10)
         resp.raise_for_status()
+        cache.upsert_factor(payload)
+    except _CONNECTION_ERRORS:
+        logger.warning(
+            'Server unreachable — saving factor to local cache and outbox')
+        cache.upsert_factor(payload)
+        cache.add_to_outbox('/factors', payload)
     except Exception as exc:
         logger.warning('Failed to save factor via HTTP: %s', exc)
 
@@ -754,34 +881,44 @@ def load_factors(db_fname, device=None, laser=None):
             Empty DataFrame if not found.
     """
     if _is_server_url(db_fname):
+        _flush_outbox(db_fname)
+        payload: dict = {}
+        if device is not None:
+            payload['device_name'] = device
+        if laser is not None:
+            try:
+                payload['wavelength_nm'] = float(int(laser))
+            except (ValueError, TypeError):
+                pass
+        cache = _get_cache(db_fname)
         try:
-            payload = {}
-            if device is not None:
-                payload['device_name'] = device
-            if laser is not None:
-                try:
-                    payload['wavelength_nm'] = float(int(laser))
-                except (ValueError, TypeError):
-                    pass
-            resp = requests.post(f'{db_fname}/factors/query', json=payload)
+            resp = requests.post(
+                f'{db_fname}/factors/query', json=payload, timeout=10)
             resp.raise_for_status()
             records = resp.json().get('records', [])
-            if not records:
-                return pd.DataFrame()
-            rows = []
-            index_tuples = []
             for r in records:
-                index_tuples.append((r['device_name'], r['wavelength_nm'], r['calibration_date']))
-                rows.append({
-                    'transmission_objective_mean': r['transmission_objective_mean'],
-                    'transmission_objective_std': r['transmission_objective_std'],
-                    'n_points': r['n_points'],
-                })
-            midx = pd.MultiIndex.from_tuples(index_tuples, names=FACTOR_INDEXLEVELS)
-            return pd.DataFrame(rows, index=midx)
+                cache.upsert_factor(r)
+        except _CONNECTION_ERRORS:
+            logger.warning(
+                'Server unreachable — loading factors from local cache')
+            records = cache.query_factors(device, laser)
         except Exception as exc:
             logger.debug('load_factors HTTP error: %s', exc)
             return pd.DataFrame()
+        if not records:
+            return pd.DataFrame()
+        rows = []
+        index_tuples = []
+        for r in records:
+            index_tuples.append(
+                (r['device_name'], r['wavelength_nm'], r['calibration_date']))
+            rows.append({
+                'transmission_objective_mean': r['transmission_objective_mean'],
+                'transmission_objective_std': r['transmission_objective_std'],
+                'n_points': r['n_points'],
+            })
+        midx = pd.MultiIndex.from_tuples(index_tuples, names=FACTOR_INDEXLEVELS)
+        return pd.DataFrame(rows, index=midx)
     if not os.path.exists(db_fname):
         return pd.DataFrame()
     try:
