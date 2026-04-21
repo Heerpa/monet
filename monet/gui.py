@@ -1405,16 +1405,18 @@ class SetPowerTab(QWidget):
 
             try:
                 from pycromanager import Studio
-                studio = Studio(convert_camel_case=True)
+                studio = Studio(convert_camel_case=False)
                 acqmgr = studio.getAcquisitionManager()
                 acqsttgs = acqmgr.getAcquisitionSettings()
                 curr_acqcomment = acqsttgs.comment
-                pwr_str = f"Power {laser}nm: {measured:.3f} unit"
-                new_acqcomment = replace_or_append(curr_acqcomment, "Power {}nm:", pwr_str)
+                pwr_str = f"Power {laser}nm: {measured:.3f} {unit}"
+                new_acqcomment = replace_or_append(
+                    curr_acqcomment, f"Power {laser}nm:", pwr_str)
                 acqsttgs.comment = new_acqcomment
                 acqmgr.setAcquisitionSettings(acqsttgs)
-            except:
-                pass
+            except Exception as exc:
+                self._main_window.set_status(
+                    f'Could not update MicroManager comment: {exc}', 5000)
 
             if cali_pred is not None and cali_pred > 0:
                 cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
