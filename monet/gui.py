@@ -1412,7 +1412,7 @@ class SetPowerTab(QWidget):
                 studio = Studio()
                 acqmgr = studio.acquisitions()
                 curr_settings = acqmgr.get_acquisition_settings()
-                curr_acqcomment = str(curr_settings.comment or "")
+                curr_acqcomment = str(curr_settings.comment() or "")
                 pwr_str = f"Power {laser}nm: {measured:.3f} {unit}"
                 new_acqcomment = replace_or_append(
                     curr_acqcomment, f"Power {laser}nm:", pwr_str)
