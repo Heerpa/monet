@@ -1395,7 +1395,10 @@ class SetPowerTab(QWidget):
             except Exception:
                 unit = 'a.u.'
             self._status.setText(f'Measured power: {measured:.3f} {unit}')
-            # set Micromanager Acquisition Comment accordingly
+
+            # Update MicroManager Acquisition Comment with the measured power.
+            # Uses a replace-or-append helper so successive measurements update
+            # the same line rather than appending a new one each time.
             def replace_or_append(multiline_txt: str, pattern: str, new_str: str) -> str:
                 import re
                 result, count = re.subn(r"^" + pattern + r".*$", new_str, multiline_txt, flags=re.MULTILINE)
@@ -1403,20 +1406,22 @@ class SetPowerTab(QWidget):
                     result = multiline_txt + ("\n" if not multiline_txt.endswith("\n") else "") + new_str
                 return result
 
+            mm_err = None
             try:
                 from pycromanager import Studio
                 studio = Studio(convert_camel_case=False)
                 acqmgr = studio.getAcquisitionManager()
-                acqsttgs = acqmgr.getAcquisitionSettings()
-                curr_acqcomment = acqsttgs.comment
+                curr_acqcomment = acqmgr.getAcquisitionSettings().comment
                 pwr_str = f"Power {laser}nm: {measured:.3f} {unit}"
                 new_acqcomment = replace_or_append(
                     curr_acqcomment, f"Power {laser}nm:", pwr_str)
-                acqsttgs.comment = new_acqcomment
-                acqmgr.setAcquisitionSettings(acqsttgs)
+                # SequenceSettings is immutable in MM 2.0 — use the builder
+                new_settings = acqmgr.getAcquisitionSettings().copyBuilder().comment(new_acqcomment).build()
+                acqmgr.setAcquisitionSettings(new_settings)
+            except ImportError:
+                pass  # pycromanager not installed; MicroManager not in use
             except Exception as exc:
-                self._main_window.set_status(
-                    f'Could not update MicroManager comment: {exc}', 5000)
+                mm_err = str(exc)
 
             if cali_pred is not None and cali_pred > 0:
                 cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
@@ -1426,6 +1431,13 @@ class SetPowerTab(QWidget):
                     f' measured {measured:.3f} {unit})')
             else:
                 self._main_window.set_status('Ready', 2000)
+
+            # Show MM error in the tab label after the status bar update so it
+            # is not immediately overwritten by the calibration deviation line.
+            if mm_err is not None:
+                self._status.setText(
+                    f'Measured: {measured:.3f} {unit}'
+                    f' — MM comment error: {mm_err}')
 
         self._run_hw(_do, 'Measuring power…', on_result=_on_val)
 
