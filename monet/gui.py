@@ -1410,7 +1410,7 @@ class SetPowerTab(QWidget):
             try:
                 from pycromanager import Studio
                 studio = Studio(convert_camel_case=False)
-                acqmgr = studio.getAcquisitionManager()
+                acqmgr = studio.acquisitions()
                 curr_acqcomment = acqmgr.getAcquisitionSettings().comment
                 pwr_str = f"Power {laser}nm: {measured:.3f} {unit}"
                 new_acqcomment = replace_or_append(
