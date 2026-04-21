@@ -1280,11 +1280,15 @@ class SetPowerTab(QWidget):
                     att_pos = self._pc.instrument.attenuator.curr_pos()
                 except Exception:
                     att_pos = None
+                try:
+                    laser_pwr = self._pc.instrument.lasers[laser].power
+                except Exception:
+                    laser_pwr = None
 
-                return measured, converged, cali_pred, out_of_range_warned, att_pos
+                return measured, converged, cali_pred, out_of_range_warned, att_pos, laser_pwr
 
             def _on_result(res):
-                measured, converged, cali_pred, out_of_range_warned, att_pos = res
+                measured, converged, cali_pred, out_of_range_warned, att_pos, laser_pwr = res
                 dev_pct = (abs(measured - pwr) / pwr * 100.0
                            if pwr > 0 else 0.0)
                 parts = [f'Target {pwr} mW → measured {measured:.3f} mW '
@@ -1298,7 +1302,7 @@ class SetPowerTab(QWidget):
                     unit = self._pc.powermeter.unit
                 except Exception:
                     unit = 'mW'
-                mm_err = self._update_mm_comment(laser, measured, unit, att_pos)
+                mm_err = self._update_mm_comment(laser, measured, unit, att_pos, laser_pwr)
                 if mm_err is not None:
                     self._status.setText(
                         '  '.join(parts) + f' — MM comment error: {mm_err}')
@@ -1386,8 +1390,8 @@ class SetPowerTab(QWidget):
 
         self._run_hw(_do, 'Closing beampath…', on_done=_done)
 
-    def _update_mm_comment(self, laser, measured, unit, att_pos=None):
-        """Write measured power (and optionally attenuator position) into the
+    def _update_mm_comment(self, laser, measured, unit, att_pos=None, laser_pwr=None):
+        """Write measured power, attenuator position, and laser power into the
         MicroManager acquisition comment field. Replaces an existing line for
         this laser so repeated measurements don't keep appending."""
         import re
@@ -1400,10 +1404,11 @@ class SetPowerTab(QWidget):
                 result = text + ('\n' if text and not text.endswith('\n') else '') + new_str
             return result
 
+        pwr_str = f'Power {laser}nm: {measured:.3f} {unit}'
         if att_pos is not None:
-            pwr_str = f'Power {laser}nm: {measured:.3f} {unit} @ att={att_pos:.4f}'
-        else:
-            pwr_str = f'Power {laser}nm: {measured:.3f} {unit}'
+            pwr_str += f' @ att={att_pos:.4f}'
+        if laser_pwr is not None:
+            pwr_str += f' lp={laser_pwr:.1f}mW'
         pattern = f'Power {laser}nm:'
 
         try:
@@ -1482,17 +1487,21 @@ class SetPowerTab(QWidget):
                 att_pos = self._pc.instrument.attenuator.curr_pos()
             except Exception:
                 att_pos = None
-            return measured, cali_pred, att_pos
+            try:
+                laser_pwr = self._pc.instrument.lasers[laser].power
+            except Exception:
+                laser_pwr = None
+            return measured, cali_pred, att_pos, laser_pwr
 
         def _on_val(res):
-            measured, cali_pred, att_pos = res
+            measured, cali_pred, att_pos, laser_pwr = res
             try:
                 unit = self._pc.powermeter.unit
             except Exception:
                 unit = 'a.u.'
             self._status.setText(f'Measured power: {measured:.3f} {unit}')
 
-            mm_err = self._update_mm_comment(laser, measured, unit, att_pos)
+            mm_err = self._update_mm_comment(laser, measured, unit, att_pos, laser_pwr)
 
             if cali_pred is not None and cali_pred > 0:
                 cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
