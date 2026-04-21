@@ -755,6 +755,8 @@ class SetPowerTab(QWidget):
         self._main_window = main_window
         self._pc = None
         self._active_worker = None   # keep alive to prevent GC
+        self._cancel_feedback = False
+        self._laser_state: dict = {}  # {laser: (pwr_value, mode_data)}
         self._build_ui()
 
     def _build_ui(self):
@@ -772,6 +774,11 @@ class SetPowerTab(QWidget):
         laser_row.addWidget(self._btn_onoff)
         laser_row.addStretch()
         layout.addLayout(laser_row)
+
+        # Multi-laser checkbox
+        self._multi_cb = QCheckBox('Multi-laser mode (keep other lasers on when switching)')
+        self._multi_cb.setChecked(True)
+        layout.addWidget(self._multi_cb)
 
         # ── Adjustment group box ──────────────────────────────────────────
         adj_group = QGroupBox('Power adjustment')
@@ -850,15 +857,15 @@ class SetPowerTab(QWidget):
         self._btn_set = QPushButton('Set')
         self._btn_set.clicked.connect(self._on_set_power)
         pwr_row.addWidget(self._btn_set)
+        self._btn_cancel_feedback = QPushButton('Cancel')
+        self._btn_cancel_feedback.clicked.connect(self._on_cancel_feedback)
+        self._btn_cancel_feedback.setVisible(False)
+        pwr_row.addWidget(self._btn_cancel_feedback)
         pwr_row.addStretch()
         adj_layout.addLayout(pwr_row)
 
         layout.addWidget(adj_group)
         # ─────────────────────────────────────────────────────────────────
-
-        # Multi-laser checkbox
-        self._multi_cb = QCheckBox('Multi-laser mode (keep other lasers on when switching)')
-        layout.addWidget(self._multi_cb)
 
         # Beampath controls
         bp_row = QHBoxLayout()
@@ -974,9 +981,27 @@ class SetPowerTab(QWidget):
     def _on_laser_changed(self, idx):
         if self._pc is None:
             return
+        # Save current laser's UI state before switching
+        prev_laser = getattr(self, '_current_laser', None)
+        if prev_laser is not None:
+            self._laser_state[prev_laser] = (
+                self._pwr_spin.value(),
+                self._mode_combo.currentData(),
+            )
+
         laser = self._laser_combo.currentData()
         if laser is None:
             return
+        self._current_laser = laser
+
+        # Restore saved state for the newly selected laser
+        if laser in self._laser_state:
+            saved_pwr, saved_mode = self._laser_state[laser]
+            self._pwr_spin.setValue(saved_pwr)
+            mode_idx = self._mode_combo.findData(saved_mode)
+            if mode_idx >= 0:
+                self._mode_combo.setCurrentIndex(mode_idx)
+
         try:
             enabled = self._pc.instrument.lasers[laser].enabled
             self._btn_onoff.setChecked(enabled)
@@ -997,6 +1022,10 @@ class SetPowerTab(QWidget):
             return all(current.get(k) == v for k, v in target_positions.items())
         except Exception:
             return False
+
+    def _on_cancel_feedback(self):
+        self._cancel_feedback = True
+        self._btn_cancel_feedback.setEnabled(False)
 
     def _action_buttons(self, enabled):
         for btn in (self._btn_onoff, self._btn_set, self._btn_bp_open,
@@ -1179,6 +1208,8 @@ class SetPowerTab(QWidget):
                 _emit(0, last_setpoint, measured)   # iteration 0: after initial set
 
                 for iter_num in range(MAX_ITER):
+                    if self._cancel_feedback:
+                        break
                     dev_pct = (abs(measured - pwr) / pwr * 100.0
                                if pwr > 0 else 0.0)
                     if dev_pct <= max_dev_pct:
@@ -1245,11 +1276,15 @@ class SetPowerTab(QWidget):
                         cali_pred = self._pc.instrument.power
                 except Exception:
                     cali_pred = None
+                try:
+                    att_pos = self._pc.instrument.attenuator.curr_pos()
+                except Exception:
+                    att_pos = None
 
-                return measured, converged, cali_pred, out_of_range_warned
+                return measured, converged, cali_pred, out_of_range_warned, att_pos
 
             def _on_result(res):
-                measured, converged, cali_pred, out_of_range_warned = res
+                measured, converged, cali_pred, out_of_range_warned, att_pos = res
                 dev_pct = (abs(measured - pwr) / pwr * 100.0
                            if pwr > 0 else 0.0)
                 parts = [f'Target {pwr} mW → measured {measured:.3f} mW '
@@ -1259,6 +1294,14 @@ class SetPowerTab(QWidget):
                 if out_of_range_warned:
                     parts.append('(attenuator range limit reached)')
                 self._status.setText('  '.join(parts))
+                try:
+                    unit = self._pc.powermeter.unit
+                except Exception:
+                    unit = 'mW'
+                mm_err = self._update_mm_comment(laser, measured, unit, att_pos)
+                if mm_err is not None:
+                    self._status.setText(
+                        '  '.join(parts) + f' — MM comment error: {mm_err}')
                 if cali_pred is not None and cali_pred > 0:
                     cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
                     self._main_window.set_status(
@@ -1278,6 +1321,9 @@ class SetPowerTab(QWidget):
             self._feedback_dialog = plot_dialog  # keep alive (prevent GC)
 
             self._action_buttons(False)
+            self._cancel_feedback = False
+            self._btn_cancel_feedback.setVisible(True)
+            self._btn_cancel_feedback.setEnabled(True)
             self._main_window.set_status(f'Setting {pwr} mW with feedback…')
 
             worker = GenericWorker(_do)
@@ -1294,6 +1340,7 @@ class SetPowerTab(QWidget):
 
             def _on_finished():
                 self._action_buttons(True)
+                self._btn_cancel_feedback.setVisible(False)
                 self._active_worker = None
 
             worker.result.connect(_on_success)
@@ -1339,6 +1386,41 @@ class SetPowerTab(QWidget):
 
         self._run_hw(_do, 'Closing beampath…', on_done=_done)
 
+    def _update_mm_comment(self, laser, measured, unit, att_pos=None):
+        """Write measured power (and optionally attenuator position) into the
+        MicroManager acquisition comment field. Replaces an existing line for
+        this laser so repeated measurements don't keep appending."""
+        import re
+
+        def _replace_or_append(text: str, pattern: str, new_str: str) -> str:
+            result, count = re.subn(
+                r'^' + re.escape(pattern) + r'.*$', new_str, text,
+                flags=re.MULTILINE)
+            if count == 0:
+                result = text + ('\n' if text and not text.endswith('\n') else '') + new_str
+            return result
+
+        if att_pos is not None:
+            pwr_str = f'Power {laser}nm: {measured:.3f} {unit} @ att={att_pos:.4f}'
+        else:
+            pwr_str = f'Power {laser}nm: {measured:.3f} {unit}'
+        pattern = f'Power {laser}nm:'
+
+        try:
+            from pycromanager import Studio
+            studio = Studio()
+            acqmgr = studio.acquisitions()
+            curr_settings = acqmgr.get_acquisition_settings()
+            curr_comment = str(curr_settings.comment() or '')
+            new_comment = _replace_or_append(curr_comment, pattern, pwr_str)
+            new_settings = curr_settings.copy_builder().comment(new_comment).build()
+            acqmgr.set_acquisition_settings(new_settings)
+            return None  # no error
+        except ImportError:
+            return None  # pycromanager not installed
+        except Exception as exc:
+            return str(exc)
+
     def _on_measure(self):
         if self._pc is None:
             return
@@ -1360,6 +1442,8 @@ class SetPowerTab(QWidget):
                     'Set beampath to "start_calibrate" position before measuring?',
                     QMessageBox.Yes | QMessageBox.No)
                 do_start_cal = (reply == QMessageBox.Yes)
+
+        mode = self._mode_combo.currentData()
 
         def _do():
             import time
@@ -1383,46 +1467,32 @@ class SetPowerTab(QWidget):
                 time.sleep(2)
             measured = self._pc.powermeter.read()
             try:
-                cali_pred = self._pc.instrument.power
+                if (mode == 'laser' and
+                        hasattr(self._pc.instrument,
+                                'predict_power_fixed_attenuator')):
+                    curr_lp = self._pc.instrument.lasers[laser].power
+                    cali_pred = (
+                        self._pc.instrument
+                        .predict_power_fixed_attenuator(curr_lp, laser))
+                else:
+                    cali_pred = self._pc.instrument.power
             except Exception:
                 cali_pred = None
-            return measured, cali_pred
+            try:
+                att_pos = self._pc.instrument.attenuator.curr_pos()
+            except Exception:
+                att_pos = None
+            return measured, cali_pred, att_pos
 
         def _on_val(res):
-            measured, cali_pred = res
+            measured, cali_pred, att_pos = res
             try:
                 unit = self._pc.powermeter.unit
             except Exception:
                 unit = 'a.u.'
             self._status.setText(f'Measured power: {measured:.3f} {unit}')
 
-            # Update MicroManager Acquisition Comment with the measured power.
-            # Uses a replace-or-append helper so successive measurements update
-            # the same line rather than appending a new one each time.
-            def replace_or_append(multiline_txt: str, pattern: str, new_str: str) -> str:
-                import re
-                result, count = re.subn(r"^" + pattern + r".*$", new_str, multiline_txt, flags=re.MULTILINE)
-                if count == 0:
-                    result = multiline_txt + ("\n" if not multiline_txt.endswith("\n") else "") + new_str
-                return result
-
-            mm_err = None
-            try:
-                from pycromanager import Studio
-                studio = Studio()
-                acqmgr = studio.acquisitions()
-                curr_settings = acqmgr.get_acquisition_settings()
-                curr_acqcomment = str(curr_settings.comment() or "")
-                pwr_str = f"Power {laser}nm: {measured:.3f} {unit}"
-                new_acqcomment = replace_or_append(
-                    curr_acqcomment, f"Power {laser}nm:", pwr_str)
-                # SequenceSettings is immutable in MM 2.0 — use the builder
-                new_settings = curr_settings.copy_builder().comment(new_acqcomment).build()
-                acqmgr.set_acquisition_settings(new_settings)
-            except ImportError:
-                pass  # pycromanager not installed; MicroManager not in use
-            except Exception as exc:
-                mm_err = str(exc)
+            mm_err = self._update_mm_comment(laser, measured, unit, att_pos)
 
             if cali_pred is not None and cali_pred > 0:
                 cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
@@ -1433,8 +1503,6 @@ class SetPowerTab(QWidget):
             else:
                 self._main_window.set_status('Ready', 2000)
 
-            # Show MM error in the tab label after the status bar update so it
-            # is not immediately overwritten by the calibration deviation line.
             if mm_err is not None:
                 self._status.setText(
                     f'Measured: {measured:.3f} {unit}'
@@ -1987,9 +2055,10 @@ class MonetMainWindow(QMainWindow):
             QMessageBox.warning(self, 'No microscope', 'Select a microscope first.')
             return
 
+        import copy
         try:
-            config = CONFIGS[name]
-            protocol = PROTOCOLS.get(name)
+            config = copy.deepcopy(CONFIGS[name])
+            protocol = copy.deepcopy(PROTOCOLS.get(name))
         except KeyError as exc:
             QMessageBox.critical(self, 'Config not found', str(exc))
             return
