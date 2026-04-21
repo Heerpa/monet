@@ -1409,15 +1409,16 @@ class SetPowerTab(QWidget):
             mm_err = None
             try:
                 from pycromanager import Studio
-                studio = Studio(convert_camel_case=False)
+                studio = Studio()
                 acqmgr = studio.acquisitions()
-                curr_acqcomment = acqmgr.getAcquisitionSettings().comment
+                curr_settings = acqmgr.get_acquisition_settings()
+                curr_acqcomment = curr_settings.comment or ""
                 pwr_str = f"Power {laser}nm: {measured:.3f} {unit}"
                 new_acqcomment = replace_or_append(
                     curr_acqcomment, f"Power {laser}nm:", pwr_str)
                 # SequenceSettings is immutable in MM 2.0 — use the builder
-                new_settings = acqmgr.getAcquisitionSettings().copyBuilder().comment(new_acqcomment).build()
-                acqmgr.setAcquisitionSettings(new_settings)
+                new_settings = curr_settings.copy_builder().comment(new_acqcomment).build()
+                acqmgr.set_acquisition_settings(new_settings)
             except ImportError:
                 pass  # pycromanager not installed; MicroManager not in use
             except Exception as exc:
