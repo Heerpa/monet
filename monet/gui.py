@@ -768,7 +768,7 @@ class SetPowerTab(QWidget):
         self._laser_combo = QComboBox()
         self._laser_combo.currentIndexChanged.connect(self._on_laser_changed)
         laser_row.addWidget(self._laser_combo)
-        self._btn_onoff = QPushButton('ON')
+        self._btn_onoff = QPushButton('switch ON')
         self._btn_onoff.setCheckable(True)
         self._btn_onoff.clicked.connect(self._on_toggle_laser)
         laser_row.addWidget(self._btn_onoff)
@@ -1005,7 +1005,7 @@ class SetPowerTab(QWidget):
         try:
             enabled = self._pc.instrument.lasers[laser].enabled
             self._btn_onoff.setChecked(enabled)
-            self._btn_onoff.setText('OFF' if enabled else 'ON')
+            self._btn_onoff.setText('switch OFF' if enabled else 'switch ON')
         except Exception as exc:
             self._status.setText(str(exc))
         self._update_range_label()
@@ -1076,7 +1076,7 @@ class SetPowerTab(QWidget):
             self._pc.instrument.laser_enabled = checked
 
         def _done():
-            self._btn_onoff.setText('OFF' if checked else 'ON')
+            self._btn_onoff.setText('switch OFF' if checked else 'switch ON')
             self._status.setText(f'Laser {laser} nm {"on" if checked else "off"}.')
             self._main_window.set_status('Ready', 2000)
 
@@ -1555,7 +1555,7 @@ class SetPowerTab(QWidget):
         def _done():
             self._status.setText('All lasers switched off.')
             self._btn_onoff.setChecked(False)
-            self._btn_onoff.setText('ON')
+            self._btn_onoff.setText('switch ON')
             self._main_window.set_status('Ready', 2000)
 
         self._run_hw(_do, 'Switching all lasers off…', on_done=_done)
