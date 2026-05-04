@@ -39,6 +39,14 @@ class TestIOHTTP(unittest.TestCase):
         self.db_path = os.path.join(self.tmpdir, 'test.db')
         os.environ['MONET_DB_PATH'] = self.db_path
 
+        # Redirect the local cache to the temp directory so tests don't write
+        # to the real ~/.monet directory.
+        from monet import cache as _mcache
+        import monet.io as _mio
+        _mcache._set_cache_dir(self.tmpdir)
+        _mcache._clear_cache_registry()
+        _mio._last_flush_failure.clear()
+
         from monet.server import app
         self.test_client = TestClient(app)
         self.test_client.__enter__()
@@ -66,6 +74,8 @@ class TestIOHTTP(unittest.TestCase):
         import requests as _requests
         _requests.post = self._orig_post
         self.test_client.__exit__(None, None, None)
+        from monet import cache as _mcache
+        _mcache._clear_cache_registry()
 
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)

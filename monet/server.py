@@ -17,12 +17,18 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from monet.models import Calibration, get_engine
+from monet.models import Calibration, Factor, get_engine
 from monet.schemas import (
     CalibrationCreate,
+    CalibrationDeleteQuery,
+    CalibrationDeleteResponse,
     CalibrationQuery,
     CalibrationRecord,
     DatabaseResponse,
+    FactorCreate,
+    FactorListResponse,
+    FactorQuery,
+    FactorRecord,
     RestartResponse,
 )
 
@@ -175,6 +181,28 @@ def query_calibrations(query: CalibrationQuery):
             )
 
 
+@app.post('/calibrations/delete', response_model=CalibrationDeleteResponse)
+def delete_calibrations(query: CalibrationDeleteQuery):
+    """Delete calibration records matching the query. None values act as wildcards."""
+    with _get_session() as session:
+        stmt = select(Calibration)
+        if query.device_name is not None:
+            stmt = stmt.where(Calibration.device_name == query.device_name)
+        if query.wavelength_nm is not None:
+            stmt = stmt.where(Calibration.wavelength_nm == query.wavelength_nm)
+        if query.laser_power_mw is not None:
+            stmt = stmt.where(Calibration.laser_power_mw == query.laser_power_mw)
+        if query.calibration_date is not None:
+            stmt = stmt.where(Calibration.calibration_date == query.calibration_date)
+        if query.calibration_time is not None:
+            stmt = stmt.where(Calibration.calibration_time == query.calibration_time)
+        rows = session.execute(stmt).scalars().all()
+        for row in rows:
+            session.delete(row)
+        session.commit()
+    return CalibrationDeleteResponse(deleted_count=len(rows))
+
+
 @app.post('/database/restart', response_model=RestartResponse)
 def restart_database():
     """Backup the current database and prune to only the latest entries."""
@@ -223,6 +251,73 @@ def restart_database():
             backup_path=backup_path,
             remaining_records=len(remaining),
         )
+
+
+@app.post('/factors', response_model=FactorRecord)
+def save_factor(data: FactorCreate):
+    """Save or update a transmission_objective factor record."""
+    with _get_session() as session:
+        # Replace existing record for same (device, wavelength, date)
+        stmt = select(Factor).where(
+            Factor.device_name == data.device_name,
+            Factor.wavelength_nm == data.wavelength_nm,
+            Factor.calibration_date == data.calibration_date,
+        )
+        existing = session.execute(stmt).scalar_one_or_none()
+        if existing:
+            existing.transmission_objective_mean = data.transmission_objective_mean
+            existing.transmission_objective_std = data.transmission_objective_std
+            existing.n_points = data.n_points
+            session.commit()
+            session.refresh(existing)
+            row = existing
+        else:
+            row = Factor(
+                device_name=data.device_name,
+                wavelength_nm=data.wavelength_nm,
+                calibration_date=data.calibration_date,
+                transmission_objective_mean=data.transmission_objective_mean,
+                transmission_objective_std=data.transmission_objective_std,
+                n_points=data.n_points,
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+        return FactorRecord(
+            device_name=row.device_name,
+            wavelength_nm=row.wavelength_nm,
+            calibration_date=row.calibration_date,
+            transmission_objective_mean=row.transmission_objective_mean,
+            transmission_objective_std=row.transmission_objective_std,
+            n_points=row.n_points,
+        )
+
+
+@app.post('/factors/query', response_model=FactorListResponse)
+def query_factors(query: FactorQuery):
+    """Query transmission_objective factor records."""
+    with _get_session() as session:
+        stmt = select(Factor).order_by(
+            Factor.device_name, Factor.wavelength_nm, Factor.calibration_date)
+        if query.device_name is not None:
+            stmt = stmt.where(Factor.device_name == query.device_name)
+        if query.wavelength_nm is not None:
+            stmt = stmt.where(Factor.wavelength_nm == query.wavelength_nm)
+        if query.date_from is not None:
+            stmt = stmt.where(Factor.calibration_date >= query.date_from)
+        if query.date_to is not None:
+            stmt = stmt.where(Factor.calibration_date <= query.date_to)
+        rows = session.execute(stmt).scalars().all()
+    return FactorListResponse(records=[
+        FactorRecord(
+            device_name=r.device_name,
+            wavelength_nm=r.wavelength_nm,
+            calibration_date=r.calibration_date,
+            transmission_objective_mean=r.transmission_objective_mean,
+            transmission_objective_std=r.transmission_objective_std,
+            n_points=r.n_points,
+        ) for r in rows
+    ])
 
 
 @app.get('/health')

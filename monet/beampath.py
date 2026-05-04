@@ -296,3 +296,67 @@ class NikonFilterWheel(AbstractBeamPathObject):
         self.core.set_config(self.filter_config_name, pos)
 
         super(self.__class__, self.__class__).position.__set__(self, pos)
+
+class NikonNosepiece(AbstractBeamPathObject):
+    """Implments the Nosepiece / objective turret of a Nikon Ti2 Microscope.
+    """
+    def __init__(self, config):
+        """
+        Args:
+            config : dict
+                the configuration of the nosepiece. Keys:
+                'SN': serial number
+                ...
+        """
+        super().__init__(config)
+        self._connect(config)
+
+    def _connect(self, config):
+        self.core = get_pycromgr()
+        # find the correct filter config name
+        filter_config_name = 'Nosepiece'
+        cfg_groups = self.core.get_available_config_groups()
+        config_names = [
+            cfg_groups.get(i)
+            for i in range(cfg_groups.size())]
+        if filter_config_name not in config_names:
+            config_names_upper = [it.upper() for it in config_names]
+            if filter_config_name.upper() in config_names_upper:
+                filter_config_name = config_names[
+                    config_names_upper.index(filter_config_name.upper())]
+            else:
+                # try the parts
+                name_candidates = []
+                for test_cn in filter_config_name.split(' '):
+                    found = [test_cn.upper() in cn for cn in config_names_upper]
+                    if sum(found) > 0:
+                        name_candidates.append(config_names[found.index(True)])
+                if len(name_candidates) == 1:
+                    filter_config_name = name_candidates[0]
+                elif len(name_candidates) > 1:
+                    logger.debug(
+                        'Multiple configs could be the ' + filter_config_name +
+                        ': ' + ', '.join(name_candidates) + '. Choosing the first.')
+                    filter_config_name = name_candidates[0]
+                else:
+                    raise KeyError(
+                        'Cannot find configuration for ' + filter_config_name +
+                        '.')
+        self.filter_config_name = filter_config_name
+        # load the options
+        configopts = self.core.get_available_configs(filter_config_name)
+        self.filter_options = [configopts.get(i) for i in range(configopts.size())]
+
+    @property
+    def position(self):
+        curr_pos = self.core.get_current_config(self.filter_config_name)
+        return curr_pos
+        return super().position
+
+    @position.setter
+    def position(self, pos):
+        assert(isinstance(pos, str))
+        assert(pos in self.filter_options)
+        self.core.set_config(self.filter_config_name, pos)
+
+        super(self.__class__, self.__class__).position.__set__(self, pos)

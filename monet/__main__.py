@@ -49,7 +49,7 @@ def main():
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
         'mode', type=str,
-        help='mode. One of "set", "adjust", "caliaotf", "calibrate", "serve", or "migrate".')
+        help='mode. One of "set", "adjust", "caliaotf", "calibrate", "serve", "migrate", or "gui".')
     parser.add_argument(
         'name', type=str, nargs='?', default=None,
         help='Microscope Name, as specified in config. Not required for serve/migrate modes.')
@@ -103,8 +103,16 @@ def main():
     elif args.mode == 'set':
         MonetSetInteractive(
             args.name).cmdloop()
+    elif args.mode == 'gui':
+        import sys
+        from PyQt5.QtWidgets import QApplication
+        from monet.gui import MonetMainWindow
+        app = QApplication(sys.argv)
+        window = MonetMainWindow(initial_microscope=args.name)
+        window.show()
+        sys.exit(app.exec_())
     else:
-        raise KeyError('monet mode has to be one of "set", "calibrate", "serve", or "migrate".')
+        raise KeyError('monet mode has to be one of "set", "calibrate", "serve", "migrate", or "gui".')
 
 
 # def monet_interactive(CONFIG):

@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from monet.models import Calibration
+from monet.models import Calibration, Factor
 
 # Imported lazily inside each handler to avoid a circular-import at module
 # load time (server.py imports this module at its very bottom).
@@ -64,6 +64,28 @@ def get_filters():
         'date_min': min(dates),
         'date_max': max(dates),
     }
+
+
+@router.get('/api/transmission_objectives')
+def get_transmission_objectives(device: str = None):
+    """Return all transmission_objective factor records, optionally filtered by device."""
+    with _server._get_session() as session:
+        stmt = select(Factor).order_by(
+            Factor.device_name, Factor.wavelength_nm, Factor.calibration_date)
+        if device:
+            stmt = stmt.where(Factor.device_name == device)
+        rows = session.execute(stmt).scalars().all()
+    return [
+        {
+            'device': r.device_name,
+            'wavelength': r.wavelength_nm,
+            'date': r.calibration_date,
+            'transmission_objective_mean': r.transmission_objective_mean,
+            'transmission_objective_std': r.transmission_objective_std,
+            'n_points': r.n_points,
+        }
+        for r in rows
+    ]
 
 
 @router.post('/api/timeseries')
@@ -153,6 +175,8 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       white-space: nowrap; cursor: help; font-family: monospace; font-size: 0.75rem;
     }
     .plotly-chart { min-height: 160px; }
+    #db-table-wrap table { font-size: 0.8rem; }
+    #db-table-wrap tr.selected { background: #fff3cd !important; }
   </style>
 </head>
 <body>
@@ -221,6 +245,10 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
               onclick="switchTab('power-range')">Power History</button>
       <button class="tab-btn"        data-tab="latest-table"
               onclick="switchTab('latest-table')">Latest Calibrations</button>
+      <button class="tab-btn"        data-tab="transmission"
+              onclick="switchTab('transmission')">Objective Transmission</button>
+      <button class="tab-btn"        data-tab="db-table"
+              onclick="switchTab('db-table')">All Records</button>
     </div>
 
     <div id="tab-param-history" class="tab-pane">
@@ -232,6 +260,24 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     <div id="tab-latest-table"  class="tab-pane">
       <div id="charts-latest"></div>
       <div id="table-latest"  class="mt-3"></div>
+    </div>
+    <div id="tab-transmission"  class="tab-pane">
+      <div id="charts-transmission"></div>
+    </div>
+    <div id="tab-db-table" class="tab-pane">
+      <div id="db-table-controls" class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" id="select-all-cb"
+                 onchange="toggleSelectAll(this.checked)">
+          <label class="form-check-label small" for="select-all-cb">Select all</label>
+        </div>
+        <button class="btn btn-sm btn-outline-danger"
+                onclick="deleteSelected()">Delete selected</button>
+        <button class="btn btn-sm btn-danger"
+                onclick="deleteAllInView()">Delete all in view</button>
+        <span id="db-table-status" class="small text-muted ms-2"></span>
+      </div>
+      <div id="db-table-wrap" class="table-responsive"></div>
     </div>
 
   </div>
@@ -356,6 +402,8 @@ async function update() {
     renderParamHistory(records);
     renderPowerRange(records);
     renderLatestTable(records);
+    renderDatabaseTable(records);
+    await renderTransmission();
   } catch (err) {
     console.error('update error', err);
   } finally {
@@ -693,6 +741,238 @@ function renderLatestTable(records) {
   table.appendChild(tbody);
   wrap.appendChild(table);
   container.appendChild(wrap);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB 4 — All Records (database table with delete)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Module-level store so delete functions can access current records
+let _dbTableRecords = [];
+
+function renderDatabaseTable(records) {
+  _dbTableRecords = records.slice();
+  const wrap = document.getElementById('db-table-wrap');
+  wrap.innerHTML = '';
+  document.getElementById('select-all-cb').checked = false;
+  document.getElementById('db-table-status').textContent =
+    records.length + ' record(s)';
+
+  if (!records.length) {
+    wrap.appendChild(emptyMsg('No records match the current filters.'));
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.id = 'db-main-table';
+  table.className = 'table table-sm table-hover table-bordered align-middle';
+
+  table.innerHTML = `<thead class="table-light sticky-top"><tr>
+    <th style="width:2rem"><input type="checkbox" id="hdr-cb"
+        onchange="toggleSelectAll(this.checked)"></th>
+    <th>Microscope</th><th>Wavelength</th><th>Power (mW)</th>
+    <th>Date</th><th>Time</th><th>PM type</th><th>Parameters</th>
+    <th style="width:4rem"></th>
+  </tr></thead>`;
+
+  const tbody = document.createElement('tbody');
+  records.forEach((r, i) => {
+    const color    = wlColor(r.wavelength);
+    const pmType   = r.parameters.powermeter_type || '—';
+    const paramStr = JSON.stringify(
+      Object.fromEntries(
+        Object.entries(r.parameters).filter(([k]) => k !== 'powermeter_type')
+      ));
+    const shortP   = paramStr.length > 50 ? paramStr.slice(0, 47) + '\\u2026' : paramStr;
+    const safePS   = paramStr.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+
+    const tr = document.createElement('tr');
+    tr.dataset.idx = i;
+    tr.innerHTML = `
+      <td><input type="checkbox" class="row-cb" onchange="onRowCbChange()"></td>
+      <td>${r.device}</td>
+      <td><span class="wl-dot" style="background:${color}"></span>${r.wavelength}</td>
+      <td>${r.laser_power}</td>
+      <td>${r.date}</td>
+      <td>${r.time}</td>
+      <td><span class="badge bg-secondary">${pmType}</span></td>
+      <td class="params-cell" title="${safePS}">${shortP}</td>
+      <td><button class="btn btn-outline-danger btn-sm py-0 px-1"
+            onclick="deleteSingle(${i})">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+}
+
+function toggleSelectAll(checked) {
+  document.querySelectorAll('#db-main-table .row-cb').forEach(cb => {
+    cb.checked = checked;
+    cb.closest('tr').classList.toggle('selected', checked);
+  });
+  const hdrCb = document.getElementById('hdr-cb');
+  if (hdrCb) hdrCb.checked = checked;
+  document.getElementById('select-all-cb').checked = checked;
+}
+
+function onRowCbChange() {
+  const all  = document.querySelectorAll('#db-main-table .row-cb');
+  const chkd = document.querySelectorAll('#db-main-table .row-cb:checked');
+  all.forEach(cb => cb.closest('tr').classList.toggle('selected', cb.checked));
+  const allChecked = chkd.length === all.length && all.length > 0;
+  const hdrCb = document.getElementById('hdr-cb');
+  if (hdrCb) hdrCb.checked = allChecked;
+  document.getElementById('select-all-cb').checked = allChecked;
+}
+
+function _recordToDeletePayload(r) {
+  return {
+    device_name:       r.device,
+    wavelength_nm:     r.wavelength,
+    laser_power_mw:    r.laser_power,
+    calibration_date:  r.date,
+    calibration_time:  r.time,
+  };
+}
+
+async function _deleteRecords(recsToDelete) {
+  let deleted = 0;
+  for (const r of recsToDelete) {
+    try {
+      const res = await fetch('/calibrations/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(_recordToDeletePayload(r)),
+      });
+      if (res.ok) deleted += (await res.json()).deleted_count || 1;
+    } catch (e) {
+      console.error('delete error', e);
+    }
+  }
+  return deleted;
+}
+
+async function deleteSingle(idx) {
+  const r = _dbTableRecords[idx];
+  if (!confirm(
+    `Delete this record?\\n${r.device} | ${r.wavelength} nm | ${r.laser_power} mW | ${r.date} ${r.time}`
+  )) return;
+  showLoading(true);
+  try {
+    await _deleteRecords([r]);
+    await update();
+  } finally { showLoading(false); }
+}
+
+async function deleteSelected() {
+  const checked = document.querySelectorAll('#db-main-table .row-cb:checked');
+  if (!checked.length) { alert('No rows selected.'); return; }
+  const idxs  = Array.from(checked).map(cb => parseInt(cb.closest('tr').dataset.idx));
+  const recs  = idxs.map(i => _dbTableRecords[i]);
+  if (!confirm(`Delete ${recs.length} selected record(s)? This cannot be undone.`)) return;
+  showLoading(true);
+  try {
+    await _deleteRecords(recs);
+    await update();
+  } finally { showLoading(false); }
+}
+
+async function deleteAllInView() {
+  const n = _dbTableRecords.length;
+  if (!n) { alert('No records in the current view.'); return; }
+  if (!confirm(`Delete all ${n} record(s) in the current filtered view? This cannot be undone.`))
+    return;
+  showLoading(true);
+  try {
+    await _deleteRecords(_dbTableRecords);
+    await update();
+  } finally { showLoading(false); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB 5 — Objective Transmission
+// ═══════════════════════════════════════════════════════════════════════════════
+async function renderTransmission() {
+  const container = document.getElementById('charts-transmission');
+  container.innerHTML = '';
+
+  let allRecs;
+  try {
+    const res = await fetch('/dashboard/api/transmission_objectives');
+    allRecs = await res.json();
+  } catch (err) {
+    container.appendChild(emptyMsg('Could not load transmission data: ' + err));
+    return;
+  }
+
+  if (!allRecs.length) {
+    container.appendChild(emptyMsg(
+      'No transmission_objective data yet. Run both a beampath and a manual ' +
+      'calibration on the same day to compute it.'));
+    return;
+  }
+
+  // Filter by currently selected devices
+  const selDevices = new Set(getSelected('sel-devices'));
+  const recs = selDevices.size ? allRecs.filter(r => selDevices.has(r.device)) : allRecs;
+
+  if (!recs.length) {
+    container.appendChild(emptyMsg('No data for the selected microscopes.'));
+    return;
+  }
+
+  const byDevice = groupBy(recs, r => r.device);
+
+  for (const [device, devRecs] of Object.entries(byDevice)) {
+    const card     = document.createElement('div');
+    card.className = 'chart-card';
+    const h6 = document.createElement('h6');
+    h6.className   = 'fw-semibold mb-2';
+    h6.textContent = device;
+    card.appendChild(h6);
+
+    const byWL = groupBy(devRecs, r => r.wavelength);
+    const traces = [];
+
+    for (const [wl, wlRecs] of Object.entries(byWL)) {
+      wlRecs.sort((a, b) => a.date.localeCompare(b.date));
+      const color = wlColor(wl);
+      const xs    = wlRecs.map(r => r.date);
+      const ys    = wlRecs.map(r => r.transmission_objective_mean);
+      const errs  = wlRecs.map(r => r.transmission_objective_std);
+      const name  = wl + '\\u202fnm';
+
+      traces.push({
+        x: xs,
+        y: ys,
+        error_y: { type: 'data', array: errs, visible: true, color, thickness: 1.5 },
+        name,
+        legendgroup: name,
+        mode: 'lines+markers',
+        line: { color },
+        marker: { color, size: 7 },
+        customdata: wlRecs.map(r => r.n_points),
+        hovertemplate:
+          '<b>' + name + '</b><br>Date: %{x}<br>' +
+          'T_obj: %{y:.4f} ± %{error_y.array:.4f}<br>' +
+          'n = %{customdata}<extra></extra>',
+      });
+    }
+
+    const chartDiv     = document.createElement('div');
+    chartDiv.className = 'plotly-chart';
+    card.appendChild(chartDiv);
+    container.appendChild(card);
+
+    Plotly.newPlot(chartDiv, traces, {
+      margin: { t: 10, b: 45, l: 65, r: 15 },
+      hovermode: 'x unified',
+      legend: { orientation: 'h', y: -0.22, font: { size: 11 } },
+      yaxis: { title: 'transmission_objective (P_manual / P_beampath)' },
+      height: 280,
+    }, { responsive: true, displayModeBar: false });
+  }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

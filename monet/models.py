@@ -15,6 +15,18 @@ class Base(DeclarativeBase):
     pass
 
 
+class Factor(Base):
+    __tablename__ = 'factors'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_name = Column(String, nullable=False, index=True)
+    wavelength_nm = Column(Float, nullable=False, index=True)
+    calibration_date = Column(String, nullable=False, index=True)
+    transmission_objective_mean = Column(Float, nullable=False)
+    transmission_objective_std = Column(Float, nullable=False)
+    n_points = Column(Integer, nullable=False)
+
+
 class Calibration(Base):
     __tablename__ = 'calibrations'
 
