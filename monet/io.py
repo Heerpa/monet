@@ -612,7 +612,7 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
             dates = power_df.index.get_level_values('date')
             times = power_df.index.get_level_values('time')
 
-            dt = [datetime.strptime(date+';'+time, '%Y-%m-%d;%H:%M')
+            dt = [datetime.strptime(f"{date};{time}", '%Y-%m-%d;%H:%M')
                   for date, time in zip(dates, times)]
             minpower = np.zeros(len(dates))
             maxpower = np.zeros(len(dates))
