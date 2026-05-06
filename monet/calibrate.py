@@ -219,16 +219,29 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             powermeter_type : str
                 'manual' or 'beampath' — annotated in every saved calibration
         """
-        # delete previous calibration plots
         plotfolder = self.instrument.config.get('dest_calibration_plot')
-        for f in os.listdir(plotfolder):
-            try:
-                os.remove(os.path.join(plotfolder, f))
-            except:
-                pass
 
         lasers = [l for l in self.protocol['laser_sequence']
                   if laser_filter is None or l in laser_filter]
+
+        # delete only plots belonging to the lasers being calibrated
+        # calibration-curve files accumulate across runs (timestamp in name) and
+        # must be removed; model/meas plots are overwritten but pruned for tidiness
+        laser_ints = {int(l) for l in lasers}
+        for fname in os.listdir(plotfolder):
+            matched = any(
+                fname in (
+                    '{:d}nm.png'.format(li),
+                    'pwrmeasured_{:d}nm.png'.format(li),
+                    'pwrmeasured_{:d}nm.xlsx'.format(li),
+                ) or 'wavelength (nm)-{:d}_'.format(li) in fname
+                for li in laser_ints
+            )
+            if matched:
+                try:
+                    os.remove(os.path.join(plotfolder, fname))
+                except Exception:
+                    pass
         total = sum(len(self.protocol['laser_powers'][l]) for l in lasers)
         step = 0
 
