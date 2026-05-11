@@ -13,7 +13,7 @@ def read(fname):
 
 setup(
     name="monet",
-    version='0.3.0',
+    version='0.3.1',
     author="Heinrich Grabmayr",
     author_email="hgrabmayr@biochem.mpg.de",
     description=("A python based software suite to calibrate " +

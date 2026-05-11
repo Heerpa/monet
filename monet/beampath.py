@@ -181,7 +181,8 @@ class TestShutter(AbstractBeamPathObject):
 
     @position.setter
     def position(self, pos):
-        assert(isinstance(pos, bool))
+        if not isinstance(pos, bool):
+            raise ValueError('TestShutter position must be bool, got {!r}'.format(pos))
         logger.debug('setting position of TestShutter to {:b}'.format(pos))
         super(self.__class__, self.__class__).position.__set__(self, pos)
 
@@ -222,7 +223,8 @@ class NikonShutter(AbstractBeamPathObject):
 
     @position.setter
     def position(self, pos):
-        assert(isinstance(pos, bool))
+        if not isinstance(pos, bool):
+            raise ValueError('NikonShutter position must be bool, got {!r}'.format(pos))
         # if pos:
         #     self.device.open()
         #     # core.setShutterOpen(True)
@@ -291,8 +293,12 @@ class NikonFilterWheel(AbstractBeamPathObject):
 
     @position.setter
     def position(self, pos):
-        assert(isinstance(pos, str))
-        assert(pos in self.filter_options)
+        if not isinstance(pos, str):
+            raise ValueError('MMConfigFilter position must be str, got {!r}'.format(pos))
+        if pos not in self.filter_options:
+            raise ValueError(
+                'Position {!r} not available for {}. Options: {}'.format(
+                    pos, self.filter_config_name, self.filter_options))
         self.core.set_config(self.filter_config_name, pos)
 
         super(self.__class__, self.__class__).position.__set__(self, pos)
@@ -355,8 +361,12 @@ class NikonNosepiece(AbstractBeamPathObject):
 
     @position.setter
     def position(self, pos):
-        assert(isinstance(pos, str))
-        assert(pos in self.filter_options)
+        if not isinstance(pos, str):
+            raise ValueError('NikonNosepiece position must be str, got {!r}'.format(pos))
+        if pos not in self.filter_options:
+            raise ValueError(
+                'Position {!r} not available for {}. Options: {}'.format(
+                    pos, self.filter_config_name, self.filter_options))
         self.core.set_config(self.filter_config_name, pos)
 
         super(self.__class__, self.__class__).position.__set__(self, pos)

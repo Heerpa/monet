@@ -377,7 +377,10 @@ class LinearCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         return pars
 
     def output_range(self):
-        raise NotImplementedError()
+        p = self.curr_params
+        v0 = p['bkg'] + p['amp'] * self.analysis_parameters['min']
+        v1 = p['bkg'] + p['amp'] * self.analysis_parameters['max']
+        return sorted([v0, v1])
 
     def plot(self, fname, xlabel=None, ylabel=None, title=None):
         """Plot the outcome of the analysis
