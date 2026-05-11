@@ -559,8 +559,11 @@ def plot_device_history(db_fname, device, plot_dir):
     db = load_database(db_fname, index, 'all')
     for laser, laser_df in db.groupby(LASER_TAG):
         powers = laser_df.index.get_level_values(POWER_TAG).unique()
-        params = laser_df.columns
-        fig, ax = plt.subplots(nrows=len(params), sharex=True)
+        params = laser_df.select_dtypes(include='number').columns
+        if len(params) == 0:
+            continue
+        fig, ax = plt.subplots(nrows=len(params), sharex=True, squeeze=False)
+        ax = ax[:, 0]
         for i, param in enumerate(params):
             for power, power_df in laser_df.groupby(POWER_TAG):
                 dates = power_df.index.get_level_values('date')
