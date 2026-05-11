@@ -483,10 +483,17 @@ class AAAOTFAttenuator(AbstractAttenuator):
         wvl = int(wvl)
         self.wavelength = wvl
 
-        self.channel = int(self.channeldef.loc[self.channeldef['wavelength']==wvl, 'channel'].values[0])
+        matches = self.channeldef.loc[self.channeldef['wavelength'] == wvl]
+        if matches.empty:
+            available = sorted(self.channeldef['wavelength'].tolist())
+            raise ValueError(
+                'Wavelength {} nm not found in AOTF channel definitions. '
+                'Available wavelengths: {}. '
+                'Check the channel definition file.'.format(wvl, available))
+        self.channel = int(matches['channel'].values[0])
         self.lowlvl.enable(self.channel, True)
         # time.sleep(0.05)
-        freq = self.channeldef.loc[self.channeldef['wavelength']==wvl, 'frequency'].values[0]
+        freq = matches['frequency'].values[0]
         # print('set freq', freq, ' for channel', self.channel, 'for wavelength', wvl)
         self.lowlvl.frequency(self.channel, freq)
         # time.sleep(0.05)

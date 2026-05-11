@@ -381,8 +381,9 @@ def _load_database_excel(fname, index, time_idx):
 
     try:
         db = pd.read_excel(fname, index_col=list(range(len(indexnames))))
-    except:
-        raise FileNotFoundError('Problem loading file ' + fname)
+    except Exception as e:
+        raise FileNotFoundError(
+            'Could not load database file {!r}: {}'.format(fname, e)) from e
 
     db = db.sort_index()
     ic(db)
@@ -390,8 +391,11 @@ def _load_database_excel(fname, index, time_idx):
     # select for the index values
     try:
         db = db.loc[indexvals, :]
-    except:
-        raise KeyError('index ' + str(indexvals) + ' not found in database.')
+    except Exception as e:
+        raise KeyError(
+            'Index {} not found in database {!r}. '
+            'The device name, wavelength, or laser power may not match '
+            'any existing calibration entry.'.format(indexvals, fname)) from e
 
     # date selection
     if time_idx==None or time_idx=='latest':

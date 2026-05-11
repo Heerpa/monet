@@ -76,8 +76,9 @@ class IlluminationControl():
         if do_load_cal:
             try:
                 self.load_calibration()
-            except:
-                pass
+            except Exception as e:
+                logger.warning('Could not load calibration: %s. '
+                               'Calibration-dependent features disabled.', e)
 
     @property
     def power(self):
@@ -173,16 +174,20 @@ class IlluminationLaserControl(IlluminationControl):
                     lconf['classpath'], lconf['init_kwargs'])
                 # self.lasers[laser].enabled = False
             except Exception as e:
-                logger.debug('could not load laser {:s}.'.format(str(laser)))
-                logger.debug(e)
-                print('Could not load laser {:s}.'.format(
-                    str(laser)))
-                # self.lasers[laser] = mlas.TestLaser({})
+                logger.warning('Could not load laser %s: %s', laser, e)
+                print('Could not load laser {:s}: {:s}. '
+                      'Check that the device is on and the COM port / '
+                      'connection settings are correct.'.format(str(laser), str(e)))
                 lasers_missing.append(laser)
 
         for laser in lasers_missing:
             self.config['lasers'].pop(laser)
 
+        if not self.lasers:
+            raise RuntimeError(
+                'No lasers could be loaded. Configured lasers: {}. '
+                'Check that devices are powered on and COM ports have not '
+                'changed.'.format(list(config['lasers'].keys())))
         self.curr_laser = list(self.lasers.keys())[0]
 
         self._factors = {}         # {laser: transmission_objective}; = P_manual/P_beampath
@@ -197,8 +202,9 @@ class IlluminationLaserControl(IlluminationControl):
         if do_load_cal:
             try:
                 self.load_calibration_database()
-            except:
-                pass
+            except Exception as e:
+                logger.warning('Could not load calibration database: %s. '
+                               'Calibration-dependent features disabled.', e)
 
     def _populate_analyzers(self, db, laser):
         """from the database, create analyzers for various power settings

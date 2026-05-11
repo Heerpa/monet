@@ -51,14 +51,20 @@ def get_pycromgr(pycore_config=None):
         try:
             pycrocore = Core()
         except TimeoutError as e:
-            raise e
+            raise TimeoutError(
+                'Timed out connecting to Micro-Manager (pycromanager). '
+                'Check that Micro-Manager is running and the Java gateway is '
+                'accessible on the expected port.') from e
     else:
         # no need to specifically load the config
         logger.debug('Ignoring pycromanager configuration {:s}.'.format(str(pycore_config)))
         try:
             pycrocore = Core()
         except TimeoutError as e:
-            raise e
+            raise TimeoutError(
+                'Timed out connecting to Micro-Manager (pycromanager). '
+                'Check that Micro-Manager is running and the Java gateway is '
+                'accessible on the expected port.') from e
         # raise NotImplementedError('Loading pycromanager from pymmcore is not implemented.')
         # pycrocore = pymmcore.CMMCore()
         # pycrocore.setDeviceAdapterSearchPaths(
@@ -278,8 +284,9 @@ class NikonFilterWheel(AbstractBeamPathObject):
                     filter_config_name = name_candidates[0]
                 else:
                     raise KeyError(
-                        'Cannot find configuration for ' + filter_config_name +
-                        '.')
+                        'Cannot find Micro-Manager configuration group for '
+                        '{!r}. Available groups: {}'.format(
+                            filter_config_name, config_names))
         self.filter_config_name = filter_config_name
         # load the options
         configopts = self.core.get_available_configs(filter_config_name)
@@ -346,8 +353,9 @@ class NikonNosepiece(AbstractBeamPathObject):
                     filter_config_name = name_candidates[0]
                 else:
                     raise KeyError(
-                        'Cannot find configuration for ' + filter_config_name +
-                        '.')
+                        'Cannot find Micro-Manager configuration group for '
+                        '{!r}. Available groups: {}'.format(
+                            filter_config_name, config_names))
         self.filter_config_name = filter_config_name
         # load the options
         configopts = self.core.get_available_configs(filter_config_name)

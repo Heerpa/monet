@@ -99,8 +99,13 @@ class TestPowerMeter(AbstractPowerMeter):
 class ThorlabsPowerMeter(AbstractPowerMeter):
     def __init__(self, config):
         self.pm = self._open_powermeter(config['address'])
-        if self.pm == None:
-            raise ValueError('Could not load Thorlabs Powermeter')
+        if self.pm is None:
+            raise ValueError(
+                'Could not connect to Thorlabs power meter '
+                '(address: {!r}). '
+                'Check that the device is plugged in, drivers are installed, '
+                'and no other application has it open.'.format(
+                    config['address']))
         self.config = config
 
     def _open_powermeter(self, address=''):
@@ -128,8 +133,12 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
                     assert inst.get_visa_attribute(pyvisa.constants.VI_ATTR_MANF_NAME).lower() == manufacturer
                     power_meter = ThorlabsPM100(inst=inst)
                     break
-                except: # if it didn't work, it raises an error
+                except Exception:
                     pass
+            if power_meter is None and resources:
+                logger.warning(
+                    'Thorlabs power meter not found among VISA resources: %s',
+                    list(resources))
                 # errstr = ('No address given, multiple instruments present. ' +
                 #           'This is an unsolved situation.')
                 # raise NotImplementedError(errstr)
