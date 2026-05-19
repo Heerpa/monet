@@ -258,8 +258,12 @@ class KinesisAttenuator(AbstractAttenuator):
         self._move_absolute(val)
 
     def __del__(self):
-        self.device.stop_polling()
-        self.device.disconnect()
+        # __init__ may have failed before self.device was assigned
+        # (e.g. _connect() raised FT_DeviceNotFound); guard against it.
+        device = getattr(self, 'device', None)
+        if device is not None:
+            device.stop_polling()
+            device.disconnect()
 
 
 class AAAOTF_lowlevel(serial.Serial):
