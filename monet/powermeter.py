@@ -53,7 +53,10 @@ class TestPowerMeter(AbstractPowerMeter):
         self.config = config
         self.pos = config['start']
 
-    def read(self):
+    def read(self, averaging=10):
+        # `averaging` is accepted for interface compatibility with
+        # ThorlabsPowerMeter.read (used by feedback control and `measure`);
+        # the simulated meter ignores it.
         outval = self._model_function(
             self.pos, self.config['bkg'], self.config['amp'],
             self.config['phi'])

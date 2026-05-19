@@ -42,6 +42,8 @@ from PyQt5.QtWidgets import (
 
 from monet import CONFIGS, PROTOCOLS
 import monet.io as io
+from monet.control import run_power_feedback
+from monet.util import update_mm_acquisition_comment
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +170,7 @@ class FeedbackPlotDialog(QDialog):
 
         self._target = target_pwr
         self._tol = max_dev_pct
-        self._mode = mode   # 'attenuator_only' or 'laser'
+        self._mode = mode   # 'fixed_laser' or 'fixed_attenuator'
         self._iters = []
         self._measured_vals = []
         self._setpoint_vals = []
@@ -210,7 +212,7 @@ class FeedbackPlotDialog(QDialog):
         self._line_set, = ax.plot(
             [], [], 's--', color='darkorange', alpha=0.7,
             label='PI setpoint',
-            visible=(self._mode == 'attenuator_only'))
+            visible=(self._mode == 'fixed_laser'))
 
         ax.set_xlabel('Iteration')
         ax.set_ylabel('Power (mW)')
@@ -789,9 +791,9 @@ class SetPowerTab(QWidget):
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel('Mode:'))
         self._mode_combo = QComboBox()
-        self._mode_combo.addItem('Combined: laser power + attenuator', 'attenuator')
-        self._mode_combo.addItem('Fixed laser power: adjust attenuator only', 'attenuator_only')
-        self._mode_combo.addItem('Fixed attenuator: adjust laser power only', 'laser')
+        self._mode_combo.addItem('Combined: laser power + attenuator', 'combined')
+        self._mode_combo.addItem('Fixed laser power: adjust attenuator only', 'fixed_laser')
+        self._mode_combo.addItem('Fixed attenuator: adjust laser power only', 'fixed_attenuator')
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         mode_row.addWidget(self._mode_combo)
         mode_row.addStretch()
@@ -1090,7 +1092,7 @@ class SetPowerTab(QWidget):
         laser = self._laser_combo.currentData()
         mode = self._mode_combo.currentData()
 
-        if mode in ('laser', 'attenuator_only') and not hasattr(
+        if mode in ('fixed_attenuator', 'fixed_laser') and not hasattr(
                 self._pc.instrument, 'set_power_fixed_attenuator'):
             QMessageBox.warning(
                 self, 'Not supported',
@@ -1130,13 +1132,13 @@ class SetPowerTab(QWidget):
 
         # --- Build the background callable ---
         if not use_feedback:
-            if mode == 'laser':
+            if mode == 'fixed_attenuator':
                 def _do():
                     self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
                 done_msg = (f'Laser power adjusted for {pwr} mW output '
                             f'(laser {laser} nm, attenuator fixed).')
                 status_msg = f'Adjusting laser power for {pwr} mW…'
-            elif mode == 'attenuator_only':
+            elif mode == 'fixed_laser':
                 def _do():
                     self._pc.instrument.set_power_fixed_laser(pwr, laser)
                 done_msg = (f'Attenuator set for {pwr} mW '
@@ -1167,94 +1169,24 @@ class SetPowerTab(QWidget):
             progress_relay = [None]
 
             def _do():
-                import time
-                import numpy as _np
-
                 def _emit(iteration, setpoint, meas):
                     if progress_relay[0] is not None:
                         progress_relay[0]((iteration, setpoint, meas))
 
-                # Initial power setting
-                if mode == 'laser':
-                    self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
-                elif mode == 'attenuator_only':
-                    self._pc.instrument.set_power_fixed_laser(pwr, laser)
-                else:
-                    self._pc.instrument.laser = laser
-                    self._pc.instrument.power = pwr
-
-                # (1) Open beampath for the selected wavelength first
+                # Open beampath for the selected wavelength, then move to the
+                # measurement position (start_calibrate). run_power_feedback
+                # performs the initial power set and settles before measuring.
                 if bp_for_laser is not None:
                     self._pc.instrument.beampath.positions = bp_for_laser
-
-                # Move to measurement position (start_calibrate) and settle
-                moved_to_meas = False
                 if do_start_cal and bp_start_cal is not None:
                     self._pc.instrument.beampath.positions = bp_start_cal
-                    moved_to_meas = True
-                if bp_for_laser is not None or moved_to_meas:
-                    time.sleep(2)
 
-                # Feedback loop — PI gains captured from GUI spinboxes.
-                KP_ATT = kp_att
-                KI_ATT = ki_att
-                integral_e = 0.0   # accumulated normalized error
-
-                converged = False
-                out_of_range_warned = False
-                last_setpoint = pwr   # initial setpoint = calibration target
-
-                measured = self._pc.powermeter.read()
-                _emit(0, last_setpoint, measured)   # iteration 0: after initial set
-
-                for iter_num in range(MAX_ITER):
-                    if self._cancel_feedback:
-                        break
-                    dev_pct = (abs(measured - pwr) / pwr * 100.0
-                               if pwr > 0 else 0.0)
-                    if dev_pct <= max_dev_pct:
-                        converged = True
-                        break
-                    if measured <= 0:
-                        break  # cannot correct without light
-                    if mode == 'laser':
-                        # Proportional correction: scale current laser power
-                        curr_lp = self._pc.instrument.lasers[laser].power
-                        self._pc.instrument.lasers[laser].power = (
-                            curr_lp * pwr / measured)
-                        last_setpoint = pwr  # output target always pwr
-                    else:
-                        # PI controller in attenuator-only mode.
-                        # e is the normalised error (dimensionless).
-                        e = (pwr - measured) / pwr
-                        integral_e += e
-                        # Anti-windup: bound integral contribution
-                        integral_e = float(_np.clip(integral_e, -5.0, 5.0))
-                        corrected_target = pwr * (
-                            1.0 + KP_ATT * e + KI_ATT * integral_e)
-                        try:
-                            out_range = (
-                                self._pc.instrument.analyzer.output_range())
-                            lo = float(out_range[0])
-                            hi = float(out_range[1])
-                            clamped = float(
-                                _np.clip(corrected_target, lo, hi))
-                            if abs(clamped - corrected_target) > 1e-9:
-                                out_of_range_warned = True
-                                integral_e = 0.0  # reset on clamp (anti-windup)
-                            corrected_target = clamped
-                        except Exception:
-                            corrected_target = max(0.0, corrected_target)
-                        att_pos = self._pc.instrument.analyzer.estimate(
-                            corrected_target)
-                        self._pc.instrument.attenuator.set(att_pos)
-                        last_setpoint = corrected_target
-                        time.sleep(3)
-                    time.sleep(0.5)
-                    measured = self._pc.powermeter.read(5)
-                    time.sleep(0.5)
-                    measured = self._pc.powermeter.read(50)
-                    _emit(iter_num + 1, last_setpoint, measured)
+                # Closed-loop power setting (initial set, settle, PI feedback).
+                result = run_power_feedback(
+                    self._pc.instrument, self._pc.powermeter, pwr, laser, mode,
+                    kp=kp_att, ki=ki_att, max_dev_pct=max_dev_pct,
+                    max_iter=MAX_ITER, progress_callback=_emit,
+                    cancel_check=lambda: self._cancel_feedback)
 
                 # Restore beampath, mirroring the calibration routine
                 if bp_end_calibrate is not None:
@@ -1262,30 +1194,9 @@ class SetPowerTab(QWidget):
                 if bp_end is not None:
                     self._pc.instrument.beampath.positions = bp_end
 
-                # Calibration deviation
-                cali_pred = None
-                try:
-                    if (mode == 'laser' and
-                            hasattr(self._pc.instrument,
-                                    'predict_power_fixed_attenuator')):
-                        curr_lp = self._pc.instrument.lasers[laser].power
-                        cali_pred = (
-                            self._pc.instrument
-                            .predict_power_fixed_attenuator(curr_lp, laser))
-                    else:
-                        cali_pred = self._pc.instrument.power
-                except Exception:
-                    cali_pred = None
-                try:
-                    att_pos = self._pc.instrument.attenuator.curr_pos()
-                except Exception:
-                    att_pos = None
-                try:
-                    laser_pwr = self._pc.instrument.lasers[laser].power
-                except Exception:
-                    laser_pwr = None
-
-                return measured, converged, cali_pred, out_of_range_warned, att_pos, laser_pwr
+                return (result['measured'], result['converged'],
+                        result['cali_pred'], result['out_of_range'],
+                        result['att_pos'], result['laser_pwr'])
 
             def _on_result(res):
                 measured, converged, cali_pred, out_of_range_warned, att_pos, laser_pwr = res
@@ -1391,40 +1302,10 @@ class SetPowerTab(QWidget):
         self._run_hw(_do, 'Closing beampath…', on_done=_done)
 
     def _update_mm_comment(self, laser, measured, unit, att_pos=None, laser_pwr=None):
-        """Write measured power, attenuator position, and laser power into the
-        MicroManager acquisition comment field. Replaces an existing line for
-        this laser so repeated measurements don't keep appending."""
-        import re
-
-        def _replace_or_append(text: str, pattern: str, new_str: str) -> str:
-            result, count = re.subn(
-                r'^' + re.escape(pattern) + r'.*$', new_str, text,
-                flags=re.MULTILINE)
-            if count == 0:
-                result = text + ('\n' if text and not text.endswith('\n') else '') + new_str
-            return result
-
-        pwr_str = f'Power {laser}nm: {measured:.3f} {unit}'
-        if att_pos is not None:
-            pwr_str += f' @ att={att_pos:.4f}'
-        if laser_pwr is not None:
-            pwr_str += f' lp={laser_pwr:.1f}mW'
-        pattern = f'Power {laser}nm:'
-
-        try:
-            from pycromanager import Studio
-            studio = Studio()
-            acqmgr = studio.acquisitions()
-            curr_settings = acqmgr.get_acquisition_settings()
-            curr_comment = str(curr_settings.comment() or '')
-            new_comment = _replace_or_append(curr_comment, pattern, pwr_str)
-            new_settings = curr_settings.copy_builder().comment(new_comment).build()
-            acqmgr.set_acquisition_settings(new_settings)
-            return None  # no error
-        except ImportError:
-            return None  # pycromanager not installed
-        except Exception as exc:
-            return str(exc)
+        """Write measured power into the MicroManager acquisition comment field.
+        Thin wrapper around util.update_mm_acquisition_comment."""
+        return update_mm_acquisition_comment(
+            laser, measured, unit, att_pos, laser_pwr)
 
     def _on_measure(self):
         if self._pc is None:
@@ -1472,7 +1353,7 @@ class SetPowerTab(QWidget):
                 time.sleep(2)
             measured = self._pc.powermeter.read()
             try:
-                if (mode == 'laser' and
+                if (mode == 'fixed_attenuator' and
                         hasattr(self._pc.instrument,
                                 'predict_power_fixed_attenuator')):
                     curr_lp = self._pc.instrument.lasers[laser].power
@@ -1533,7 +1414,7 @@ class SetPowerTab(QWidget):
     def _update_feedback_enabled(self):
         mode = self._mode_combo.currentData()
         powermeter_ok = self._btn_measure.isEnabled()
-        feedback_ok = powermeter_ok and mode != 'attenuator'
+        feedback_ok = powermeter_ok and mode != 'combined'
         self._feedback_cb.setEnabled(feedback_ok)
         self._feedback_tol_spin.setEnabled(feedback_ok)
         if not feedback_ok:
@@ -1592,30 +1473,7 @@ class SetPowerTab(QWidget):
         laser = self._laser_combo.currentData()
         mode = self._mode_combo.currentData()
         try:
-            inst = self._pc.instrument
-            pr = getattr(inst, '_power_ranges', None)
-            if pr is None or pr.empty:
-                self._range_label.setText('Range: N/A')
-                return
-            if mode == 'attenuator':
-                lo = float(pr['min'].min())
-                hi = float(pr['max'].max())
-            elif mode == 'attenuator_only':
-                curr_lp = 0.0
-                try:
-                    curr_lp = float(inst.lasers[laser].power)
-                except Exception:
-                    pass
-                closest = min(pr.index, key=lambda x: abs(float(x) - curr_lp))
-                lo = float(pr.loc[closest, 'min'])
-                hi = float(pr.loc[closest, 'max'])
-            else:  # laser — fixed attenuator
-                min_lp = float(pr.index.min())
-                max_lp = float(pr.index.max())
-                lo = inst.predict_power_fixed_attenuator(min_lp, laser)
-                hi = inst.predict_power_fixed_attenuator(max_lp, laser)
-                if lo > hi:
-                    lo, hi = hi, lo
+            lo, hi = self._pc.instrument.accessible_power_range(mode, laser)
             self._range_label.setText(f'Range: {lo:.2f} – {hi:.2f} mW')
         except Exception:
             self._range_label.setText('Range: N/A')

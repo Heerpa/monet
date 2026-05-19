@@ -550,6 +550,53 @@ class IlluminationLaserControl(IlluminationControl):
         raw = float(a * float(laser_pwr) + b)
         return raw * self._beampath_factor(laser)
 
+    def accessible_power_range(self, mode, laser=None):
+        """Return the (lo, hi) output power range reachable in the given mode.
+
+        Args:
+            mode : str
+                'combined'         — laser power and attenuator both adjusted
+                'fixed_laser'      — laser power fixed, attenuator adjusted
+                'fixed_attenuator' — attenuator fixed, laser power adjusted
+            laser : int or str, optional
+                laser wavelength; defaults to curr_laser
+        Returns:
+            (lo, hi) : tuple of float, output power range in mW
+        Raises:
+            ValueError if not calibrated or no calibration ranges are available.
+        """
+        if not self.is_calibrated:
+            raise ValueError('Not calibrated. Cannot determine power range.')
+        if laser is None:
+            laser = self.curr_laser
+
+        pr = getattr(self, '_power_ranges', None)
+        if pr is None or pr.empty:
+            raise ValueError('No calibration power ranges available.')
+
+        if mode == 'combined':
+            lo = float(pr['min'].min())
+            hi = float(pr['max'].max())
+        elif mode == 'fixed_laser':
+            curr_lp = 0.0
+            try:
+                curr_lp = float(self.lasers[laser].power)
+            except Exception:
+                pass
+            closest = min(pr.index, key=lambda x: abs(float(x) - curr_lp))
+            lo = float(pr.loc[closest, 'min'])
+            hi = float(pr.loc[closest, 'max'])
+        elif mode == 'fixed_attenuator':
+            min_lp = float(pr.index.min())
+            max_lp = float(pr.index.max())
+            lo = self.predict_power_fixed_attenuator(min_lp, laser)
+            hi = self.predict_power_fixed_attenuator(max_lp, laser)
+            if lo > hi:
+                lo, hi = hi, lo
+        else:
+            raise ValueError("Unknown power mode '{}'.".format(mode))
+        return float(lo), float(hi)
+
     def load_calibration_database(self):
         load_index = {DEVICE_TAG: self.config['index'][DEVICE_TAG]}
         self.cali_db = io.load_database(
@@ -599,3 +646,157 @@ class IlluminationLaserControl(IlluminationControl):
 
         self.laser = self.curr_laser  # to populate the analyzers
         self.laserpower = self.curr_laserpower
+
+
+def run_power_feedback(instrument, powermeter, target_pwr, laser, mode,
+                       kp=0.85, ki=0.15, max_dev_pct=1.0, max_iter=20,
+                       settle_time=2.0, progress_callback=None,
+                       cancel_check=None):
+    """Closed-loop power setting using a power meter.
+
+    Performs an initial open-loop power set, then iteratively measures the
+    output power and corrects it until it is within `max_dev_pct` of
+    `target_pwr` or `max_iter` correction iterations have run.
+
+    The power meter and the instrument are passed separately because the
+    instrument does not own the power meter (it is held by the calibration
+    protocol / CLI shell).
+
+    Args:
+        instrument : IlluminationLaserControl
+            the calibrated illumination control
+        powermeter : AbstractPowerMeter
+            the power meter to read the output power
+        target_pwr : float
+            desired output power in mW
+        laser : int or str
+            laser wavelength to target; must equal instrument.curr_laser so
+            that instrument.analyzer is consistent
+        mode : str
+            'fixed_laser'      — laser power fixed, attenuator adjusted (PI loop)
+            'fixed_attenuator' — attenuator fixed, laser power adjusted
+            ('combined' is not supported for feedback and raises ValueError)
+        kp, ki : float
+            proportional / integral gains, used in 'fixed_laser' mode
+        max_dev_pct : float
+            convergence tolerance, in percent of target_pwr
+        max_iter : int
+            maximum number of correction iterations
+        settle_time : float
+            seconds to wait after the initial set before the first reading
+        progress_callback : callable, optional
+            called as progress_callback(iteration, setpoint, measured);
+            iteration 0 is the reading taken right after the initial set
+        cancel_check : callable, optional
+            returns True to abort the loop early
+    Returns:
+        dict with keys:
+            measured : float — last measured power
+            converged : bool — whether the tolerance was reached
+            cali_pred : float or None — power the calibration predicts
+            out_of_range : bool — whether the attenuator range limit was hit
+            att_pos : float or None — final attenuator position
+            laser_pwr : float or None — final laser power set-point
+            iterations : int — number of correction iterations performed
+    """
+    import time
+
+    if mode not in ('fixed_laser', 'fixed_attenuator'):
+        raise ValueError(
+            "Feedback is only supported for 'fixed_laser' and "
+            "'fixed_attenuator' modes, not '{}'.".format(mode))
+
+    # Initial open-loop power setting
+    if mode == 'fixed_attenuator':
+        instrument.set_power_fixed_attenuator(target_pwr, laser)
+    else:  # fixed_laser
+        instrument.set_power_fixed_laser(target_pwr, laser)
+
+    time.sleep(settle_time)
+
+    integral_e = 0.0   # accumulated normalized error (PI integral term)
+    converged = False
+    out_of_range = False
+    last_setpoint = target_pwr   # initial setpoint = calibration target
+
+    measured = powermeter.read()
+    if progress_callback is not None:
+        progress_callback(0, last_setpoint, measured)
+
+    iterations = 0
+    for iter_num in range(max_iter):
+        if cancel_check is not None and cancel_check():
+            break
+        dev_pct = (abs(measured - target_pwr) / target_pwr * 100.0
+                   if target_pwr > 0 else 0.0)
+        if dev_pct <= max_dev_pct:
+            converged = True
+            break
+        if measured <= 0:
+            break  # cannot correct without light
+        if mode == 'fixed_attenuator':
+            # Proportional correction: scale current laser power
+            curr_lp = instrument.lasers[laser].power
+            instrument.lasers[laser].power = curr_lp * target_pwr / measured
+            last_setpoint = target_pwr  # output target always target_pwr
+        else:
+            # PI controller in fixed-laser (attenuator-adjusting) mode.
+            # e is the normalised error (dimensionless).
+            e = (target_pwr - measured) / target_pwr
+            integral_e += e
+            # Anti-windup: bound the integral contribution
+            integral_e = float(np.clip(integral_e, -5.0, 5.0))
+            corrected_target = target_pwr * (
+                1.0 + kp * e + ki * integral_e)
+            try:
+                out_rng = instrument.analyzer.output_range()
+                lo = float(out_rng[0])
+                hi = float(out_rng[1])
+                clamped = float(np.clip(corrected_target, lo, hi))
+                if abs(clamped - corrected_target) > 1e-9:
+                    out_of_range = True
+                    integral_e = 0.0  # reset on clamp (anti-windup)
+                corrected_target = clamped
+            except Exception:
+                corrected_target = max(0.0, corrected_target)
+            att_pos = instrument.analyzer.estimate(corrected_target)
+            instrument.attenuator.set(att_pos)
+            last_setpoint = corrected_target
+            time.sleep(3)
+        time.sleep(0.5)
+        measured = powermeter.read(5)
+        time.sleep(0.5)
+        measured = powermeter.read(50)
+        iterations = iter_num + 1
+        if progress_callback is not None:
+            progress_callback(iter_num + 1, last_setpoint, measured)
+
+    # Calibration deviation: what the calibration predicts vs. what was measured
+    cali_pred = None
+    try:
+        if mode == 'fixed_attenuator':
+            curr_lp = instrument.lasers[laser].power
+            cali_pred = instrument.predict_power_fixed_attenuator(
+                curr_lp, laser)
+        else:
+            cali_pred = instrument.power
+    except Exception:
+        cali_pred = None
+    try:
+        att_pos = instrument.attenuator.curr_pos()
+    except Exception:
+        att_pos = None
+    try:
+        laser_pwr = instrument.lasers[laser].power
+    except Exception:
+        laser_pwr = None
+
+    return {
+        'measured': measured,
+        'converged': converged,
+        'cali_pred': cali_pred,
+        'out_of_range': out_of_range,
+        'att_pos': att_pos,
+        'laser_pwr': laser_pwr,
+        'iterations': iterations,
+    }

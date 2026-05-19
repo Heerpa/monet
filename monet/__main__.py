@@ -665,6 +665,14 @@ class MonetSetInteractive(cmd.Cmd):
             except:
                 pass
 
+        # power-setting mode (see do_mode) and feedback controller parameters
+        # (see do_feedback / do_feedback_config)
+        self.power_mode = 'combined'
+        self.feedback_kp = 0.85
+        self.feedback_ki = 0.15
+        self.feedback_tol_pct = 1.0
+        self.feedback_max_iter = 20
+
     def do_multi_laser(self, arg):
         if arg.upper() == '0' or arg.upper() == 'FALSE':
             self.multi_laser_operation = False
@@ -758,24 +766,195 @@ class MonetSetInteractive(cmd.Cmd):
             except ValueError as e:
                 print(str(e))
 
+    def do_mode(self, arg):
+        """Get or set the power-setting mode used by 'power' and 'feedback'.
+        Args:
+            arg : str, optional
+                'combined'         - adjust laser power and attenuator
+                'fixed_laser'      - keep laser power fixed, adjust attenuator
+                'fixed_attenuator' - keep attenuator fixed, adjust laser power
+                With no argument, the current mode is printed.
+        """
+        modes = ('combined', 'fixed_laser', 'fixed_attenuator')
+        arg = arg.strip()
+        if not arg:
+            print('Current power mode:', self.power_mode)
+            print('Available modes:', ', '.join(modes))
+            return
+        if arg not in modes:
+            print("Unknown mode '{:s}'. Choose one of: {:s}".format(
+                arg, ', '.join(modes)))
+            return
+        self.power_mode = arg
+        print('Power mode set to', arg)
+
+    def do_range(self, arg):
+        """Print the accessible output power range for the current mode."""
+        try:
+            lo, hi = self.instrument.accessible_power_range(
+                self.power_mode, self.instrument.curr_laser)
+            print('Accessible range ({:s} mode, laser {:s}): '
+                  '{:.2f} - {:.2f} mW'.format(
+                      self.power_mode, str(self.instrument.curr_laser),
+                      lo, hi))
+        except Exception as e:
+            print('Could not determine power range:', str(e))
+
     def do_power(self, power):
-        """Set the power to a specified level.
+        """Set the output power [mW], using the current power mode (see 'mode').
         Args:
             power : float
                 the power to set to [mW]
         """
         if not power:
             print('Current power at objective:', self.instrument.power)
-        else:
+            return
+        try:
+            pwr = int(power)
+            laser = self.instrument.curr_laser
+            if self.power_mode == 'fixed_laser':
+                self.instrument.set_power_fixed_laser(pwr, laser)
+                print('Set attenuator for {:d} mW '
+                      '(laser power fixed).'.format(pwr))
+            elif self.power_mode == 'fixed_attenuator':
+                self.instrument.set_power_fixed_attenuator(pwr, laser)
+                print('Adjusted laser power for {:d} mW '
+                      '(attenuator fixed).'.format(pwr))
+            else:
+                print('Setting output power to ', pwr)
+                self.instrument.power = pwr
+            self.power_setvalues[self.instrument.curr_laser] = pwr
+        except ValueError as e:
+            print(str(e))
+
+    def do_feedback(self, arg):
+        """Closed-loop power setting: iteratively measure with the powermeter
+        and correct until the output power is within tolerance. Requires a
+        powermeter and a fixed mode (see 'mode' and 'feedback_config').
+        Args:
+            arg : str
+                '<power> [tolerance_pct]' - target output power [mW] and,
+                optionally, the convergence tolerance in percent.
+        """
+        from monet.control import run_power_feedback
+        from monet.util import update_mm_acquisition_comment
+
+        if not self.use_powermeter:
+            print('No powermeter is connected. Feedback control unavailable.')
+            return
+        if self.power_mode == 'combined':
+            print("Feedback requires mode 'fixed_laser' or 'fixed_attenuator'."
+                  " Use the 'mode' command to switch.")
+            return
+        parts = arg.split()
+        if not parts:
+            print('Please specify a target power, e.g. "feedback 10".')
+            return
+        try:
+            pwr = float(parts[0])
+        except ValueError:
+            print('Could not parse target power "{:s}".'.format(parts[0]))
+            return
+        tol = self.feedback_tol_pct
+        if len(parts) > 1:
             try:
-                # print('Setting power for settings \n {:s}'.format('\n'.join(
-                #     [str(k)+': '+str(v)
-                #      for k, v in self.instrument.config['index'].items()])))
-                print('Setting output power to ', int(power))
-                self.instrument.power = int(power)
-                self.power_setvalues[self.instrument.curr_laser] = int(power)
-            except ValueError as e:
-                print(str(e))
+                tol = float(parts[1])
+            except ValueError:
+                print('Could not parse tolerance "{:s}".'.format(parts[1]))
+                return
+
+        laser = self.instrument.curr_laser
+
+        def _progress(iteration, setpoint, measured):
+            dev = (abs(measured - pwr) / pwr * 100.0) if pwr > 0 else 0.0
+            print('  [feedback] iter {:2d}: setpoint={:.3f}  '
+                  'measured={:.3f} mW  ({:.1f}% dev)'.format(
+                      iteration, setpoint, measured, dev))
+
+        print('Feedback ({:s} mode): target {:g} mW, tolerance {:g}%'.format(
+            self.power_mode, pwr, tol))
+        try:
+            result = run_power_feedback(
+                self.instrument, self.powermeter, pwr, laser, self.power_mode,
+                kp=self.feedback_kp, ki=self.feedback_ki, max_dev_pct=tol,
+                max_iter=self.feedback_max_iter, progress_callback=_progress)
+        except KeyboardInterrupt:
+            print('\nFeedback aborted by user.')
+            return
+        except ValueError as e:
+            print(str(e))
+            return
+
+        measured = result['measured']
+        dev = (abs(measured - pwr) / pwr * 100.0) if pwr > 0 else 0.0
+        print('Target {:g} mW -> measured {:.3f} mW ({:.1f}% deviation) '
+              'after {:d} iteration(s).'.format(
+                  pwr, measured, dev, result['iterations']))
+        if not result['converged']:
+            print('  Did not converge within {:d} steps.'.format(
+                self.feedback_max_iter))
+        if result['out_of_range']:
+            print('  Attenuator range limit reached.')
+        cali_pred = result['cali_pred']
+        if cali_pred is not None and cali_pred > 0:
+            cali_dev = (measured - cali_pred) / cali_pred * 100.0
+            print('  Calibration deviation: {:+.1f}%  (calibration predicts '
+                  '{:.3f} mW).'.format(cali_dev, cali_pred))
+        self.power_setvalues[self.instrument.curr_laser] = pwr
+
+        # Write the measured power into the MicroManager acquisition comment
+        try:
+            unit = self.powermeter.unit
+        except Exception:
+            unit = 'mW'
+        mm_err = update_mm_acquisition_comment(
+            laser, measured, unit, result['att_pos'], result['laser_pwr'])
+        if mm_err is not None:
+            print('  MicroManager comment update failed:', mm_err)
+
+    def do_feedback_config(self, line):
+        """Configure the feedback controller parameters.
+        Args:
+            Format --parameter: value
+            --kp       : float  proportional gain (default 0.85)
+            --ki       : float  integral gain (default 0.15)
+            --tol      : float  convergence tolerance in percent (default 1.0)
+            --max_iter : int    maximum correction iterations (default 20)
+            With no argument, the current settings are printed.
+        """
+        params = {
+            'kp': ('feedback_kp', float),
+            'ki': ('feedback_ki', float),
+            'tol': ('feedback_tol_pct', float),
+            'max_iter': ('feedback_max_iter', int),
+        }
+        line = line.strip()
+        if not line:
+            print('Feedback controller settings:')
+            print('  kp       =', self.feedback_kp)
+            print('  ki       =', self.feedback_ki)
+            print('  tol      =', self.feedback_tol_pct, '%')
+            print('  max_iter =', self.feedback_max_iter)
+            return
+        try:
+            commands = line.split('--')[1:]
+            kwargs = {c.split(':')[0].strip(): c.split(':')[1].strip()
+                      for c in commands}
+        except Exception:
+            print('Please format your commands as --parameter: value')
+            return
+        for key, val in kwargs.items():
+            match = get_most_similar(key, list(params.keys()))
+            if match is None:
+                print('Unknown parameter "{:s}".'.format(key))
+                continue
+            attr, caster = params[match]
+            try:
+                setattr(self, attr, caster(val))
+                print('Set {:s} to {:s}'.format(match, val))
+            except ValueError:
+                print('Could not parse value "{:s}" for {:s}.'.format(
+                    val, match))
 
     def do_attenuate(self, pos):
         """Set the attenuation device to a position (float)"""
@@ -809,6 +988,13 @@ class MonetSetInteractive(cmd.Cmd):
         try:
             print('Autoshutter:',
                   self.instrument.beampath.objects['shutter'].autoshutter)
+        except Exception:
+            pass
+        print('Power mode:', self.power_mode)
+        try:
+            lo, hi = self.instrument.accessible_power_range(
+                self.power_mode, self.instrument.curr_laser)
+            print('Accessible power range: {:.2f} - {:.2f} mW'.format(lo, hi))
         except Exception:
             pass
 
@@ -850,7 +1036,8 @@ class MonetSetInteractive(cmd.Cmd):
             return
 
     def do_measure(self, averaging):
-        """Measure the power if a powermeter is connected.
+        """Measure the power with the powermeter and report the deviation
+        from the power the calibration predicts.
         Args:
             averaging : int
                 the number of measurements to average
@@ -861,10 +1048,48 @@ class MonetSetInteractive(cmd.Cmd):
             averaging = 10
 
         from monet import POWER_TAG
-        if self.use_powermeter:
-            print(POWER_TAG + ': ' + str(self.powermeter.read(averaging)))
-        else:
+        from monet.util import update_mm_acquisition_comment
+        if not self.use_powermeter:
             print('No powermeter is connected. Cannot measure.')
+            return
+
+        measured = self.powermeter.read(averaging)
+        print(POWER_TAG + ': ' + str(measured))
+        try:
+            unit = self.powermeter.unit
+        except Exception:
+            unit = 'mW'
+
+        laser = self.instrument.curr_laser
+        # Calibration deviation: what the calibration predicts vs. measured
+        cali_pred = None
+        try:
+            if self.power_mode == 'fixed_attenuator':
+                curr_lp = self.instrument.lasers[laser].power
+                cali_pred = self.instrument.predict_power_fixed_attenuator(
+                    curr_lp, laser)
+            else:
+                cali_pred = self.instrument.power
+        except Exception:
+            cali_pred = None
+        if cali_pred is not None and cali_pred > 0:
+            dev = (measured - cali_pred) / cali_pred * 100.0
+            print('Calibration deviation: {:+.1f}%  (calibration predicts '
+                  '{:.3f} {:s}).'.format(dev, cali_pred, unit))
+
+        # Write the measured power into the MicroManager acquisition comment
+        try:
+            att_pos = self.instrument.attenuator.curr_pos()
+        except Exception:
+            att_pos = None
+        try:
+            laser_pwr = self.instrument.lasers[laser].power
+        except Exception:
+            laser_pwr = None
+        mm_err = update_mm_acquisition_comment(
+            laser, measured, unit, att_pos, laser_pwr)
+        if mm_err is not None:
+            print('MicroManager comment update failed:', mm_err)
 
     def do_py(self, line):
         """Execute a line of code"""
