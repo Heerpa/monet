@@ -18,9 +18,9 @@ import os
 import serial
 import pandas as pd
 
-from msl.equipment import EquipmentRecord, ConnectionRecord, Backend
-from msl.equipment.resources.thorlabs import MotionControl
-import nidaqmx
+# `msl.equipment` and `nidaqmx` are imported lazily inside the device-
+# specific _connect() methods (KinesisAttenuator, NIdaqmxAOAttenuator) so
+# the rest of the package is usable on machines without those SDKs.
 
 
 logger = logging.getLogger(__name__)
@@ -152,6 +152,10 @@ class KinesisAttenuator(AbstractAttenuator):
         kinesis_path = 'C:/Program Files/Thorlabs/Kinesis'
         if kinesis_path not in os.environ['PATH']:
             os.environ['PATH'] += os.pathsep + kinesis_path
+
+        from msl.equipment import (
+            EquipmentRecord, ConnectionRecord, Backend)
+        from msl.equipment.resources.thorlabs import MotionControl
 
         record = EquipmentRecord(
             manufacturer='Thorlabs', model='KDC101',
@@ -526,6 +530,7 @@ class NIdaqmxAOAttenuator(AbstractAttenuator):
         """Keys in attenuation config, maximally:
         port, baudrate, bytesize, parity, stopbits, timeout
         """
+        import nidaqmx
         self.tasks = {}
         for wavelength, line in self.config['lines'].items():
             self.tasks[wavelength] = nidaqmx.Task()

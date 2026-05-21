@@ -11,7 +11,8 @@
     :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
 import pyvisa
-from ThorlabsPM100 import ThorlabsPM100
+# `ThorlabsPM100` is imported lazily inside ThorlabsPowerMeter._open_powermeter
+# so the rest of the package is usable without the optional SDK installed.
 import abc
 import numpy as np
 
@@ -124,6 +125,7 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
             power_meter : ThorlabsPM100 instance
                 the interface to reading power values
         """
+        from ThorlabsPM100 import ThorlabsPM100
         manufacturer='thorlabs'
         power_meter = None
         rm = pyvisa.ResourceManager()

@@ -15,7 +15,8 @@ from icecream import ic
 import os
 import abc
 
-from pycromanager import Core
+# pycromanager is imported lazily inside get_pycromgr() so the rest of the
+# package can be used (and tested) on machines without Micro-Manager.
 # import pymmcore
 
 import time
@@ -46,6 +47,8 @@ def get_pycromgr(pycore_config=None):
     if pycrocore is not None:
         # logger.debug('Pycromanager Core already initialized. Returning.')
         return pycrocore
+
+    from pycromanager import Core
 
     if pycore_config is None:
         try:
