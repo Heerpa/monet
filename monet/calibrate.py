@@ -317,19 +317,18 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         # self.instrument.is_calibrated = True
         # self.instrument.load_calibration_database()
 
-        # copy all plots from local folder onto the server (file-based DB only)
-        if not io._is_server_url(self.instrument.config['database']):
+        # copy all plots from local folder into a timestamped archive folder
+        # (file-based DB only, and only when a plot folder is configured)
+        lfolder = self.instrument.config.get('dest_calibration_plot')
+        if lfolder and not io._is_server_url(self.instrument.config['database']):
             device = self.instrument.config['index'][DEVICE_TAG]
             sfolder = os.path.join(
                 os.path.split(self.instrument.config['database'])[0],
                 'Calibrations',
                 datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
-            try:
-                os.makedirs(sfolder)
-            except:
-                pass
-            lfolder = self.instrument.config.get('dest_calibration_plot')
-            shutil.copytree(lfolder, sfolder)
+            # dirs_exist_ok lets copytree create sfolder itself and tolerates
+            # re-runs within the same minute.
+            shutil.copytree(lfolder, sfolder, dirs_exist_ok=True)
 
     def plot_model(self, modeldf, laser):
         plt.switch_backend('agg')

@@ -101,7 +101,12 @@ class BeamPath():
             pycore_config : dict
                 'micromanager_path', 'mmconfig_name'
         """
-        get_pycromgr(pycore_config)
+        # Only initialise the Micro-Manager core eagerly when an explicit
+        # configuration is supplied. The real (Nikon*) beam-path objects each
+        # call get_pycromgr() lazily in their own __init__, so a beam path
+        # made up only of test objects needs no Micro-Manager / pycromanager.
+        if pycore_config is not None:
+            get_pycromgr(pycore_config)
         self.objects = {
             obid: load_class(cfg['classpath'], cfg['init_kwargs'])
             for obid, cfg in config.items()

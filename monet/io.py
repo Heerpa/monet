@@ -399,7 +399,12 @@ def _load_database_excel(fname, index, time_idx):
 
     # date selection
     if time_idx==None or time_idx=='latest':
-        db = db.sort_index().iloc[-1, :]
+        # A fully-specified index (e.g. name + wavelength + power + date +
+        # time, as written by save_calibration) collapses the selection to a
+        # single-row Series — in that case the latest entry is already
+        # selected. Only pick the last row when several remain.
+        if getattr(db, 'ndim', 1) == 2:
+            db = db.sort_index().iloc[-1, :]
     elif time_idx=='last date':
         last_date = db.index.get_level_values('date').max()
         db = db.loc[db.index.get_level_values('date')==last_date, :]
@@ -555,8 +560,12 @@ def plot_device_history(db_fname, device, plot_dir):
         device : str
             the device name to plot (eg. 'Voyager')
         plot_dir : str
-            the directory to save the plots in.
+            the directory to save the plots in. If None/empty, plotting is
+            skipped (e.g. when no 'dest_calibration_plot' is configured).
     """
+    if not plot_dir:
+        logger.debug('No plot directory configured; skipping device history.')
+        return
     plt.switch_backend('agg')
 
     index = {DEVICE_TAG: device}
@@ -605,8 +614,12 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
         device : str
             the device name to plot (eg. 'Voyager')
         plot_dir : str
-            the directory to save the plots in.
+            the directory to save the plots in. If None/empty, plotting is
+            skipped (e.g. when no 'dest_calibration_plot' is configured).
     """
+    if not plot_dir:
+        logger.debug('No plot directory configured; skipping amplitude history.')
+        return
     plt.switch_backend('agg')
 
     index = {DEVICE_TAG: device}
