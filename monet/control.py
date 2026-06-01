@@ -169,10 +169,8 @@ class IlluminationLaserControl(IlluminationControl):
                 pass
             try:
                 settgs = lconf.get('settings', None)
-#                self.lasers[laser] = load_class(
-#                    lconf['classpath'], lconf['init_kwargs'], **settgs)
                 self.lasers[laser] = load_class(
-                    lconf['classpath'], lconf['init_kwargs'])
+                    lconf['classpath'], lconf['init_kwargs'], settgs)
                 # self.lasers[laser].enabled = False
             except Exception as e:
                 logger.warning('Could not load laser %s: %s', laser, e)

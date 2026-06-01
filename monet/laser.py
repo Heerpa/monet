@@ -918,10 +918,23 @@ class LaserQuantum_lowlevel(serial.Serial):
 
 
 class Cobolt(AbstractLaser):
-    """Implementation of the Cobolt lasers
+    """Implementation of the Cobolt lasers.
 
+    Cobolt lasers come in two flavours that need different ways of switching
+    the emission off, selected via the ``has_key`` argument:
+
+    * Keyed lasers (``has_key=True``, the default): with autostart enabled, a
+      software ``turn_off`` (``l0``) requires physically cycling the key switch
+      before the laser can be turned on again. To avoid that, the laser is kept
+      logically 'on' and the beam is extinguished by entering constant-current
+      mode at 0 mA (below the lasing threshold).
+    * OEM / keyless lasers (``has_key=False``): emission can be toggled fully in
+      software, so disabling calls ``turn_off`` and enabling calls ``turn_on``.
+
+    In both cases the laser is left dark after construction and is reliably
+    switched off again when the object is destroyed (see ``__del__``).
     """
-    def __init__(self, connection_parameters, warmup_delay=.1):
+    def __init__(self, connection_parameters, warmup_delay=.1, has_key=True):
         """
         Args:
             connection_parameters : dict
@@ -934,135 +947,53 @@ class Cobolt(AbstractLaser):
             warmup_delay : scalar
                 time delay in seconds to wait for stabilization after
                 changing power
+            has_key : bool
+                whether the laser has a physical key switch (autostart). If
+                True, the beam is extinguished via ``constant_current(0)`` so
+                that re-enabling does not require cycling the key. If False
+                (OEM lasers), emission is toggled with ``turn_off()`` /
+                ``turn_on()``.
         """
         super().__init__(warmup_delay)
         import pycobolt
+        self.has_key = has_key
         self.laser = pycobolt.CoboltLaser(**connection_parameters)
         self.laser.constant_power()
-
-        """After turning on the laser, the key needs to be switched every
-        time. Therefore, keep the laser enabled all the time, and use
-        'software-enabling'
-        """
         self.laser.turn_on()
-        print('please enable the Cobolt laser by switching the key. ' +
-              str(connection_parameters))
-        self._enabled = False
+        if has_key:
+            print('please enable the Cobolt laser by switching the key. ' +
+                  str(connection_parameters))
         self._power = 0
-
-    @property
-    def enabled(self):
-        """After turning on the laser, the key needs to be switched every
-        time. Therefore, keep the laser enabled all the time, and use
-        'software-enabling'
-        """
-        return self._enabled
-        # return self.laser.is_on()
-
-    @enabled.setter
-    def enabled(self, value):
-        """After turning on the laser, the key needs to be switched every
-        time. Therefore, keep the laser enabled all the time, and use
-        'software-enabling'
-        """
-        self._enabled = value
-        if value:
-            # self.laser.turn_on()  # key would need to be switched
-            self.laser.constant_power()  # from modulation or current modes
-            self.power = self._power
-        else:
-            self.laser.set_power(0)
-            # self.laser.turn_off()  # key would need to be switched for on
-
-            # switch to modulation mode, as no modulation signal is applied
-            # the laser will be off
-            self.laser.send_cmd('em')
-
-            # # alternatively, switch to constant current mode, with current
-            # # below laser threshold (e.g. 0 or 1)
-            # self.laser.constant_current(0)
-
-    @property
-    def power(self):
-        return self.laser.get_power()
-
-    @power.setter
-    def power(self, power):
-        self.laser.set_power(power)
-        self._power = power
-
-    @property
-    def min_power(self):
-        return None
-
-    @property
-    def max_power(self):
-        return None
-
-    def __del__(self):
-        try:
-            self.laser.disconnect()
-        except:
-            pass
-
-class Cobolt_OEM(AbstractLaser):
-    """Implementation of the Cobolt lasers
-
-    """
-    def __init__(self, connection_parameters, warmup_delay=.1):
-        """
-        Args:
-            connection_parameters : dict
-                port : str
-                    the COM port to use
-                serialnumber : str
-                    the serial number (optional, can be used instead of port)
-                baudrate : int
-                    the baud rate. default: 115200
-            warmup_delay : scalar
-                time delay in seconds to wait for stabilization after
-                changing power
-        """
-        super().__init__(warmup_delay)
-        import pycobolt
-        self.laser = pycobolt.CoboltLaser(**connection_parameters)
-        self.laser.constant_power()
-
-        self.laser.turn_on()
+        # Start in a defined, dark state so the laser is never emitting until
+        # it is explicitly enabled.
         self._enabled = True
-        self._power = 0
+        self.enabled = False
 
     @property
     def enabled(self):
-        """After turning on the laser, the key needs to be switched every
-        time. Therefore, keep the laser enabled all the time, and use
-        'software-enabling'
-        """
-        #return self._enabled
-        return self.laser.is_on()
+        return self._enabled
 
     @enabled.setter
     def enabled(self, value):
-        """After turning on the laser, the key needs to be switched every
-        time. Therefore, keep the laser enabled all the time, and use
-        'software-enabling'
-        """
         self._enabled = value
         if value:
-            # self.laser.turn_on()  # key would need to be switched
-            self.laser.constant_power()  # from modulation or current modes
+            if not self.has_key:
+                # keyless laser: emission was fully turned off, re-arm it
+                self.laser.turn_on()
+            # leave the current-off / off state and restore the set power
+            self.laser.constant_power()
             self.power = self._power
         else:
             self.laser.set_power(0)
-            # self.laser.turn_off()  # key would need to be switched for on
-
-            # switch to modulation mode, as no modulation signal is applied
-            # the laser will be off
-            self.laser.send_cmd('em')
-
-            # # alternatively, switch to constant current mode, with current
-            # # below laser threshold (e.g. 0 or 1)
-            # self.laser.constant_current(0)
+            if self.has_key:
+                # A software turn_off would require cycling the key before the
+                # laser can be turned on again. Instead drop the current below
+                # the lasing threshold so the beam is dark while the laser
+                # stays logically on.
+                self.laser.constant_current(0)
+            else:
+                # OEM / keyless laser: switch emission off entirely.
+                self.laser.turn_off()
 
     @property
     def power(self):
@@ -1082,7 +1013,25 @@ class Cobolt_OEM(AbstractLaser):
         return None
 
     def __del__(self):
+        # Make sure the beam is switched off before the connection is dropped,
+        # so quitting the program never leaves the laser emitting.
+        try:
+            self.enabled = False
+        except Exception:
+            pass
         try:
             self.laser.disconnect()
-        except:
+        except Exception:
             pass
+
+
+class Cobolt_OEM(Cobolt):
+    """OEM Cobolt laser without a key switch.
+
+    Emission is toggled entirely in software (``turn_on`` / ``turn_off``), so
+    no key needs to be cycled. Kept as a thin subclass for backward-compatible
+    configs that reference ``monet.laser.Cobolt_OEM``; equivalent to
+    ``Cobolt(..., has_key=False)``.
+    """
+    def __init__(self, connection_parameters, warmup_delay=.1):
+        super().__init__(connection_parameters, warmup_delay, has_key=False)
