@@ -18,7 +18,8 @@ from monet.util import load_class
 import monet.io as io
 from monet.beampath import BeamPath
 import monet.laser as mlas
-from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
+from monet import (LASER_TAG, POWER_TAG, DEVICE_TAG,
+                   POWERMETER_BFP, normalize_powermeter_type)
 
 
 logger = logging.getLogger(__name__)
@@ -190,8 +191,8 @@ class IlluminationLaserControl(IlluminationControl):
                 'changed.'.format(list(config['lasers'].keys())))
         self.curr_laser = list(self.lasers.keys())[0]
 
-        self._factors = {}         # {laser: transmission_objective}; = P_manual/P_beampath
-        self._powermeter_type = {} # {laser: 'manual'/'beampath'}
+        self._factors = {}         # {laser: transmission_objective}; = P_sample/P_bfp
+        self._powermeter_type = {} # {laser: 'sample'/'bfp'}
 
         if 'beampath' in config.keys():
             self.beampath = BeamPath(config['beampath'])
@@ -308,20 +309,45 @@ class IlluminationLaserControl(IlluminationControl):
     def laser_enabled(self, value):
         self.lasers[self.curr_laser].enabled = value
 
-    def _beampath_factor(self, laser=None):
-        """Return transmission_objective = P_manual / P_beampath if the latest
-        calibration used the beampath powermeter, else 1.0."""
+    def _bfp_factor(self, laser=None):
+        """Return transmission_objective = P_sample / P_bfp if the latest
+        calibration used the back focal plane (BFP) powermeter, else 1.0."""
         if laser is None:
             laser = self.curr_laser
-        if self._powermeter_type.get(laser, 'manual') == 'beampath':
+        pm_type = normalize_powermeter_type(
+            self._powermeter_type.get(laser, 'sample'))
+        if pm_type == POWERMETER_BFP:
             return self._factors.get(laser, 1.0)
         return 1.0
+
+    def to_sample_plane(self, raw, laser=None):
+        """Project a raw power-meter reading to the sample plane.
+
+        The power meter measures in the back focal plane (BFP) when the active
+        calibration was taken with the BFP meter; everything we report to the
+        user, write into the MicroManager comment, and compare against
+        calibration predictions is in the sample plane. This applies the
+        objective transmission factor (P_sample / P_bfp) so a raw reading
+        becomes a sample-plane power.
+
+        Returns `raw` unchanged unless a BFP transmission factor is available
+        for `laser` (i.e. the calibration used the BFP meter).
+
+        Args:
+            raw : float
+                power-meter reading in its native (BFP) units
+            laser : int or str, optional
+                laser wavelength; defaults to curr_laser
+        Returns:
+            float : power projected to the sample plane
+        """
+        return raw * self._bfp_factor(laser)
 
     @property
     def power(self):
         attpos = self.attenuator.curr_pos()
         raw = self.analyzer.estimate_power(attpos)
-        return raw * self._beampath_factor()
+        return raw * self._bfp_factor()
 
     @power.setter
     def power(self, pwr):
@@ -407,9 +433,9 @@ class IlluminationLaserControl(IlluminationControl):
             print('setting laser power to {:s}'.format(str(laserpwr_best)))
             self.laserpower = laserpwr_best
 
-        # Apply beampath correction: convert manual target → beampath-equivalent
-        # P_beampath = P_manual / transmission_objective
-        newpwr = newpwr / self._beampath_factor()
+        # Apply BFP correction: convert sample-plane target → BFP-equivalent
+        # P_bfp = P_sample / transmission_objective
+        newpwr = newpwr / self._bfp_factor()
         super(self.__class__, self.__class__).power.__set__(self, newpwr)
         # IlluminationControl.power.fset(self, pwr)
 
@@ -467,9 +493,9 @@ class IlluminationLaserControl(IlluminationControl):
             raise ValueError(
                 'Linear fit slope is near zero — cannot determine laser power.')
 
-        # output_pwrs are in beampath units if beampath-calibrated; convert target
-        # P_beampath_target = P_manual / transmission_objective
-        factor = self._beampath_factor(laser)
+        # output_pwrs are in BFP units if BFP-calibrated; convert target
+        # P_bfp_target = P_sample / transmission_objective
+        factor = self._bfp_factor(laser)
         laser_pwr_needed = float(
             np.clip((pwr / factor - b) / a, laser_pwrs.min(), laser_pwrs.max()))
         logger.debug(
@@ -507,7 +533,7 @@ class IlluminationLaserControl(IlluminationControl):
         logger.debug('Fixed-laser mode: using calibrated level %s mW '
                      '(hardware laser power %.3f mW)', closest_level, curr_lp)
 
-        factor = self._beampath_factor(laser)
+        factor = self._bfp_factor(laser)
         ctrlval = analyzers[closest_level].estimate(pwr / factor)
         self.set_attenuator(ctrlval)
 
@@ -548,7 +574,7 @@ class IlluminationLaserControl(IlluminationControl):
 
         a, b = np.polyfit(np.array(laser_pwrs), np.array(output_pwrs), 1)
         raw = float(a * float(laser_pwr) + b)
-        return raw * self._beampath_factor(laser)
+        return raw * self._bfp_factor(laser)
 
     def accessible_power_range(self, mode, laser=None):
         """Return the (lo, hi) output power range reachable in the given mode.
@@ -622,7 +648,8 @@ class IlluminationLaserControl(IlluminationControl):
                     sub = self.cali_db.loc[
                         self.cali_db.index.get_level_values(LASER_TAG) == laser_int]
                     if not sub.empty:
-                        self._powermeter_type[laser] = str(sub.iloc[-1]['powermeter_type'])
+                        self._powermeter_type[laser] = normalize_powermeter_type(
+                            sub.iloc[-1]['powermeter_type'])
                 except Exception:
                     pass
 
@@ -691,7 +718,8 @@ def run_power_feedback(instrument, powermeter, target_pwr, laser, mode,
             returns True to abort the loop early
     Returns:
         dict with keys:
-            measured : float — last measured power
+            measured : float — last measured power, projected to the sample
+                plane (raw beampath reading × objective transmission factor)
             converged : bool — whether the tolerance was reached
             cali_pred : float or None — power the calibration predicts
             out_of_range : bool — whether the attenuator range limit was hit
@@ -706,7 +734,21 @@ def run_power_feedback(instrument, powermeter, target_pwr, laser, mode,
             "Feedback is only supported for 'fixed_laser' and "
             "'fixed_attenuator' modes, not '{}'.".format(mode))
 
-    # Initial open-loop power setting
+    # The power meter and the analyzer work in back focal plane (BFP) units;
+    # `target_pwr`, the progress callbacks and the returned `measured` are in
+    # the sample plane. Run the loop internally in BFP units (so analyzer calls
+    # and meter readings stay native) and project to the sample plane only at
+    # the reporting boundary. `factor` is 1.0 unless the active calibration was
+    # taken with the BFP meter.
+    try:
+        factor = instrument._bfp_factor(laser)
+    except Exception:
+        factor = 1.0
+    if not factor:
+        factor = 1.0
+    target_bp = target_pwr / factor   # sample-plane target in BFP units
+
+    # Initial open-loop power setting (these take a sample-plane target)
     if mode == 'fixed_attenuator':
         instrument.set_power_fixed_attenuator(target_pwr, laser)
     else:  # fixed_laser
@@ -717,36 +759,36 @@ def run_power_feedback(instrument, powermeter, target_pwr, laser, mode,
     integral_e = 0.0   # accumulated normalized error (PI integral term)
     converged = False
     out_of_range = False
-    last_setpoint = target_pwr   # initial setpoint = calibration target
+    last_setpoint = target_pwr   # reported in the sample plane
 
-    measured = powermeter.read()
+    measured_bp = powermeter.read()
     if progress_callback is not None:
-        progress_callback(0, last_setpoint, measured)
+        progress_callback(0, last_setpoint, measured_bp * factor)
 
     iterations = 0
     for iter_num in range(max_iter):
         if cancel_check is not None and cancel_check():
             break
-        dev_pct = (abs(measured - target_pwr) / target_pwr * 100.0
-                   if target_pwr > 0 else 0.0)
+        dev_pct = (abs(measured_bp - target_bp) / target_bp * 100.0
+                   if target_bp > 0 else 0.0)
         if dev_pct <= max_dev_pct:
             converged = True
             break
-        if measured <= 0:
+        if measured_bp <= 0:
             break  # cannot correct without light
         if mode == 'fixed_attenuator':
             # Proportional correction: scale current laser power
             curr_lp = instrument.lasers[laser].power
-            instrument.lasers[laser].power = curr_lp * target_pwr / measured
+            instrument.lasers[laser].power = curr_lp * target_bp / measured_bp
             last_setpoint = target_pwr  # output target always target_pwr
         else:
             # PI controller in fixed-laser (attenuator-adjusting) mode.
             # e is the normalised error (dimensionless).
-            e = (target_pwr - measured) / target_pwr
+            e = (target_bp - measured_bp) / target_bp
             integral_e += e
             # Anti-windup: bound the integral contribution
             integral_e = float(np.clip(integral_e, -5.0, 5.0))
-            corrected_target = target_pwr * (
+            corrected_target = target_bp * (
                 1.0 + kp * e + ki * integral_e)
             try:
                 out_rng = instrument.analyzer.output_range()
@@ -761,15 +803,18 @@ def run_power_feedback(instrument, powermeter, target_pwr, laser, mode,
                 corrected_target = max(0.0, corrected_target)
             att_pos = instrument.analyzer.estimate(corrected_target)
             instrument.attenuator.set(att_pos)
-            last_setpoint = corrected_target
+            last_setpoint = corrected_target * factor  # report sample plane
             time.sleep(3)
         time.sleep(0.5)
-        measured = powermeter.read(5)
+        measured_bp = powermeter.read(5)
         time.sleep(0.5)
-        measured = powermeter.read(50)
+        measured_bp = powermeter.read(50)
         iterations = iter_num + 1
         if progress_callback is not None:
-            progress_callback(iter_num + 1, last_setpoint, measured)
+            progress_callback(iter_num + 1, last_setpoint, measured_bp * factor)
+
+    # Project the final reading to the sample plane for all reporting.
+    measured = measured_bp * factor
 
     # Calibration deviation: what the calibration predicts vs. what was measured
     cali_pred = None

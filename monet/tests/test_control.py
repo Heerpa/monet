@@ -308,3 +308,50 @@ class TestControl(unittest.TestCase):
             lo, hi = ctrl.accessible_power_range(mode, 488)
             self.assertLessEqual(lo, hi)
             self.assertTrue(np.isfinite(lo) and np.isfinite(hi))
+
+    def test_to_sample_plane(self):
+        """to_sample_plane is a no-op for sample-plane calibrations and applies
+        the objective transmission factor for back focal plane calibrations."""
+        ctrl = self._build_laser_control()
+        # No factor loaded → sample plane → unchanged.
+        self.assertEqual(ctrl.to_sample_plane(10.0, 488), 10.0)
+        # BFP calibration with a transmission factor → projected.
+        ctrl._powermeter_type[488] = 'bfp'
+        ctrl._factors[488] = 2.5
+        self.assertAlmostEqual(ctrl.to_sample_plane(10.0, 488), 25.0)
+        # A sample-plane laser is unaffected even when another has a factor.
+        ctrl._powermeter_type[561] = 'sample'
+        self.assertEqual(ctrl.to_sample_plane(10.0, 561), 10.0)
+
+    def test_to_sample_plane_legacy_values(self):
+        """Legacy stored values 'beampath'/'manual' are still honoured."""
+        ctrl = self._build_laser_control()
+        ctrl._powermeter_type[488] = 'beampath'   # legacy → bfp
+        ctrl._factors[488] = 2.0
+        self.assertAlmostEqual(ctrl.to_sample_plane(10.0, 488), 20.0)
+        ctrl._powermeter_type[561] = 'manual'     # legacy → sample
+        self.assertEqual(ctrl.to_sample_plane(10.0, 561), 10.0)
+
+    @mock.patch('time.sleep')
+    def test_run_power_feedback_projects_to_sample_plane(self, _sleep):
+        """With a BFP transmission factor, the feedback loop drives the
+        sample-plane power (raw reading × factor) to the target and reports
+        the projected value."""
+        ctrl = self._build_laser_control()
+        ctrl._powermeter_type[488] = 'bfp'
+        ctrl._factors[488] = 2.0
+        # The meter reads in the back focal plane (raw analyzer curve).
+        pm = _AttenuatorCurvePowerMeter(ctrl, miscal=1.0)
+        progress = []
+        result = mco.run_power_feedback(
+            ctrl, pm, target_pwr=30, laser=488, mode='fixed_laser',
+            max_dev_pct=2.0, max_iter=20,
+            progress_callback=lambda i, s, m: progress.append((i, s, m)))
+
+        self.assertTrue(result['converged'])
+        # Returned measured is sample-plane: raw beampath ≈ 15, ×2 ≈ 30.
+        self.assertLessEqual(abs(result['measured'] - 30) / 30 * 100.0, 2.0)
+        # The raw meter reading itself is ~target/factor = 15.
+        self.assertLessEqual(abs(pm.read() - 15) / 15 * 100.0, 3.0)
+        # Progress is reported in the sample plane too.
+        self.assertLessEqual(abs(progress[-1][2] - 30) / 30 * 100.0, 2.0)

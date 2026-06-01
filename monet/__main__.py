@@ -1053,14 +1053,17 @@ class MonetSetInteractive(cmd.Cmd):
             print('No powermeter is connected. Cannot measure.')
             return
 
-        measured = self.powermeter.read(averaging)
+        laser = self.instrument.curr_laser
+        # Project the raw reading to the sample plane (no-op unless the active
+        # calibration used the BFP meter and a transmission factor exists).
+        measured = self.instrument.to_sample_plane(
+            self.powermeter.read(averaging), laser)
         print(POWER_TAG + ': ' + str(measured))
         try:
             unit = self.powermeter.unit
         except Exception:
             unit = 'mW'
 
-        laser = self.instrument.curr_laser
         # Calibration deviation: what the calibration predicts vs. measured
         cali_pred = None
         try:

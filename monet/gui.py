@@ -40,7 +40,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from monet import CONFIGS, PROTOCOLS
+from monet import CONFIGS, PROTOCOLS, POWERMETER_BFP, POWERMETER_SAMPLE
 import monet.io as io
 from monet.control import run_power_feedback
 from monet.util import update_mm_acquisition_comment
@@ -61,7 +61,7 @@ class CalibrationWorker(QThread):
     error = pyqtSignal(str)
 
     def __init__(self, pc, laser_filter, dry_run, wait_time=0.1, switch_time=10,
-                 powermeter_type='manual'):
+                 powermeter_type=POWERMETER_SAMPLE):
         super().__init__()
         self._pc = pc
         self._laser_filter = laser_filter
@@ -294,14 +294,14 @@ class CalibrateTab(QWidget):
         self._dry_run_cb = QCheckBox('Dry run (calibrate without saving to database)')
         layout.addWidget(self._dry_run_cb)
 
-        # Beampath powermeter checkbox
-        self._beampath_pm_cb = QCheckBox('Use beampath powermeter')
-        self._beampath_pm_cb.setEnabled(False)
-        self._beampath_pm_cb.setToolTip(
-            'When checked, the beampath is moved to the powermeter position '
+        # Back focal plane (BFP) powermeter checkbox
+        self._bfp_pm_cb = QCheckBox('Use back focal plane (BFP) powermeter')
+        self._bfp_pm_cb.setEnabled(False)
+        self._bfp_pm_cb.setToolTip(
+            'When checked, the beampath is moved to the BFP powermeter position '
             'during calibration. A correction factor is computed if both '
-            'manual and beampath calibrations exist for the same day.')
-        layout.addWidget(self._beampath_pm_cb)
+            'sample-plane and BFP calibrations exist for the same day.')
+        layout.addWidget(self._bfp_pm_cb)
 
         # Progress bar
         self._progress = QProgressBar()
@@ -335,7 +335,7 @@ class CalibrateTab(QWidget):
                         hasattr(pc, 'instrument') and
                         hasattr(pc.instrument, 'use_beampath') and
                         pc.instrument.use_beampath)
-        self._beampath_pm_cb.setEnabled(has_beampath)
+        self._bfp_pm_cb.setEnabled(has_beampath)
 
     def _rebuild_checkboxes(self):
         # Remove old checkboxes (keep the button row at index 0)
@@ -432,9 +432,9 @@ class CalibrateTab(QWidget):
 
         self.calibration_started.emit()
 
-        powermeter_type = ('beampath'
-                           if self._beampath_pm_cb.isChecked()
-                           else 'manual')
+        powermeter_type = (POWERMETER_BFP
+                           if self._bfp_pm_cb.isChecked()
+                           else POWERMETER_SAMPLE)
         self._worker = CalibrationWorker(
             self._pc, laser_filter=selected, dry_run=dry_run,
             powermeter_type=powermeter_type)
@@ -1370,7 +1370,10 @@ class SetPowerTab(QWidget):
             # Wait for beampath hardware to settle (no polling API available)
             if moved:
                 time.sleep(2)
-            measured = self._pc.powermeter.read()
+            # Project the raw reading to the sample plane (no-op unless the
+            # active calibration used the BFP meter).
+            measured = self._pc.instrument.to_sample_plane(
+                self._pc.powermeter.read(), laser)
             try:
                 if (mode == 'fixed_attenuator' and
                         hasattr(self._pc.instrument,
@@ -1654,7 +1657,7 @@ class DatabaseTab(QWidget):
         sep.setFrameShadow(QFrame.Sunken)
         layout.addWidget(sep)
         factors_hdr = QHBoxLayout()
-        factors_hdr.addWidget(QLabel('Objective Transmission (manual / beampath)'))
+        factors_hdr.addWidget(QLabel('Objective Transmission (sample / BFP)'))
         factors_hdr.addStretch()
         self._btn_compute_transmission = QPushButton('Compute transmission')
         self._btn_compute_transmission.setEnabled(False)

@@ -908,8 +908,8 @@ async function renderTransmission() {
 
   if (!allRecs.length) {
     container.appendChild(emptyMsg(
-      'No transmission_objective data yet. Run both a beampath and a manual ' +
-      'calibration on the same day to compute it.'));
+      'No transmission_objective data yet. Run both a back focal plane (BFP) ' +
+      'and a sample-plane calibration on the same day to compute it.'));
     return;
   }
 
@@ -969,7 +969,7 @@ async function renderTransmission() {
       margin: { t: 10, b: 45, l: 65, r: 15 },
       hovermode: 'x unified',
       legend: { orientation: 'h', y: -0.22, font: { size: 11 } },
-      yaxis: { title: 'transmission_objective (P_manual / P_beampath)' },
+      yaxis: { title: 'transmission_objective (P_sample / P_bfp)' },
       height: 280,
     }, { responsive: true, displayModeBar: false });
   }
