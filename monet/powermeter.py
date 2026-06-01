@@ -12,9 +12,14 @@
 """
 import pyvisa
 # `ThorlabsPM100` is imported lazily inside ThorlabsPowerMeter._open_powermeter
-# so the rest of the package is usable without the optional SDK installed.
+# and `TLPM` lazily inside ThorlabsTLPMPowerMeter._open_powermeter, so the rest
+# of the package is usable without those optional SDKs installed.
 import abc
+import logging
 import numpy as np
+
+
+logger = logging.getLogger(__name__)
 
 
 class AbstractPowerMeter(abc.ABC):
@@ -164,6 +169,97 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
     @wavelength.setter
     def wavelength(self, value):
         self.pm.sense.correction.wavelength = value
+
+    @property
+    def unit(self):
+        return 'mW'
+
+
+class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
+    """Power meter accessed through the Thorlabs TLPM driver.
+
+    This is the counterpart to :class:`ThorlabsPowerMeter` for meters that are
+    bound to the Thorlabs TLPM/USBTMC driver (the one installed by the "Optical
+    Power Monitor" software) rather than the legacy VISA/USBTMC driver. Such
+    meters (e.g. the PM100D2, or any PMxxx switched to the TLPM driver) do not
+    appear as standard VISA resources, so the pyvisa-based ``ThorlabsPowerMeter``
+    cannot open them.
+
+    The interface mirrors ``ThorlabsPowerMeter`` exactly (``read``, ``wavelength``
+    getter/setter, ``unit``), so it is a drop-in replacement selected purely via
+    the ``classpath`` config value.
+    """
+    def __init__(self, config):
+        self.pm = self._open_powermeter(config.get('address', 'find connection'))
+        if self.pm is None:
+            raise ValueError(
+                'Could not connect to Thorlabs TLPM power meter '
+                '(address: {!r}). '
+                'Check that the device is plugged in, that it is bound to the '
+                'Thorlabs TLPM driver (Optical Power Monitor), and that no other '
+                'application has it open.'.format(config.get('address')))
+        self.config = config
+
+    def _open_powermeter(self, address=''):
+        """Open communication with the meter through the TLPM driver.
+
+        Args:
+            address : str
+                the TLPM resource name of the meter. If empty or
+                'find connection', the first meter found is used.
+        Returns:
+            power_meter : TLPM instance or None
+                the open device handle, or None if no device could be opened.
+        """
+        import ctypes
+        from TLPM import TLPM
+
+        power_meter = TLPM()
+        try:
+            if address and address not in ('', 'find connection'):
+                resource = ctypes.create_string_buffer(address.encode())
+            else:
+                device_count = ctypes.c_uint32()
+                power_meter.findRsrc(ctypes.byref(device_count))
+                if device_count.value == 0:
+                    logger.warning('No Thorlabs TLPM power meter found.')
+                    power_meter.close()
+                    return None
+                resource = ctypes.create_string_buffer(1024)
+                power_meter.getRsrcName(ctypes.c_int(0), resource)
+            power_meter.open(resource, ctypes.c_bool(True), ctypes.c_bool(True))
+        except Exception:
+            logger.exception('Failed to open Thorlabs TLPM power meter.')
+            try:
+                power_meter.close()
+            except Exception:
+                pass
+            return None
+
+        return power_meter
+
+    def read(self, averaging=10):
+        import ctypes
+        power = ctypes.c_double()
+        vals = []
+        for _ in range(averaging):
+            self.pm.measPower(ctypes.byref(power))
+            vals.append(power.value)
+        # TLPM measPower returns watts; convert to mW to match the other meters.
+        return float(np.mean(np.array(vals))) * 1000
+
+    @property
+    def wavelength(self):
+        import ctypes
+        wl = ctypes.c_double()
+        # attribute 0 (TLPM_ATTR_SET_VAL) reads the configured set value.
+        self.pm.getWavelength(ctypes.c_int16(0), ctypes.byref(wl))
+        return wl.value
+
+    @wavelength.setter
+    def wavelength(self, value):
+        import ctypes
+        self.pm.setWavelength(ctypes.c_double(float(value)))
 
     @property
     def unit(self):
