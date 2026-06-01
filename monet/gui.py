@@ -302,7 +302,7 @@ class CalibrateTab(QWidget):
 
         # Back focal plane (BFP) powermeter checkbox
         self._bfp_pm_cb = QCheckBox('Use back focal plane (BFP) powermeter')
-        self._bfp_pm_cb.setEnabled(False)
+        self._bfp_pm_cb.setEnabled(True)
         self._bfp_pm_cb.setToolTip(
             'When checked, the beampath is moved to the BFP powermeter position '
             'during calibration. A correction factor is computed if both '
