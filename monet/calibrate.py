@@ -63,10 +63,18 @@ class CalibrationProtocol1D():
             self.powermeter = load_class(
                 pwrconfig['classpath'], pwrconfig['init_kwargs'])
             self.powermeter_available = True
+            self.powermeter_error = None
         except Exception as exc:
-            logger.warning('PowerMeter not available: %s', exc)
             self.powermeter = None
             self.powermeter_available = False
+            # Keep the concrete reason so the GUI / caller can surface *why*
+            # the meter failed instead of a generic "not available".
+            self.powermeter_error = '{:s}: {!s}'.format(
+                type(exc).__name__, exc)
+            logger.warning(
+                'PowerMeter (%s) not available: %s',
+                pwrconfig.get('classpath', '?'), self.powermeter_error,
+                exc_info=True)
 
     def calibrate(self, wait_time=0.1, dry_run=False, powermeter_type='manual'):
         """Calibrate power, with parameters according to the

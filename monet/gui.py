@@ -121,7 +121,12 @@ class ConnectWorker(QThread):
             else:
                 pc = mca.CalibrationProtocol1D(self._config)
             if not getattr(pc, 'powermeter_available', True):
-                self.warning.emit('PowerMeter not available — calibration and power measurement disabled.')
+                msg = ('PowerMeter not available — calibration and power '
+                       'measurement disabled.')
+                detail = getattr(pc, 'powermeter_error', None)
+                if detail:
+                    msg += '\n\nReason: ' + detail
+                self.warning.emit(msg)
             self.connected.emit(pc)
         except Exception as exc:
             self.error.emit(str(exc))

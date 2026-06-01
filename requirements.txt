@@ -1,10 +1,9 @@
 pyvisa>=1.15
 https://github.com/MSLNZ/msl-equipment/releases/download/v0.2.0/msl_equipment-0.2.0-py3-none-any.whl #git+https://github.com/MSLNZ/msl-equipment.git
 ThorlabsPM100>=1.2.2
-# TLPM: Thorlabs TLPM driver wrapper, used by ThorlabsTLPMPowerMeter for meters
-# bound to the TLPM driver (Optical Power Monitor software, e.g. PM100D2).
-# Ships with the Optical Power Monitor SDK; imported lazily so this is optional.
-# pyTLPM
+# Note: ThorlabsTLPMPowerMeter (for meters on the TLPM driver, e.g. PM100D2)
+# needs no pip package — it binds TLPM_64.dll directly via ctypes. That DLL is
+# installed by the Thorlabs "Optical Power Monitor" software and loaded lazily.
 pyserial>=3.5
 microscope>=0.7
 icecream>=2.1

@@ -45,7 +45,7 @@ Each hardware type has an abstract base class with multiple implementations:
 - **Power meters** (`powermeter.py`): `AbstractPowerMeter` → `ThorlabsPowerMeter` (legacy VISA/USBTMC via `ThorlabsPM100`), `ThorlabsTLPMPowerMeter` (Thorlabs TLPM driver / Optical Power Monitor, e.g. PM100D2 or any PMxxx on the TLPM driver), `TestPowerMeter`
 - **Beam path** (`beampath.py`): `BeamPath` orchestrates `AbstractBeamPathObject` implementations (`NikonShutter`, `NikonFilterWheel`, `NikonNosepiece`, `TestShutter`) via Micro-Manager
 
-`Test*` implementations provide simulated hardware. Hardware-SDK imports (`pycromanager`, `pycobolt`, `microscope`, `msl.equipment`, `nidaqmx`, `ThorlabsPM100`, `TLPM`) are loaded **lazily** inside the constructors / methods that need them — the package can be imported and the `Test*` classes used on machines without any of those SDKs installed.
+`Test*` implementations provide simulated hardware. Hardware-SDK imports (`pycromanager`, `pycobolt`, `microscope`, `msl.equipment`, `nidaqmx`, `ThorlabsPM100`) and the `TLPM_64.dll` ctypes load (used by `ThorlabsTLPMPowerMeter`) are loaded **lazily** inside the constructors / methods that need them — the package can be imported and the `Test*` classes used on machines without any of those SDKs installed.
 
 ### Core Workflow
 1. **Calibration** (`calibrate.py`): `CalibrationProtocol1D` sweeps attenuator positions while reading power; `CalibrationProtocol2D` extends this across multiple lasers and power levels.
