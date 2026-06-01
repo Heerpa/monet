@@ -186,114 +186,77 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
     open them.
 
     Implementation note: there is no maintained pip package wrapping the TLPM
-    driver, so rather than depending on Thorlabs' loose ``TLPM.py`` example file
-    this class binds the handful of needed functions of ``TLPM_64.dll`` directly
-    via ``ctypes``. That DLL is installed by the Optical Power Monitor software;
-    nothing extra needs to be pip-installed or copied. The DLL is loaded lazily
-    in ``_open_powermeter`` so the package still imports without it.
+    driver, and a hand-rolled ctypes binding to ``TLPM_64.dll`` proved fragile —
+    depending on the installed driver variant the expected symbols (e.g.
+    ``TLPM_findRsrc``) may not resolve. We therefore delegate to Thorlabs' own
+    ``TLPM.py`` wrapper, which ships with the Optical Power Monitor SDK and
+    encapsulates the correct DLL loading. Drop that file into the ``monet``
+    package directory (``monet/TLPM.py``) or anywhere on the Python path. It is
+    imported lazily, so the package still imports without it.
 
     The interface mirrors ``ThorlabsPowerMeter`` exactly (``read``, ``wavelength``
     getter/setter, ``unit``), so it is a drop-in replacement selected purely via
-    the ``classpath`` config value. Optional config keys: ``address`` (TLPM
-    resource name, or 'find connection' to auto-pick the first meter) and
-    ``dll_path`` (explicit path to the TLPM DLL if it is not on the system PATH).
+    the ``classpath`` config value. Optional config key: ``address`` (TLPM
+    resource name, or 'find connection' to auto-pick the first meter).
     """
     def __init__(self, config):
         self.config = config
-        self._dll = None
-        # ViSession is a 32-bit handle; 0 is the "no device" handle used for
-        # resource enumeration before a meter is opened.
-        self._session = None
-        self._open_powermeter(
-            address=config.get('address', 'find connection'),
-            dll_path=config.get('dll_path'))
+        self.pm = None
+        self._open_powermeter(config.get('address', 'find connection'))
 
-    def _load_dll(self, dll_path=None):
-        """Load TLPM_64.dll (or a caller-supplied DLL). Separated out so tests
-        can patch it with a fake DLL."""
-        import ctypes
-        if dll_path:
-            return ctypes.CDLL(dll_path)
-        name = 'TLPM_64.dll' if ctypes.sizeof(ctypes.c_void_p) == 8 \
-            else 'TLPM_32.dll'
-        return ctypes.CDLL(name)
-
-    def _check(self, status, context):
-        """Raise on a negative TLPM ViStatus (0 = ok, >0 = warning)."""
-        if status >= 0:
-            return
-        import ctypes
-        detail = ''
+    def _import_tlpm_wrapper(self):
+        """Import Thorlabs' TLPM wrapper class, preferring the copy vendored
+        into the monet package. Separated out so tests can patch it."""
         try:
-            buf = ctypes.create_string_buffer(512)
-            self._dll.TLPM_errorMessage(
-                self._session, ctypes.c_int(status), buf)
-            detail = buf.value.decode(errors='replace').strip()
-        except Exception:
+            from monet.TLPM import TLPM
+            return TLPM
+        except ImportError:
             pass
-        raise OSError('Thorlabs TLPM {} failed (status {}){}'.format(
-            context, status, ': ' + detail if detail else ''))
+        try:
+            from TLPM import TLPM
+            return TLPM
+        except ImportError as exc:
+            raise ImportError(
+                "Thorlabs' TLPM wrapper could not be imported. Copy TLPM.py "
+                "(installed with the Optical Power Monitor SDK, e.g. under "
+                "C:\\Program Files\\IVI Foundation\\VISA\\Win64\\TLPM\\Examples"
+                "\\Python\\) into the monet package directory (monet/TLPM.py) "
+                "or onto the Python path.") from exc
 
-    def _open_powermeter(self, address='', dll_path=None):
-        """Load the DLL and open communication with the meter.
+    def _open_powermeter(self, address=''):
+        """Open communication with the meter through the TLPM wrapper.
 
         Args:
             address : str
                 the TLPM resource name of the meter. If empty or
                 'find connection', the first meter found is used.
-            dll_path : str or None
-                explicit path to the TLPM DLL, if it is not on the PATH.
         """
         import ctypes
-        try:
-            self._dll = self._load_dll(dll_path)
-        except OSError as exc:
-            raise OSError(
-                'Could not load the Thorlabs TLPM driver DLL (TLPM_64.dll). '
-                'It is installed with the Optical Power Monitor software; '
-                'ensure that software is installed and the DLL is on the system '
-                "PATH, or set 'dll_path' in the powermeter config.") from exc
-
-        self._session = ctypes.c_ulong(0)
+        TLPM = self._import_tlpm_wrapper()
+        power_meter = TLPM()
 
         if address and address not in ('', 'find connection'):
             resource = ctypes.create_string_buffer(address.encode())
         else:
             device_count = ctypes.c_uint32(0)
-            self._check(
-                self._dll.TLPM_findRsrc(self._session,
-                                        ctypes.byref(device_count)),
-                'findRsrc')
+            power_meter.findRsrc(ctypes.byref(device_count))
             if device_count.value == 0:
                 raise ValueError(
                     'No Thorlabs TLPM power meter found. Check that the device '
                     'is plugged in, bound to the TLPM driver, and not held open '
                     'by another application (e.g. Optical Power Monitor).')
             resource = ctypes.create_string_buffer(1024)
-            self._check(
-                self._dll.TLPM_getRsrcName(self._session, ctypes.c_uint32(0),
-                                           resource),
-                'getRsrcName')
+            power_meter.getRsrcName(ctypes.c_int(0), resource)
 
-        # The DLL exposes the device-open call as TLPM_open (newer) or
-        # TLPM_init (IVI-C standard); both share the same signature.
-        open_func = getattr(self._dll, 'TLPM_open', None) \
-            or getattr(self._dll, 'TLPM_init', None)
-        if open_func is None:
-            raise OSError('TLPM DLL exposes neither TLPM_open nor TLPM_init.')
-        self._check(
-            open_func(resource, ctypes.c_bool(True), ctypes.c_bool(True),
-                      ctypes.byref(self._session)),
-            'open')
+        power_meter.open(resource, ctypes.c_bool(True), ctypes.c_bool(True))
+        self.pm = power_meter
 
     def read(self, averaging=10):
         import ctypes
         power = ctypes.c_double()
         vals = []
         for _ in range(averaging):
-            self._check(
-                self._dll.TLPM_measPower(self._session, ctypes.byref(power)),
-                'measPower')
+            self.pm.measPower(ctypes.byref(power))
             vals.append(power.value)
         # TLPM measPower returns watts; convert to mW to match the other meters.
         return float(np.mean(np.array(vals))) * 1000
@@ -303,19 +266,13 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
         import ctypes
         wl = ctypes.c_double()
         # attribute 0 (TLPM_ATTR_SET_VAL) reads the configured set value.
-        self._check(
-            self._dll.TLPM_getWavelength(self._session, ctypes.c_int16(0),
-                                         ctypes.byref(wl)),
-            'getWavelength')
+        self.pm.getWavelength(ctypes.c_int16(0), ctypes.byref(wl))
         return wl.value
 
     @wavelength.setter
     def wavelength(self, value):
         import ctypes
-        self._check(
-            self._dll.TLPM_setWavelength(self._session,
-                                         ctypes.c_double(float(value))),
-            'setWavelength')
+        self.pm.setWavelength(ctypes.c_double(float(value)))
 
     @property
     def unit(self):
@@ -323,9 +280,9 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
 
     def close(self):
         """Close the device session, if open."""
-        if self._dll is not None and self._session is not None:
+        if self.pm is not None:
             try:
-                self._dll.TLPM_close(self._session)
+                self.pm.close()
             except Exception:
                 logger.exception('Error closing Thorlabs TLPM power meter.')
-            self._session = None
+            self.pm = None

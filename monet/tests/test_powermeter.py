@@ -12,14 +12,13 @@ from unittest import mock
 import monet.powermeter as mpm
 
 
-class _FakeTLPMDLL:
-    """Minimal stand-in for ``TLPM_64.dll``.
+class _FakeTLPM:
+    """Minimal stand-in for Thorlabs' ``TLPM`` wrapper class.
 
-    Simulates a single connected meter so ``ThorlabsTLPMPowerMeter`` (which
-    binds the DLL functions directly via ctypes) can be exercised without the
-    hardware or the Thorlabs driver installed. Each ``TLPM_*`` function writes
-    through its byref arguments and returns 0 (ViStatus success), mirroring the
-    real DLL. The byref target is reachable via ``._obj`` in CPython.
+    Simulates a single connected meter so ``ThorlabsTLPMPowerMeter`` can be
+    exercised without the hardware, the TLPM driver, or Thorlabs' TLPM.py.
+    Each method writes through its byref arguments like the real wrapper; the
+    byref target is reachable via ``._obj`` in CPython.
     """
     _power_w = 0.0123      # 12.3 mW
     _device_count = 1
@@ -27,42 +26,37 @@ class _FakeTLPMDLL:
     def __init__(self):
         self._wavelength = 488.0
 
-    def TLPM_findRsrc(self, session, count_ref):
+    def findRsrc(self, count_ref):
         count_ref._obj.value = self._device_count
-        return 0
 
-    def TLPM_getRsrcName(self, session, index, resource_buffer):
+    def getRsrcName(self, index, resource_buffer):
         resource_buffer.value = b'FAKE::TLPM::INSTR'
-        return 0
 
-    def TLPM_open(self, resource, id_query, reset, session_ref):
-        session_ref._obj.value = 1
-        return 0
+    def open(self, resource, id_query, reset):
+        pass
 
-    def TLPM_measPower(self, session, power_ref):
+    def measPower(self, power_ref):
         power_ref._obj.value = self._power_w
-        return 0
 
-    def TLPM_getWavelength(self, session, attribute, wl_ref):
+    def getWavelength(self, attribute, wl_ref):
         wl_ref._obj.value = self._wavelength
-        return 0
 
-    def TLPM_setWavelength(self, session, value):
+    def setWavelength(self, value):
         self._wavelength = value.value
-        return 0
 
-    def TLPM_close(self, session):
-        return 0
+    def close(self):
+        pass
 
 
-class _FakeTLPMDLLNoDevice(_FakeTLPMDLL):
+class _FakeTLPMNoDevice(_FakeTLPM):
     _device_count = 0
 
 
-def _patch_dll(dll):
-    """Patch ThorlabsTLPMPowerMeter._load_dll to return the given fake DLL."""
+def _patch_wrapper(wrapper_cls):
+    """Patch _import_tlpm_wrapper to return the given fake wrapper class."""
     return mock.patch.object(
-        mpm.ThorlabsTLPMPowerMeter, '_load_dll', return_value=dll)
+        mpm.ThorlabsTLPMPowerMeter, '_import_tlpm_wrapper',
+        return_value=wrapper_cls)
 
 
 class TestPowerMeter(unittest.TestCase):
@@ -89,7 +83,7 @@ class TestPowerMeter(unittest.TestCase):
         assert True
 
     def test_basics_02_ThorlabsTLPMPowerMeter(self):
-        with _patch_dll(_FakeTLPMDLL()):
+        with _patch_wrapper(_FakeTLPM):
             pm = mpm.ThorlabsTLPMPowerMeter({'address': 'find connection'})
 
             # measPower returns watts; the class reports mW.
@@ -101,6 +95,6 @@ class TestPowerMeter(unittest.TestCase):
             self.assertAlmostEqual(pm.wavelength, 561.0)
 
     def test_basics_03_ThorlabsTLPM_no_device_raises(self):
-        with _patch_dll(_FakeTLPMDLLNoDevice()):
+        with _patch_wrapper(_FakeTLPMNoDevice):
             with self.assertRaises(ValueError):
                 mpm.ThorlabsTLPMPowerMeter({'address': 'find connection'})
