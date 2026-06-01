@@ -13,6 +13,13 @@ import importlib_resources
 import logging
 from logging import handlers
 
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+try:
+    __version__ = _pkg_version('monet')
+except PackageNotFoundError:  # running from a source tree that isn't installed
+    __version__ = 'unknown'
+
 
 # configure logger and log that this shouldn't be done here
 def config_logger():

@@ -40,7 +40,13 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from monet import CONFIGS, PROTOCOLS, POWERMETER_BFP, POWERMETER_SAMPLE
+from monet import (CONFIGS, PROTOCOLS, POWERMETER_BFP, POWERMETER_SAMPLE,
+                   __version__ as _monet_version)
+
+# Window-title prefix, e.g. 'Monet v0.3.3'. Falls back to plain 'Monet' when the
+# package metadata is unavailable (running from an uninstalled source tree).
+_TITLE_BASE = ('Monet' if _monet_version == 'unknown'
+               else 'Monet v{}'.format(_monet_version))
 import monet.io as io
 from monet.control import run_power_feedback
 from monet.util import update_mm_acquisition_comment
@@ -2158,7 +2164,8 @@ class MonetMainWindow(QMainWindow):
 
     def __init__(self, initial_microscope=None):
         super().__init__()
-        self.setWindowTitle('Monet — Laser Power Calibration')
+        self.setWindowTitle(
+            '{} — Laser Power Calibration'.format(_TITLE_BASE))
         self.resize(900, 650)
         self._widget = MonetWidget(self, initial_microscope=initial_microscope)
         self.setCentralWidget(self._widget)
@@ -2173,7 +2180,7 @@ class MonetMainWindow(QMainWindow):
     def _on_connected_title(self, pc):
         name = self._widget.current_microscope
         if name:
-            self.setWindowTitle('Monet — {}'.format(name))
+            self.setWindowTitle('{} — {}'.format(_TITLE_BASE, name))
 
     def closeEvent(self, event):
         self._widget.shutdown()
