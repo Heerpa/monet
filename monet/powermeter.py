@@ -196,13 +196,22 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
 
     The interface mirrors ``ThorlabsPowerMeter`` exactly (``read``, ``wavelength``
     getter/setter, ``unit``), so it is a drop-in replacement selected purely via
-    the ``classpath`` config value. Optional config key: ``address`` (TLPM
-    resource name, or 'find connection' to auto-pick the first meter).
+    the ``classpath`` config value. Optional config keys: ``address`` (TLPM
+    resource name, or 'find connection' to auto-pick the first meter) and
+    ``dll_path`` (path to the TLPM_64.dll, or the directory containing it, when
+    that DLL is not on the system PATH — Thorlabs' TLPM.py loads it by bare name,
+    so its folder must be findable for the DLL and its dependencies to resolve).
     """
     def __init__(self, config):
         self.config = config
         self.pm = None
-        self._open_powermeter(config.get('address', 'find connection'))
+        # Holds the os.add_dll_directory() handle; the directory is removed from
+        # the DLL search path when this handle is GC'd, so it must outlive the
+        # DLL load (keep it for the object's lifetime).
+        self._dll_dir_handle = None
+        self._open_powermeter(
+            config.get('address', 'find connection'),
+            dll_path=config.get('dll_path'))
 
     def _import_tlpm_wrapper(self):
         """Import Thorlabs' TLPM wrapper class, preferring the copy vendored
@@ -223,15 +232,47 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
                 "\\Python\\) into the monet package directory (monet/TLPM.py) "
                 "or onto the Python path.") from exc
 
-    def _open_powermeter(self, address=''):
+    def _prepare_dll_search(self, dll_path):
+        """Make TLPM_64.dll and its dependencies findable when not on PATH.
+
+        Thorlabs' TLPM.py loads the DLL by bare name, so its containing folder
+        must be on the DLL search path. ``dll_path`` may point at the DLL file
+        or its directory.
+        """
+        if not dll_path:
+            return
+        import os
+        dll_dir = dll_path if os.path.isdir(dll_path) \
+            else os.path.dirname(dll_path)
+        if not dll_dir or not os.path.isdir(dll_dir):
+            logger.warning('TLPM dll_path directory does not exist: %r',
+                           dll_path)
+            return
+        # Python 3.8+ on Windows: documented way to extend the DLL search path
+        # for the DLL and dependencies sitting in the same folder.
+        if hasattr(os, 'add_dll_directory'):
+            try:
+                # Keep the handle: the directory is removed from the search
+                # path when the handle is garbage-collected.
+                self._dll_dir_handle = os.add_dll_directory(dll_dir)
+            except OSError:
+                logger.exception('Could not add TLPM dll directory: %s',
+                                 dll_dir)
+        # Also prepend to PATH so dependent DLLs resolve under older loaders.
+        os.environ['PATH'] = dll_dir + os.pathsep + os.environ.get('PATH', '')
+
+    def _open_powermeter(self, address='', dll_path=None):
         """Open communication with the meter through the TLPM wrapper.
 
         Args:
             address : str
                 the TLPM resource name of the meter. If empty or
                 'find connection', the first meter found is used.
+            dll_path : str or None
+                path to TLPM_64.dll or its directory, if not on the PATH.
         """
         import ctypes
+        self._prepare_dll_search(dll_path)
         TLPM = self._import_tlpm_wrapper()
         power_meter = TLPM()
 

@@ -98,3 +98,16 @@ class TestPowerMeter(unittest.TestCase):
         with _patch_wrapper(_FakeTLPMNoDevice):
             with self.assertRaises(ValueError):
                 mpm.ThorlabsTLPMPowerMeter({'address': 'find connection'})
+
+    def test_basics_04_ThorlabsTLPM_dll_path(self):
+        # A dll_path directory should be accepted and added to the DLL search
+        # path without breaking connection (cross-platform: add_dll_directory
+        # is Windows-only and skipped elsewhere).
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as dll_dir:
+            with _patch_wrapper(_FakeTLPM):
+                pm = mpm.ThorlabsTLPMPowerMeter(
+                    {'address': 'find connection', 'dll_path': dll_dir})
+                self.assertAlmostEqual(pm.read(averaging=1), 12.3, places=6)
+            self.assertIn(dll_dir, os.environ.get('PATH', ''))
