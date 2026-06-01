@@ -26,7 +26,7 @@ class TestAttenuation(unittest.TestCase):
 
         att._connect()
         att._wait()
-        att._home()
+        att.home()
         att._log_pos()
         att._move_absolute(5)
         att._move_relative(5)

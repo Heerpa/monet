@@ -8,7 +8,55 @@
     :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
 import unittest
+from unittest import mock
 import monet.powermeter as mpm
+
+
+class _FakeTLPM:
+    """Minimal stand-in for Thorlabs' ``TLPM`` wrapper class.
+
+    Simulates a single connected meter so ``ThorlabsTLPMPowerMeter`` can be
+    exercised without the hardware, the TLPM driver, or Thorlabs' TLPM.py.
+    Each method writes through its byref arguments like the real wrapper; the
+    byref target is reachable via ``._obj`` in CPython.
+    """
+    _power_w = 0.0123      # 12.3 mW
+    _device_count = 1
+
+    def __init__(self):
+        self._wavelength = 488.0
+
+    def findRsrc(self, count_ref):
+        count_ref._obj.value = self._device_count
+
+    def getRsrcName(self, index, resource_buffer):
+        resource_buffer.value = b'FAKE::TLPM::INSTR'
+
+    def open(self, resource, id_query, reset):
+        pass
+
+    def measPower(self, power_ref):
+        power_ref._obj.value = self._power_w
+
+    def getWavelength(self, attribute, wl_ref):
+        wl_ref._obj.value = self._wavelength
+
+    def setWavelength(self, value):
+        self._wavelength = value.value
+
+    def close(self):
+        pass
+
+
+class _FakeTLPMNoDevice(_FakeTLPM):
+    _device_count = 0
+
+
+def _patch_wrapper(wrapper_cls):
+    """Patch _import_tlpm_wrapper to return the given fake wrapper class."""
+    return mock.patch.object(
+        mpm.ThorlabsTLPMPowerMeter, '_import_tlpm_wrapper',
+        return_value=wrapper_cls)
 
 
 class TestPowerMeter(unittest.TestCase):
@@ -33,3 +81,33 @@ class TestPowerMeter(unittest.TestCase):
             print(att.read())
 
         assert True
+
+    def test_basics_02_ThorlabsTLPMPowerMeter(self):
+        with _patch_wrapper(_FakeTLPM):
+            pm = mpm.ThorlabsTLPMPowerMeter({'address': 'find connection'})
+
+            # measPower returns watts; the class reports mW.
+            self.assertAlmostEqual(pm.read(averaging=5), 12.3, places=6)
+            self.assertEqual(pm.unit, 'mW')
+
+            self.assertAlmostEqual(pm.wavelength, 488.0)
+            pm.wavelength = 561
+            self.assertAlmostEqual(pm.wavelength, 561.0)
+
+    def test_basics_03_ThorlabsTLPM_no_device_raises(self):
+        with _patch_wrapper(_FakeTLPMNoDevice):
+            with self.assertRaises(ValueError):
+                mpm.ThorlabsTLPMPowerMeter({'address': 'find connection'})
+
+    def test_basics_04_ThorlabsTLPM_dll_path(self):
+        # A dll_path directory should be accepted and added to the DLL search
+        # path without breaking connection (cross-platform: add_dll_directory
+        # is Windows-only and skipped elsewhere).
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as dll_dir:
+            with _patch_wrapper(_FakeTLPM):
+                pm = mpm.ThorlabsTLPMPowerMeter(
+                    {'address': 'find connection', 'dll_path': dll_dir})
+                self.assertAlmostEqual(pm.read(averaging=1), 12.3, places=6)
+            self.assertIn(dll_dir, os.environ.get('PATH', ''))

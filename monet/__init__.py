@@ -40,6 +40,28 @@ DATABASE_INDEXLEVELS = [
     DEVICE_TAG, LASER_TAG, POWER_TAG, 'date', 'time'
 ]
 
+# Power-meter location (stored per calibration in the 'powermeter_type' column):
+#   'bfp'    — measured in the back focal plane (BFP) powermeter
+#   'sample' — measured manually in the sample plane
+# Legacy databases used 'beampath' and 'manual'; normalize_powermeter_type()
+# maps those onto the canonical values for backward compatibility.
+POWERMETER_BFP = 'bfp'
+POWERMETER_SAMPLE = 'sample'
+
+
+def normalize_powermeter_type(value):
+    """Map a stored/legacy power-meter location onto the canonical value.
+
+    'beampath' (legacy) → 'bfp'; 'manual' (legacy) → 'sample'. Unknown values
+    are returned lower-cased and stripped so callers can compare safely.
+    """
+    v = str(value).strip().lower()
+    if v in (POWERMETER_BFP, 'beampath', 'back_focal_plane', 'bfp_powermeter'):
+        return POWERMETER_BFP
+    if v in (POWERMETER_SAMPLE, 'manual', 'sample_plane'):
+        return POWERMETER_SAMPLE
+    return v
+
 try:
     ref = importlib_resources.files('monet') / '..\\env.yaml'
     with importlib_resources.as_file(ref) as envpath:

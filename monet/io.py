@@ -20,7 +20,9 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import requests
 
-from monet import LASER_TAG, POWER_TAG, DEVICE_TAG
+from monet import (LASER_TAG, POWER_TAG, DEVICE_TAG,
+                   POWERMETER_BFP, POWERMETER_SAMPLE,
+                   normalize_powermeter_type)
 from monet import DATABASE_INDEXLEVELS
 from monet.cache import _get_cache
 
@@ -399,7 +401,12 @@ def _load_database_excel(fname, index, time_idx):
 
     # date selection
     if time_idx==None or time_idx=='latest':
-        db = db.sort_index().iloc[-1, :]
+        # A fully-specified index (e.g. name + wavelength + power + date +
+        # time, as written by save_calibration) collapses the selection to a
+        # single-row Series — in that case the latest entry is already
+        # selected. Only pick the last row when several remain.
+        if getattr(db, 'ndim', 1) == 2:
+            db = db.sort_index().iloc[-1, :]
     elif time_idx=='last date':
         last_date = db.index.get_level_values('date').max()
         db = db.loc[db.index.get_level_values('date')==last_date, :]
@@ -555,8 +562,12 @@ def plot_device_history(db_fname, device, plot_dir):
         device : str
             the device name to plot (eg. 'Voyager')
         plot_dir : str
-            the directory to save the plots in.
+            the directory to save the plots in. If None/empty, plotting is
+            skipped (e.g. when no 'dest_calibration_plot' is configured).
     """
+    if not plot_dir:
+        logger.debug('No plot directory configured; skipping device history.')
+        return
     plt.switch_backend('agg')
 
     index = {DEVICE_TAG: device}
@@ -605,8 +616,12 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
         device : str
             the device name to plot (eg. 'Voyager')
         plot_dir : str
-            the directory to save the plots in.
+            the directory to save the plots in. If None/empty, plotting is
+            skipped (e.g. when no 'dest_calibration_plot' is configured).
     """
+    if not plot_dir:
+        logger.debug('No plot directory configured; skipping amplitude history.')
+        return
     plt.switch_backend('agg')
 
     index = {DEVICE_TAG: device}
@@ -665,9 +680,9 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
 
 def compute_and_save_factor(db_fname, device, laser, ana_config):
     """Compute and save the objective transmission factor from paired
-    beampath vs manual calibrations recorded on the same day.
+    back focal plane (BFP) vs sample-plane calibrations recorded on the same day.
 
-    transmission_objective = P_manual / P_beampath, sampled at 50 attenuator
+    transmission_objective = P_sample / P_bfp, sampled at 50 attenuator
     positions per common laser-power level. Saved to the 'factors' sheet.
     Silently skipped for HTTP databases.
 
@@ -731,12 +746,13 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
             today, device, laser)
         return
 
-    db_manual = db.loc[db['powermeter_type'] == 'manual']
-    db_beampath = db.loc[db['powermeter_type'] == 'beampath']
+    pm_type_norm = db['powermeter_type'].map(normalize_powermeter_type)
+    db_manual = db.loc[pm_type_norm == POWERMETER_SAMPLE]
+    db_beampath = db.loc[pm_type_norm == POWERMETER_BFP]
     if db_manual.empty or db_beampath.empty:
         logger.warning(
-            'compute_and_save_factor: need both manual and beampath calibrations '
-            'on the same day; found manual=%d beampath=%d',
+            'compute_and_save_factor: need both sample-plane and BFP '
+            'calibrations on the same day; found sample=%d bfp=%d',
             len(db_manual), len(db_beampath))
         return
 

@@ -15,8 +15,10 @@ import abc
 import re
 
 import serial
-from microscope.lights.toptica import TopticaiBeam
-import pycobolt
+# `microscope.lights.toptica` (TopticaiBeam) and `pycobolt` are imported
+# lazily inside the classes that need them (Toptica_Old / Cobolt /
+# Cobolt_OEM), so the rest of the package is usable on machines without
+# those hardware SDKs.
 
 import time
 import numpy as np
@@ -401,6 +403,7 @@ class Toptica_Old(AbstractLaser):
             connection_parameters
         """
         super().__init__(warmup_delay)
+        from microscope.lights.toptica import TopticaiBeam
         self.las = TopticaiBeam(**connection_parameters)
         # enable the channels, switch off laser, just to be safe
         self.las._conn.command(b'en 1')
@@ -933,6 +936,7 @@ class Cobolt(AbstractLaser):
                 changing power
         """
         super().__init__(warmup_delay)
+        import pycobolt
         self.laser = pycobolt.CoboltLaser(**connection_parameters)
         self.laser.constant_power()
 
@@ -1020,6 +1024,7 @@ class Cobolt_OEM(AbstractLaser):
                 changing power
         """
         super().__init__(warmup_delay)
+        import pycobolt
         self.laser = pycobolt.CoboltLaser(**connection_parameters)
         self.laser.constant_power()
 
