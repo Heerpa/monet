@@ -7,6 +7,8 @@
     :authors: Heinrich Grabmayr, 2022
     :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
+import os
+import tempfile
 import unittest
 import monet.analysis as man
 import numpy as np
@@ -77,13 +79,174 @@ class TestAnalysis(unittest.TestCase):
         print('config with init pars', model)
         assert True
 
-    def test_02_PointAnalyzer(self):
-        config = {}
-        att = man.PointCurveAnalyzer(config)
+    def test_03_Sinus_roundtrip_and_model_io(self):
+        # Generate data from a known sinusoidal model, fit it, and confirm
+        # the recovered model round-trips position <-> power.
+        bkg, amp, phi = 0.0, 50.0, 30.0
+        x = np.arange(0, 90, 2.0)
+        y = self.att._model_function(x, bkg, amp, phi)
 
+        self.att.fit(x, y)
+
+        model = self.att.get_model()
+        for key in ('bkg', 'amp', 'phi'):
+            self.assertIn(key, model)
+
+        # estimate_power(estimate(p)) ~= p for an in-range target. Stay
+        # safely inside [bkg, bkg+amp] to avoid the boundary check.
+        target = bkg + amp * 0.5
+        pos = self.att.estimate(target)
+        self.assertAlmostEqual(self.att.estimate_power(pos), target, places=1)
+
+        # load_model restores parameters.
+        self.att.load_model(model)
+        self.assertEqual(self.att.curr_params, model)
+
+    def test_03_Sinus_plot(self):
+        x = np.arange(0, 90, 5.0)
+        y = self.att._model_function(x, 0.0, 50.0, 30.0)
+        self.att.fit(x, y)
+        with tempfile.TemporaryDirectory() as d:
+            fname = os.path.join(d, 'sinus.png')
+            self.att.plot(fname, xlabel='angle', ylabel='power', title='t')
+            self.assertTrue(os.path.exists(fname))
+
+
+class TestLinearAnalyzer(unittest.TestCase):
+
+    def setUp(self):
+        self.config = {'min': 0.0, 'max': 10.0}
+        self.att = man.LinearCurveAnalyzer(self.config)
+
+    def test_fit_and_roundtrip(self):
+        bkg, amp = 1.0, 2.0
+        x = np.linspace(0.0, 10.0, 21)
+        y = bkg + amp * x
+        self.att.fit(x, y)
+
+        # estimate(y) inverts the model; estimate_power(x) evaluates it.
+        self.assertAlmostEqual(self.att.estimate(11.0), 5.0, places=3)
+        self.assertAlmostEqual(self.att.estimate_power(5.0), 11.0, places=3)
+
+    def test_output_range(self):
+        x = np.linspace(0.0, 10.0, 21)
+        self.att.fit(x, 1.0 + 2.0 * x)
+        lo, hi = self.att.output_range()
+        self.assertAlmostEqual(lo, 1.0, places=2)
+        self.assertAlmostEqual(hi, 21.0, places=2)
+
+    def test_estimate_out_of_range_raises(self):
+        x = np.linspace(0.0, 10.0, 21)
+        self.att.fit(x, 1.0 + 2.0 * x)
+        with self.assertRaises(ValueError):
+            self.att.estimate(1000.0)
+
+    def test_plot(self):
+        x = np.linspace(0.0, 10.0, 11)
+        self.att.fit(x, 1.0 + 2.0 * x)
+        with tempfile.TemporaryDirectory() as d:
+            fname = os.path.join(d, 'linear.png')
+            self.att.plot(fname)
+            self.assertTrue(os.path.exists(fname))
+
+
+class TestPointAnalyzer(unittest.TestCase):
+
+    def test_scalar(self):
+        att = man.PointCurveAnalyzer({})
         power = 8
         att.fit(0, power)
+        self.assertEqual(att.estimate_power(0), power)
+        self.assertEqual(att.estimate_power(9), power)
+        self.assertEqual(att.estimate(9), 0)
+        self.assertEqual(att.output_range(), [power, power])
 
-        assert att.estimate_power(0) == power
-        assert att.estimate_power(9) == power
-        assert att.estimate(9) == 0
+    def test_array_inputs(self):
+        att = man.PointCurveAnalyzer({})
+        # fit with an iterable averages the values.
+        att.fit([0, 1, 2], np.array([4.0, 6.0, 8.0]))
+        self.assertAlmostEqual(att.curr_params['amp'], 6.0)
+
+        x = np.array([0.0, 5.0, 9.0])
+        np.testing.assert_allclose(att.estimate(x), np.zeros_like(x))
+        np.testing.assert_allclose(
+            att.estimate_power(x), 6.0 * np.ones_like(x))
+
+    def test_model_internals(self):
+        att = man.PointCurveAnalyzer({})
+        # scalar input returns amp; the inverse is the identity.
+        self.assertEqual(att._model_function(5, bkg=0, amp=8), 8)
+        self.assertEqual(att._model_function_inv(3.3, amp=8), 3.3)
+        # init estimate uses the mean of y.
+        pars = att._model_function_estinit(np.array([4.0, 8.0]), [0, 1])
+        self.assertAlmostEqual(pars['amp'], 6.0)
+        # array input path runs and returns an array of the right shape.
+        out = att._model_function(np.zeros(3), bkg=0, amp=8)
+        self.assertEqual(np.asarray(out).shape, (3,))
+
+    def test_plot_is_noop(self):
+        att = man.PointCurveAnalyzer({})
+        att.fit(0, 8)
+        # PointCurveAnalyzer.plot only logs; just confirm it does not raise.
+        att.plot('unused.png')
+
+
+class TestPolynomAnalyzer(unittest.TestCase):
+
+    def setUp(self):
+        self.config = {'min': 0.0, 'max': 10.0, 'polydegree': 4}
+        self.att = man.PolynomAttenuationCurveAnalyzer(self.config)
+        self.x = np.linspace(0.0, 10.0, 60)
+        self.y = self.x ** 2  # monotonic increasing over [0, 10]
+
+    def test_fit_estimate_power_roundtrip(self):
+        self.att.fit(self.x, self.y)
+        # Forward evaluation should track the underlying data closely.
+        self.assertAlmostEqual(self.att.estimate_power(5.0), 25.0, delta=0.5)
+
+    def test_estimate_clips_to_range(self):
+        self.att.fit(self.x, self.y)
+        # A power above the fitted range clips to max control parameter.
+        est = self.att.estimate(1e6)
+        self.assertLessEqual(est, self.config['max'])
+        self.assertGreaterEqual(est, self.config['min'])
+
+    def test_output_range_two_values(self):
+        self.att.fit(self.x, self.y)
+        rng = self.att.output_range()
+        self.assertEqual(len(rng), 2)
+        self.assertLessEqual(rng[0], rng[1])
+
+    def test_get_model_and_coef_roundtrip(self):
+        self.att.fit(self.x, self.y)
+        model = self.att.get_model()
+        self.assertIn('p0', model)
+        self.assertIn('i0', model)
+        coef_fw, coef_bw = self.att.params2coef(model)
+        # coef2params(params2coef(model)) is the identity for these keys.
+        again = self.att.coef2params(coef_fw, coef_bw)
+        self.assertEqual(set(again.keys()), set(model.keys()))
+
+    def test_estimate_power_without_fit_returns_zero(self):
+        # poly is None before any fit.
+        self.assertEqual(self.att.estimate_power(5.0), 0)
+
+    def test_plot_after_fit(self):
+        self.att.fit(self.x, self.y)
+        with tempfile.TemporaryDirectory() as d:
+            fname = os.path.join(d, 'poly.png')
+            # fitvals_forward exists -> the data-overlay plotting branch.
+            self.att.plot(fname, xlabel='x', ylabel='P', title='poly')
+            self.assertTrue(os.path.exists(fname))
+
+    def test_plot_after_load_model(self):
+        self.att.fit(self.x, self.y)
+        model = self.att.get_model()
+        fresh = man.PolynomAttenuationCurveAnalyzer(
+            {'min': 0.0, 'max': 10.0, 'polydegree': 4})
+        fresh.load_model(model)
+        with tempfile.TemporaryDirectory() as d:
+            fname = os.path.join(d, 'poly2.png')
+            # No fitvals_forward -> the load_model plotting branch.
+            fresh.plot(fname)
+            self.assertTrue(os.path.exists(fname))

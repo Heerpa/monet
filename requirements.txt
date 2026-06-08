@@ -20,7 +20,7 @@ pycromanager #==0.29.5  # 0.27.2 for nightly build 20230312 | or 0.27.5 with 202
 git+https://github.com/cobolt-lasers/pycobolt.git
 nidaqmx>=1.2
 importlib_resources
-PyQt5>=5.15
+PyQt6>=6.5
 fastapi>=0.104
 uvicorn[standard]>=0.24
 sqlalchemy>=2.0

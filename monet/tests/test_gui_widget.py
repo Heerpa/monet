@@ -3,19 +3,19 @@
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     Smoke tests for the embeddable :class:`MonetWidget` and its tabs.
-    Skipped automatically when PyQt5 is not installed.
+    Skipped automatically when PyQt6 is not installed.
 """
 import os
 import unittest
 
 import pytest
 
-pytest.importorskip('PyQt5')
+pytest.importorskip('PyQt6')
 
 # Headless backend for environments without a real display.
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from monet.gui import (                    # noqa: E402
     MonetWidget, SetPowerTab, CalibrateTab, AdjustTab, DatabaseTab)

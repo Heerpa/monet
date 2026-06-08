@@ -105,12 +105,12 @@ def main():
             args.name).cmdloop()
     elif args.mode == 'gui':
         import sys
-        from PyQt5.QtWidgets import QApplication
+        from PyQt6.QtWidgets import QApplication
         from monet.gui import MonetMainWindow
         app = QApplication(sys.argv)
         window = MonetMainWindow(initial_microscope=args.name)
         window.show()
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
     else:
         raise KeyError('monet mode has to be one of "set", "calibrate", "serve", "migrate", or "gui".')
 

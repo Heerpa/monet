@@ -3,7 +3,7 @@
     monet/gui.py
     ~~~~~~~~~~~~
 
-    PyQt5 graphical interface for Monet. Provides tabs for calibration,
+    PyQt6 graphical interface for Monet. Provides tabs for calibration,
     laser/attenuator adjustment, power setting, and database management.
 
     :authors: Heinrich Grabmayr, 2024
@@ -12,9 +12,10 @@
 import json
 import logging
 
-from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -189,7 +190,7 @@ class FeedbackPlotDialog(QDialog):
         layout = QVBoxLayout(self)
 
         try:
-            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
             from matplotlib.figure import Figure
 
             self._fig = Figure(figsize=(5.4, 3.5), tight_layout=True)
@@ -319,7 +320,8 @@ class CalibrateTab(QWidget):
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setFont(QFont('Courier', 9))
-        self._log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._log.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                QSizePolicy.Policy.Expanding)
         layout.addWidget(self._log)
 
         # Start / Cancel buttons
@@ -401,8 +403,8 @@ class CalibrateTab(QWidget):
                 reply = QMessageBox.question(
                     self, 'Dry run',
                     'Dry run enabled — calibration will NOT be saved. Continue?',
-                    QMessageBox.Yes | QMessageBox.No)
-                if reply != QMessageBox.Yes:
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if reply != QMessageBox.StandardButton.Yes:
                     return
             self._log.append('Starting 1D calibration…')
             self._emit_status('Running 1D calibration…')
@@ -424,8 +426,8 @@ class CalibrateTab(QWidget):
             reply = QMessageBox.question(
                 self, 'Dry run',
                 'Dry run enabled — calibration will NOT be saved. Continue?',
-                QMessageBox.Yes | QMessageBox.No)
-            if reply != QMessageBox.Yes:
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
                 return
 
         self._log.clear()
@@ -761,7 +763,7 @@ class AdjustTab(QWidget):
             return
         try:
             self._pc.instrument.beampath.objects['shutter'].autoshutter = (
-                state == Qt.Checked)
+                Qt.CheckState(state) == Qt.CheckState.Checked)
         except Exception as exc:
             QMessageBox.critical(self, 'Error', str(exc))
 
@@ -921,8 +923,8 @@ class SetPowerTab(QWidget):
 
         # ── Separator ────────────────────────────────────────────────────────
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(sep)
 
         # ── Hardware state section (formerly Adjust tab) ──────────────────
@@ -1146,10 +1148,10 @@ class SetPowerTab(QWidget):
                     'Move beampath to "start_calibrate" position before '
                     'feedback measurement?\n\n'
                     'Click Cancel to perform the initial set without feedback.',
-                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
-                if reply == QMessageBox.Cancel:
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
+                if reply == QMessageBox.StandardButton.Cancel:
                     use_feedback = False
-                elif reply == QMessageBox.Yes:
+                elif reply == QMessageBox.StandardButton.Yes:
                     do_start_cal = True
 
         max_dev_pct = self._feedback_tol_spin.value()
@@ -1351,8 +1353,8 @@ class SetPowerTab(QWidget):
                 reply = QMessageBox.question(
                     self, 'Measurement beampath',
                     'Set beampath to "start_calibrate" position before measuring?',
-                    QMessageBox.Yes | QMessageBox.No)
-                do_start_cal = (reply == QMessageBox.Yes)
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                do_start_cal = (reply == QMessageBox.StandardButton.Yes)
 
         mode = self._mode_combo.currentData()
 
@@ -1590,7 +1592,7 @@ class SetPowerTab(QWidget):
             return
         try:
             self._pc.instrument.beampath.objects['shutter'].autoshutter = (
-                state == Qt.Checked)
+                Qt.CheckState(state) == Qt.CheckState.Checked)
         except Exception as exc:
             QMessageBox.critical(self, 'Error', str(exc))
 
@@ -1641,15 +1643,15 @@ class DatabaseTab(QWidget):
         # Database link (shown when database is an HTTP server URL)
         self._db_link_label = QLabel('')
         self._db_link_label.setOpenExternalLinks(True)
-        self._db_link_label.setTextFormat(Qt.RichText)
+        self._db_link_label.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(self._db_link_label)
 
         # Table
         self._table = QTableWidget(0, len(self.COLUMNS))
         self._table.setHorizontalHeaderLabels(self.COLUMNS)
-        self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self._table)
 
@@ -1659,8 +1661,8 @@ class DatabaseTab(QWidget):
 
         # Correction factors section
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(sep)
         factors_hdr = QHBoxLayout()
         factors_hdr.addWidget(QLabel('Objective Transmission (sample / BFP)'))
@@ -1674,10 +1676,10 @@ class DatabaseTab(QWidget):
         self._factors_table.setHorizontalHeaderLabels(
             ['Microscope', 'Wavelength (nm)', 'Date',
              'transmission_objective', 'Std Dev'])
-        self._factors_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._factors_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._factors_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._factors_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._factors_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeToContents)
+            QHeaderView.ResizeMode.ResizeToContents)
         self._factors_table.horizontalHeader().setStretchLastSection(True)
         self._factors_table.setMaximumHeight(150)
         layout.addWidget(self._factors_table)
@@ -1805,8 +1807,8 @@ class DatabaseTab(QWidget):
         reply = QMessageBox.question(
             self, 'Confirm delete',
             f'Delete {len(rows)} record(s)? This cannot be undone.',
-            QMessageBox.Yes | QMessageBox.No)
-        if reply != QMessageBox.Yes:
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
             return
 
         if self._db_fname is None:
@@ -1829,8 +1831,8 @@ class DatabaseTab(QWidget):
         reply = QMessageBox.question(
             self, 'Restart database',
             'This will backup the database and keep only the latest entries.\nContinue?',
-            QMessageBox.Yes | QMessageBox.No)
-        if reply != QMessageBox.Yes:
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
             return
         if self._db_fname is None:
             QMessageBox.warning(self, 'No database', 'No database configured.')

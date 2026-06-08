@@ -162,11 +162,11 @@ class IlluminationLaserControl(IlluminationControl):
         self.auto_enable_lasers = auto_enable_lasers
         self.lasers = {}
         lasers_missing = []
-        for laser, lconf in config['lasers'].items():
+        for laser_key, lconf in config['lasers'].items():
             try:
-                laser = int(laser)
+                laser = int(laser_key)
             except:
-                pass
+                laser = laser_key
             try:
                 settgs = lconf.get('settings', None)
                 self.lasers[laser] = load_class(
@@ -177,10 +177,12 @@ class IlluminationLaserControl(IlluminationControl):
                 print('Could not load laser {:s}: {:s}. '
                       'Check that the device is on and the COM port / '
                       'connection settings are correct.'.format(str(laser), str(e)))
-                lasers_missing.append(laser)
+                # Track the original config key — it may differ from `laser`
+                # (e.g. the numeric-string key '488' vs the int 488).
+                lasers_missing.append(laser_key)
 
-        for laser in lasers_missing:
-            self.config['lasers'].pop(laser)
+        for laser_key in lasers_missing:
+            self.config['lasers'].pop(laser_key)
 
         if not self.lasers:
             raise RuntimeError(

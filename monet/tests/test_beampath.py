@@ -49,3 +49,25 @@ class TestBeampath(unittest.TestCase):
 
         bp.positions = bp_settings['A']
         bp.positions = bp_settings['B']
+
+    def test_03_TestShutter_autoshutter(self):
+        sh = mbp.TestShutter({'SN': 1234})
+        # Defaults to on; round-trips through the property.
+        self.assertTrue(sh.autoshutter)
+        sh.autoshutter = False
+        self.assertFalse(sh.autoshutter)
+
+    def test_04_TestShutter_position_must_be_bool(self):
+        sh = mbp.TestShutter({'SN': 1234})
+        with self.assertRaises(ValueError):
+            sh.position = 5  # not a bool
+
+    def test_05_BeamPath_positions_getter(self):
+        bp = mbp.BeamPath({
+            'shutter01': {
+                'classpath': 'monet.beampath.TestShutter',
+                'init_kwargs': {'SN': 1234}},
+        })
+        bp.positions = {'shutter01': True}
+        # The getter reflects what was set on each object.
+        self.assertEqual(bp.positions, {'shutter01': True})

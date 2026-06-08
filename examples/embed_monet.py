@@ -13,7 +13,7 @@ Run with::
 """
 import sys
 
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel)
 
 from monet.qt import MonetWidget, SetPowerTab
@@ -75,7 +75,7 @@ def main():
     initial = sys.argv[1] if len(sys.argv) > 1 else None
     win = HostApplication(initial_microscope=initial)
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == '__main__':

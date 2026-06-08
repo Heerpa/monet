@@ -1,6 +1,6 @@
 """Public Qt-level API for embedding Monet in other Qt applications.
 
-This is a thin re-export module; importing it pulls in PyQt5. ``monet``
+This is a thin re-export module; importing it pulls in PyQt6. ``monet``
 itself stays Qt-free — only host applications that actually want widgets
 should import ``monet.qt``.
 

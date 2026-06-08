@@ -40,9 +40,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# PyQt5 GUI and the embeddable `monet.qt` widgets.
+# PyQt6 GUI and the embeddable `monet.qt` widgets.
 gui = [
-    "PyQt5>=5.15",
+    "PyQt6>=6.5",
 ]
 
 # SQLite + FastAPI calibration server (`python -m monet serve`).
@@ -101,6 +101,13 @@ monet = ["TLPM.py"]
 [tool.pytest.ini_options]
 testpaths = ["monet/tests"]
 addopts = "--cov=monet"
+filterwarnings = [
+    # Starlette's TestClient warns that pairing it with httpx is deprecated
+    # (it wants the future `httpx2`). Raised from inside FastAPI/Starlette,
+    # not our code — silence it so our own warnings stay visible.
+    # (`StarletteDeprecationWarning` subclasses `UserWarning`, not `DeprecationWarning`.)
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
+]
 
 [tool.coverage.run]
 source = ["monet"]

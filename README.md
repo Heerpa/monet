@@ -9,7 +9,7 @@ A Python-based laser power calibration and control suite for microscopy systems.
 - Three power-setting modes — combined (laser + attenuator), fixed-laser (adjust attenuator only), fixed-attenuator (adjust laser only)
 - **Closed-loop power setting** with a PI controller against a power meter, with configurable tolerance and gains
 - Interactive CLI for calibration, adjustment, and power setting
-- **PyQt5 GUI** with a Calibrate / Set Power / Database tab set, including a live feedback-convergence plot
+- **PyQt6 GUI** with a Calibrate / Set Power / Database tab set, including a live feedback-convergence plot
 - **Embeddable widget API** (`monet.qt`) — the GUI can be dropped into any other Qt application
 - Centralized database server for concurrent multi-microscope access
 - Hardware abstraction layer with pluggable laser, attenuator, and power-meter drivers
@@ -97,7 +97,7 @@ All `calibrate`, `set`, `adjust`, and `gui` commands work unchanged — `monet` 
 | AOTF Calibrate | `python -m monet caliaotf <Name>` | Calibrate AOTF frequency and power |
 | Adjust | `python -m monet adjust <Name>` | Interactive laser alignment and adjustment |
 | Set | `python -m monet set <Name>` | Set laser power from existing calibration |
-| GUI | `python -m monet gui <Name>` | Launch the PyQt5 graphical interface |
+| GUI | `python -m monet gui <Name>` | Launch the PyQt6 graphical interface |
 | Serve | `python -m monet serve` | Start the database server |
 | Migrate | `python -m monet migrate --source <xlsx> --db-path <db>` | Migrate Excel database to SQLite |
 
@@ -119,7 +119,7 @@ This preserves all historical calibration dates and times.
 
 ## GUI
 
-`python -m monet gui <MicroscopeName>` opens a PyQt5 window with four tabs:
+`python -m monet gui <MicroscopeName>` opens a PyQt6 window with four tabs:
 
 - **Set Power** — closed-loop feedback control with live convergence plot, accessible-range readout, and direct attenuator / laser power controls.
 - **Calibrate** — run 1D or 2D calibration protocols with progress and cancel.
@@ -128,7 +128,7 @@ This preserves all historical calibration dates and times.
 
 ### Embedding Monet in another Qt application
 
-The full GUI (or any individual tab) can be embedded in any host PyQt5 application via the `monet.qt` module:
+The full GUI (or any individual tab) can be embedded in any host PyQt6 application via the `monet.qt` module:
 
 ```python
 from monet.qt import MonetWidget, SetPowerTab
@@ -213,7 +213,7 @@ monet/
 ├── powermeter.py      # Power-meter drivers (Thorlabs, Test)
 ├── beampath.py        # Beam path control (filter wheels, shutters)
 ├── aotf_cali.py       # AOTF frequency/power calibration
-├── gui.py             # PyQt5 widget + MonetWidget container + MonetMainWindow
+├── gui.py             # PyQt6 widget + MonetWidget container + MonetMainWindow
 ├── qt.py              # Public Qt-level API for embedding
 ├── util.py            # Dynamic class loading + MicroManager comment writer
 └── tests/             # pytest suite (uses Test* hardware)
@@ -232,7 +232,7 @@ pytest monet/tests/test_server.py -v
 pytest --cov=monet
 ```
 
-Tests use `unittest.TestCase` with pytest as the runner. Hardware is simulated via `TestPowerMeter`, `TestAttenuator`, and `TestLaser` classes. Server tests use FastAPI's `TestClient` for in-process testing without a running server. The GUI smoke test (`test_gui_widget.py`) auto-skips when PyQt5 is not installed.
+Tests use `unittest.TestCase` with pytest as the runner. Hardware is simulated via `TestPowerMeter`, `TestAttenuator`, and `TestLaser` classes. Server tests use FastAPI's `TestClient` for in-process testing without a running server. The GUI smoke test (`test_gui_widget.py`) auto-skips when PyQt6 is not installed.
 
 ## License
 

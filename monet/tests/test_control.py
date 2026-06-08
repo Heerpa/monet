@@ -79,10 +79,10 @@ class TestControl(unittest.TestCase):
         pass
 
     def test_02_IlluminationLaserControl(self):
-        try:
-            os.mkdir('monet/tests/TestData/calibrate')
-        except:
-            pass
+        # TestData/ is git-ignored, so create the dirs we write into (a fresh
+        # clone won't have them).
+        os.makedirs('monet/tests/TestData/calibrate', exist_ok=True)
+        os.makedirs('monet/tests/TestData/control', exist_ok=True)
 
         datim = [datetime.now().strftime('%Y-%m-%d'),
                  datetime.now().strftime('%H:%M')]
@@ -137,10 +137,10 @@ class TestControl(unittest.TestCase):
 
 
     def test_02_IlluminationLaserControl(self):
-        try:
-            os.mkdir('monet/tests/TestData/calibrate')
-        except:
-            pass
+        # TestData/ is git-ignored, so create the dirs we write into (a fresh
+        # clone won't have them).
+        os.makedirs('monet/tests/TestData/calibrate', exist_ok=True)
+        os.makedirs('monet/tests/TestData/control', exist_ok=True)
 
         datim = [datetime.now().strftime('%Y-%m-%d'),
                  datetime.now().strftime('%H:%M')]
@@ -355,3 +355,123 @@ class TestControl(unittest.TestCase):
         self.assertLessEqual(abs(pm.read() - 15) / 15 * 100.0, 3.0)
         # Progress is reported in the sample plane too.
         self.assertLessEqual(abs(progress[-1][2] - 30) / 30 * 100.0, 2.0)
+
+    # ── laser / laserpower / enabled properties ──────────────────────────
+
+    def test_laser_property_lists_and_selects(self):
+        ctrl = self._build_laser_control()
+        self.assertEqual(sorted(ctrl.laser), [488, 561])
+        ctrl.laser = 561
+        self.assertEqual(ctrl.curr_laser, 561)
+        # Unknown laser is ignored (prints), current laser unchanged.
+        ctrl.laser = 999
+        self.assertEqual(ctrl.curr_laser, 561)
+
+    def test_laserpower_property(self):
+        ctrl = self._build_laser_control()
+        ctrl.laserpower = 100
+        self.assertEqual(ctrl.curr_laserpower, 100)
+        self.assertEqual(ctrl.laserpower, 100)
+
+    def test_laser_enabled_property(self):
+        ctrl = self._build_laser_control()
+        ctrl.laser_enabled = True
+        self.assertTrue(ctrl.laser_enabled)
+        ctrl.laser_enabled = False
+        self.assertFalse(ctrl.laser_enabled)
+
+    # ── power getter / setter (combined mode) ────────────────────────────
+
+    def test_power_getter(self):
+        ctrl = self._build_laser_control()
+        # att_pos=30, level-50 linear amp=1.0 → 30 mW.
+        self.assertAlmostEqual(ctrl.power, 30.0, places=6)
+
+    def test_power_setter_in_range(self):
+        ctrl = self._build_laser_control()
+        ctrl.power = 50.0  # within level-50 range [0, 100]
+        self.assertEqual(ctrl.curr_laserpower, 50)
+        self.assertAlmostEqual(ctrl.attenuator.curr_pos(), 50.0, places=6)
+        self.assertAlmostEqual(ctrl.power, 50.0, places=6)
+
+    def test_power_setter_out_of_range_switches_level(self):
+        ctrl = self._build_laser_control()
+        # 150 mW exceeds level-50 max (100) → switch to level 100 (max 200).
+        ctrl.power = 150.0
+        self.assertEqual(ctrl.curr_laserpower, 100)
+        self.assertAlmostEqual(ctrl.power, 150.0, places=6)
+
+    def test_power_setter_not_calibrated_raises(self):
+        ctrl = self._build_laser_control()
+        ctrl.is_calibrated = False
+        with self.assertRaises(ValueError):
+            ctrl.power = 50.0
+
+    # ── set_power_fixed_attenuator / fixed_laser / predict ───────────────
+
+    def test_set_power_fixed_attenuator(self):
+        ctrl = self._build_laser_control()
+        # att=30: (50→30, 100→60) ⇒ output = 0.6·laser_pwr. Target 45 ⇒ 75 mW.
+        ctrl.set_power_fixed_attenuator(45.0, laser=488)
+        self.assertAlmostEqual(ctrl.lasers[488].power, 75.0, places=4)
+
+    def test_set_power_fixed_laser(self):
+        ctrl = self._build_laser_control()
+        ctrl.laserpower = 50
+        ctrl.set_power_fixed_laser(40.0, laser=488)
+        # level-50 amp=1.0 ⇒ attenuator position = target.
+        self.assertAlmostEqual(ctrl.attenuator.curr_pos(), 40.0, places=4)
+
+    def test_predict_power_fixed_attenuator(self):
+        ctrl = self._build_laser_control()
+        self.assertAlmostEqual(
+            ctrl.predict_power_fixed_attenuator(75.0, laser=488), 45.0,
+            places=4)
+
+    def test_fixed_modes_not_calibrated_raise(self):
+        ctrl = self._build_laser_control()
+        ctrl.is_calibrated = False
+        with self.assertRaises(ValueError):
+            ctrl.set_power_fixed_attenuator(45.0, laser=488)
+        with self.assertRaises(ValueError):
+            ctrl.set_power_fixed_laser(40.0, laser=488)
+        with self.assertRaises(ValueError):
+            ctrl.predict_power_fixed_attenuator(75.0, laser=488)
+
+    # ── accessible_power_range error paths ───────────────────────────────
+
+    def test_accessible_power_range_unknown_mode_raises(self):
+        ctrl = self._build_laser_control()
+        with self.assertRaises(ValueError):
+            ctrl.accessible_power_range('nonsense', 488)
+
+    def test_accessible_power_range_not_calibrated_raises(self):
+        ctrl = self._build_laser_control()
+        ctrl.is_calibrated = False
+        with self.assertRaises(ValueError):
+            ctrl.accessible_power_range('combined', 488)
+
+    # ── construction edge case ───────────────────────────────────────────
+
+    def test_no_lasers_loadable_raises_runtimeerror(self):
+        config = {
+            'database': 'unused.xlsx',
+            'index': {'name': 'DefaultMicroscope'},
+            'attenuation': {
+                'classpath': 'monet.attenuation.TestAttenuator',
+                'init_kwargs': {},
+            },
+            'analysis': {
+                'classpath': 'monet.analysis.LinearCurveAnalyzer',
+                'init_kwargs': {'min': 0, 'max': 100},
+            },
+            # A numeric-string key ('488') that fails to load used to trip a
+            # KeyError in the cleanup loop; the missing-laser cleanup must now
+            # pop the original key and reach the graceful RuntimeError.
+            'lasers': {
+                '488': {'classpath': 'monet.laser.NoSuchLaser',
+                        'init_kwargs': {}},
+            },
+        }
+        with self.assertRaises(RuntimeError):
+            mco.IlluminationLaserControl(config, do_load_cal=False)

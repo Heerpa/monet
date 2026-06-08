@@ -28,7 +28,7 @@ class TestCalibration(unittest.TestCase):
         except:
             pass
         try:
-            os.mkdir('monet/tests/TestData/calibrate')
+            os.makedirs('monet/tests/TestData/calibrate', exist_ok=True)
         except:
             pass
 
@@ -90,7 +90,7 @@ class TestCalibration(unittest.TestCase):
         except:
             pass
         try:
-            os.mkdir('monet/tests/TestData/calibrate')
+            os.makedirs('monet/tests/TestData/calibrate', exist_ok=True)
         except:
             pass
 
