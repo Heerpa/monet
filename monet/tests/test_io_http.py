@@ -1,19 +1,19 @@
 """
-    monet/tests/test_io_http.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_io_http.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test monet.io HTTP functions end-to-end using a test server.
+Test monet.io HTTP functions end-to-end using a test server.
 """
+
 import os
 import tempfile
 import unittest
 
-import numpy as np
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from monet import DATABASE_INDEXLEVELS
 import monet.io as mio
+from monet import DATABASE_INDEXLEVELS
 
 
 class _MockResponse:
@@ -25,8 +25,7 @@ class _MockResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise Exception(
-                f'HTTP {self.status_code}: {self._resp.text}')
+            raise Exception(f'HTTP {self.status_code}: {self._resp.text}')
 
     def json(self):
         return self._resp.json()
@@ -41,18 +40,21 @@ class TestIOHTTP(unittest.TestCase):
 
         # Redirect the local cache to the temp directory so tests don't write
         # to the real ~/.monet directory.
-        from monet import cache as _mcache
         import monet.io as _mio
+        from monet import cache as _mcache
+
         _mcache._set_cache_dir(self.tmpdir)
         _mcache._clear_cache_registry()
         _mio._last_flush_failure.clear()
 
         from monet.server import app
+
         self.test_client = TestClient(app)
         self.test_client.__enter__()
 
         # Monkey-patch requests.post to route through TestClient
         import requests as _requests
+
         self._orig_post = _requests.post
 
         test_client = self.test_client
@@ -60,6 +62,7 @@ class TestIOHTTP(unittest.TestCase):
         def mock_post(url, **kwargs):
             # Extract path from URL
             from urllib.parse import urlparse
+
             parsed = urlparse(url)
             path = parsed.path
             json_data = kwargs.get('json')
@@ -72,12 +75,15 @@ class TestIOHTTP(unittest.TestCase):
 
     def tearDown(self):
         import requests as _requests
+
         _requests.post = self._orig_post
         self.test_client.__exit__(None, None, None)
         from monet import cache as _mcache
+
         _mcache._clear_cache_registry()
 
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_save_and_load_calibration(self):
@@ -89,7 +95,8 @@ class TestIOHTTP(unittest.TestCase):
         cali_pars = {'bkg': 0.5, 'amp': 45.0, 'phi': 32.0}
 
         indexnames, indexvals = mio.save_calibration(
-            self.server_url, index, cali_pars)
+            self.server_url, index, cali_pars
+        )
 
         self.assertEqual(indexnames, DATABASE_INDEXLEVELS)
         self.assertEqual(indexvals[0], 'TestScope')
@@ -109,10 +116,10 @@ class TestIOHTTP(unittest.TestCase):
             'laser_power [mW]': 100,
         }
         mio.save_calibration(
-            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
+            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+        )
 
-        result = mio.load_database(
-            self.server_url, index, time_idx='latest')
+        result = mio.load_database(self.server_url, index, time_idx='latest')
         self.assertIsInstance(result, pd.Series)
         self.assertAlmostEqual(result['bkg'], 1.0)
 
@@ -123,12 +130,13 @@ class TestIOHTTP(unittest.TestCase):
             'laser_power [mW]': 100,
         }
         mio.save_calibration(
-            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
+            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+        )
         mio.save_calibration(
-            self.server_url, index, {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0})
+            self.server_url, index, {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0}
+        )
 
-        result = mio.load_database(
-            self.server_url, index, time_idx='all')
+        result = mio.load_database(self.server_url, index, time_idx='all')
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
         # Check MultiIndex structure
@@ -146,19 +154,26 @@ class TestIOHTTP(unittest.TestCase):
             'laser_power [mW]': 200,
         }
         mio.save_calibration(
-            self.server_url, index_100.copy(),
-            {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
+            self.server_url,
+            index_100.copy(),
+            {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0},
+        )
         mio.save_calibration(
-            self.server_url, index_200.copy(),
-            {'bkg': 1.5, 'amp': 42.0, 'phi': 31.0})
+            self.server_url,
+            index_200.copy(),
+            {'bkg': 1.5, 'amp': 42.0, 'phi': 31.0},
+        )
         mio.save_calibration(
-            self.server_url, index_100.copy(),
-            {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0})
+            self.server_url,
+            index_100.copy(),
+            {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0},
+        )
 
         result = mio.load_database(
             self.server_url,
             {'name': 'TestScope', 'wavelength [nm]': 488},
-            time_idx='last combinations')
+            time_idx='last combinations',
+        )
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
 
@@ -169,13 +184,15 @@ class TestIOHTTP(unittest.TestCase):
             'laser_power [mW]': 100,
         }
         mio.save_calibration(
-            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
+            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+        )
 
         # Use slice(None) as wildcard for wavelength
         result = mio.load_database(
             self.server_url,
             {'name': 'TestScope', 'wavelength [nm]': slice(None)},
-            time_idx='all')
+            time_idx='all',
+        )
         self.assertIsInstance(result, pd.DataFrame)
         self.assertGreaterEqual(len(result), 1)
 
@@ -192,9 +209,11 @@ class TestIOHTTP(unittest.TestCase):
             'laser_power [mW]': 100,
         }
         mio.save_calibration(
-            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
+            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+        )
         mio.save_calibration(
-            self.server_url, index, {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0})
+            self.server_url, index, {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0}
+        )
 
         backup_path = mio.restart_database(self.server_url)
         self.assertIsInstance(backup_path, str)

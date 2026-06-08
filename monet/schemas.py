@@ -1,12 +1,13 @@
 """
-    monet/schemas.py
-    ~~~~~~~~~~~~~~~~
+monet/schemas.py
+~~~~~~~~~~~~~~~~
 
-    Pydantic schemas for the FastAPI server.
+Pydantic schemas for the FastAPI server.
 
-    :authors: Heinrich Grabmayr, 2024
-    :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2024
+:copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
+
 from typing import List, Optional, Union
 
 from pydantic import BaseModel

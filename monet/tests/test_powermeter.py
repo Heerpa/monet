@@ -1,14 +1,16 @@
 """
-    monet/tests/test_powermeter.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_powermeter.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test the powermeter module of monet.
+Test the powermeter module of monet.
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
+
 import unittest
 from unittest import mock
+
 import monet.powermeter as mpm
 
 
@@ -20,7 +22,8 @@ class _FakeTLPM:
     Each method writes through its byref arguments like the real wrapper; the
     byref target is reachable via ``._obj`` in CPython.
     """
-    _power_w = 0.0123      # 12.3 mW
+
+    _power_w = 0.0123  # 12.3 mW
     _device_count = 1
 
     def __init__(self):
@@ -55,8 +58,10 @@ class _FakeTLPMNoDevice(_FakeTLPM):
 def _patch_wrapper(wrapper_cls):
     """Patch _import_tlpm_wrapper to return the given fake wrapper class."""
     return mock.patch.object(
-        mpm.ThorlabsTLPMPowerMeter, '_import_tlpm_wrapper',
-        return_value=wrapper_cls)
+        mpm.ThorlabsTLPMPowerMeter,
+        '_import_tlpm_wrapper',
+        return_value=wrapper_cls,
+    )
 
 
 class TestPowerMeter(unittest.TestCase):
@@ -74,7 +79,8 @@ class TestPowerMeter(unittest.TestCase):
             'phi': 30,
             'start': 10,
             'step': 5,
-            'noise': 3}
+            'noise': 3,
+        }
         att = mpm.TestPowerMeter(config)
 
         for i in range(20):
@@ -105,9 +111,11 @@ class TestPowerMeter(unittest.TestCase):
         # is Windows-only and skipped elsewhere).
         import os
         import tempfile
+
         with tempfile.TemporaryDirectory() as dll_dir:
             with _patch_wrapper(_FakeTLPM):
                 pm = mpm.ThorlabsTLPMPowerMeter(
-                    {'address': 'find connection', 'dll_path': dll_dir})
+                    {'address': 'find connection', 'dll_path': dll_dir}
+                )
                 self.assertAlmostEqual(pm.read(averaging=1), 12.3, places=6)
             self.assertIn(dll_dir, os.environ.get('PATH', ''))

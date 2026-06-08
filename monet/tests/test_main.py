@@ -1,14 +1,15 @@
 """
-    monet/tests/test_main.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_main.py
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Tests for the CLI entry point (monet.__main__): the small utility
-    functions, the argparse dispatch in main(), and the configuration-editing
-    command handlers of MonetCalibrateInteractive.
+Tests for the CLI entry point (monet.__main__): the small utility
+functions, the argparse dispatch in main(), and the configuration-editing
+command handlers of MonetCalibrateInteractive.
 
-    :authors: Heinrich Grabmayr, 2024
-    :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2024
+:copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
+
 import copy
 import io as _io
 import os
@@ -31,8 +32,9 @@ class TestGetMostSimilar(unittest.TestCase):
 
     def test_substring_match(self):
         # No exact match, but 'min' is a substring of 'minimum'.
-        self.assertEqual(mm.get_most_similar('min', ['maximum', 'minimum']),
-                         'minimum')
+        self.assertEqual(
+            mm.get_most_similar('min', ['maximum', 'minimum']), 'minimum'
+        )
 
     def test_no_match_returns_none(self):
         self.assertIsNone(mm.get_most_similar('zzz', ['min', 'max']))
@@ -87,6 +89,7 @@ class TestMainDispatch(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_migrate_mode(self):
@@ -99,13 +102,19 @@ class TestMainDispatch(unittest.TestCase):
         # The SQLite DB should now exist with the migrated record.
         self.assertTrue(os.path.exists(db))
         from sqlalchemy.orm import Session
+
         from monet.models import Calibration, get_engine
+
         with Session(get_engine(db)) as session:
             self.assertEqual(session.query(Calibration).count(), 1)
 
     def test_migrate_mode_requires_source(self):
-        argv = ['monet', 'migrate', '--db-path',
-                os.path.join(self.tmpdir, 'x.db')]
+        argv = [
+            'monet',
+            'migrate',
+            '--db-path',
+            os.path.join(self.tmpdir, 'x.db'),
+        ]
         with mock.patch.object(sys, 'argv', argv):
             # parser.error() raises SystemExit.
             with self.assertRaises(SystemExit):
@@ -120,7 +129,8 @@ class TestMainDispatch(unittest.TestCase):
 class TestCalibrateInteractive(unittest.TestCase):
     """Exercises the configuration-editing handlers. Construction uses the
     built-in 'test' config (all Test* hardware). We deep-copy the live config
-    onto the instance so the shared module-level CONFIGS dict is not mutated."""
+    onto the instance so the shared module-level CONFIGS dict is not mutated.
+    """
 
     def _make(self):
         with redirect_stdout(_io.StringIO()):
@@ -142,29 +152,29 @@ class TestCalibrateInteractive(unittest.TestCase):
         cli = self._make()
         cli.do_rename('  Renamed  ')
         self.assertEqual(cli.config_name, 'Renamed')
-        self.assertEqual(
-            cli.pc.instrument.config['index']['name'], 'Renamed')
+        self.assertEqual(cli.pc.instrument.config['index']['name'], 'Renamed')
 
     def test_do_config_sets_index_string(self):
         cli = self._make()
         with redirect_stdout(_io.StringIO()):
             cli.do_config('--name: Scope2')
-        self.assertEqual(
-            cli.pc.instrument.config['index']['name'], 'Scope2')
+        self.assertEqual(cli.pc.instrument.config['index']['name'], 'Scope2')
 
     def test_do_config_sets_numeric_analysis_param(self):
         cli = self._make()
         with redirect_stdout(_io.StringIO()):
             cli.do_config('--min: 45')
         self.assertEqual(
-            cli.pc.instrument.config['analysis']['init_kwargs']['min'], 45.0)
+            cli.pc.instrument.config['analysis']['init_kwargs']['min'], 45.0
+        )
 
     def test_do_config_sets_database(self):
         cli = self._make()
         with redirect_stdout(_io.StringIO()):
             cli.do_config('--database: /tmp/somewhere.xlsx')
         self.assertEqual(
-            cli.pc.instrument.config['database'], '/tmp/somewhere.xlsx')
+            cli.pc.instrument.config['database'], '/tmp/somewhere.xlsx'
+        )
 
 
 if __name__ == '__main__':

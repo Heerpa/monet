@@ -1,17 +1,14 @@
 """
-    monet/tests/test_beampath.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_beampath.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test the beam path module of monet.
+Test the beam path module of monet.
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
+
 import unittest
-import monet.calibrate as mca
-import numpy as np
-import os
-import shutil
 
 import monet.beampath as mbp
 
@@ -38,12 +35,10 @@ class TestBeampath(unittest.TestCase):
         bp_config = {
             'shutter01': {
                 'classpath': 'monet.beampath.TestShutter',
-                'init_kwargs': {'SN': 1234},},
+                'init_kwargs': {'SN': 1234},
+            },
         }
-        bp_settings = {
-            'A': {'shutter01': True},
-            'B': {'shutter01': False}
-        }
+        bp_settings = {'A': {'shutter01': True}, 'B': {'shutter01': False}}
 
         bp = mbp.BeamPath(bp_config)
 
@@ -63,11 +58,14 @@ class TestBeampath(unittest.TestCase):
             sh.position = 5  # not a bool
 
     def test_05_BeamPath_positions_getter(self):
-        bp = mbp.BeamPath({
-            'shutter01': {
-                'classpath': 'monet.beampath.TestShutter',
-                'init_kwargs': {'SN': 1234}},
-        })
+        bp = mbp.BeamPath(
+            {
+                'shutter01': {
+                    'classpath': 'monet.beampath.TestShutter',
+                    'init_kwargs': {'SN': 1234},
+                },
+            }
+        )
         bp.positions = {'shutter01': True}
         # The getter reflects what was set on each object.
         self.assertEqual(bp.positions, {'shutter01': True})

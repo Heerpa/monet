@@ -1,16 +1,17 @@
 """
-    monet/cache.py
-    ~~~~~~~~~~~~~~
+monet/cache.py
+~~~~~~~~~~~~~~
 
-    Local SQLite cache with outbox for offline-first server connectivity.
+Local SQLite cache with outbox for offline-first server connectivity.
 
-    When the remote server is unreachable, writes are queued in an outbox and
-    reads fall back to the last known local state.  The outbox is replayed
-    automatically the next time a successful connection is established.
+When the remote server is unreachable, writes are queued in an outbox and
+reads fall back to the last known local state.  The outbox is replayed
+automatically the next time a successful connection is established.
 
-    :authors: Heinrich Grabmayr, 2024
-    :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2024
+:copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
+
 import json
 import logging
 from pathlib import Path
@@ -19,20 +20,25 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import Column, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from monet.models import Base as _DataBase, Calibration, Factor
+from monet.models import Base as _DataBase
+from monet.models import Calibration, Factor
 
 logger = logging.getLogger(__name__)
 
-# ── Module-level registry ──────────────────────────────────────────────────────
+# ── Module-level registry ──
 
 _DEFAULT_CACHE_DIR: Path = Path.home() / '.monet'
 _cache_registry: Dict[str, 'LocalCache'] = {}
 
 
 def _get_cache(server_url: str) -> 'LocalCache':
-    """Return the singleton LocalCache for *server_url*, creating it if needed."""
+    """Return the singleton LocalCache for *server_url*.
+
+    Creates it if it does not exist yet.
+    """
     if server_url not in _cache_registry:
         import hashlib
+
         url_hash = hashlib.md5(server_url.encode()).hexdigest()[:8]
         db_path = _DEFAULT_CACHE_DIR / f'cache_{url_hash}.db'
         _cache_registry[server_url] = LocalCache(db_path)
@@ -50,7 +56,8 @@ def _clear_cache_registry() -> None:
     _cache_registry.clear()
 
 
-# ── Outbox SQLAlchemy model ────────────────────────────────────────────────────
+# ── Outbox SQLAlchemy model ──
+
 
 class _OutboxBase(DeclarativeBase):
     pass
@@ -74,7 +81,8 @@ class OutboxEntry(_OutboxBase):
     last_error = Column(Text)
 
 
-# ── LocalCache ────────────────────────────────────────────────────────────────
+# ── LocalCache ──
+
 
 class LocalCache:
     """SQLite-backed mirror of remote calibration data with an outbox queue."""
@@ -96,35 +104,42 @@ class LocalCache:
         _OutboxBase.metadata.create_all(engine)
         self._Session = sessionmaker(bind=engine)
 
-    # ── Calibration CRUD ──────────────────────────────────────────────────────
+    # ── Calibration CRUD ──
 
     def upsert_calibration(self, record: Dict) -> None:
         """Insert or update a calibration record in the local cache."""
         with self._Session() as session:
-            existing = session.query(Calibration).filter_by(
-                device_name=record['device_name'],
-                wavelength_nm=float(record['wavelength_nm']),
-                laser_power_mw=float(record['laser_power_mw']),
-                calibration_date=record['calibration_date'],
-                calibration_time=record['calibration_time'],
-            ).first()
-            if existing:
-                existing.parameters_json = json.dumps(record['parameters'])
-            else:
-                session.add(Calibration(
+            existing = (
+                session.query(Calibration)
+                .filter_by(
                     device_name=record['device_name'],
                     wavelength_nm=float(record['wavelength_nm']),
                     laser_power_mw=float(record['laser_power_mw']),
                     calibration_date=record['calibration_date'],
                     calibration_time=record['calibration_time'],
-                    parameters_json=json.dumps(record['parameters']),
-                ))
+                )
+                .first()
+            )
+            if existing:
+                existing.parameters_json = json.dumps(record['parameters'])
+            else:
+                session.add(
+                    Calibration(
+                        device_name=record['device_name'],
+                        wavelength_nm=float(record['wavelength_nm']),
+                        laser_power_mw=float(record['laser_power_mw']),
+                        calibration_date=record['calibration_date'],
+                        calibration_time=record['calibration_time'],
+                        parameters_json=json.dumps(record['parameters']),
+                    )
+                )
             session.commit()
 
     def delete_calibrations(self, index: Dict) -> int:
-        """Delete calibrations matching *index*. None/missing values = wildcard.
+        """Delete calibrations matching *index*.
 
-        Returns the number of deleted rows.
+        None or missing values act as wildcards. Returns the number of
+        deleted rows.
         """
         with self._Session() as session:
             q = session.query(Calibration)
@@ -133,7 +148,9 @@ class LocalCache:
             if index.get('wavelength [nm]') is not None:
                 q = q.filter_by(wavelength_nm=float(index['wavelength [nm]']))
             if index.get('laser_power [mW]') is not None:
-                q = q.filter_by(laser_power_mw=float(index['laser_power [mW]']))
+                q = q.filter_by(
+                    laser_power_mw=float(index['laser_power [mW]'])
+                )
             if index.get('date') is not None:
                 q = q.filter_by(calibration_date=index['date'])
             if index.get('time') is not None:
@@ -156,7 +173,9 @@ class LocalCache:
             if index.get('wavelength [nm]') is not None:
                 q = q.filter_by(wavelength_nm=float(index['wavelength [nm]']))
             if index.get('laser_power [mW]') is not None:
-                q = q.filter_by(laser_power_mw=float(index['laser_power [mW]']))
+                q = q.filter_by(
+                    laser_power_mw=float(index['laser_power [mW]'])
+                )
 
             # List time_idx: filter by exact date (and optionally time)
             if isinstance(time_idx, (list, tuple)):
@@ -165,7 +184,9 @@ class LocalCache:
                 if len(time_idx) >= 2:
                     q = q.filter_by(calibration_time=time_idx[1])
 
-            q = q.order_by(Calibration.calibration_date, Calibration.calibration_time)
+            q = q.order_by(
+                Calibration.calibration_date, Calibration.calibration_time
+            )
             all_records = [self._cal_to_dict(r) for r in q.all()]
 
         if not all_records:
@@ -176,14 +197,22 @@ class LocalCache:
 
         if time_idx == 'last date':
             last_date = max(r['calibration_date'] for r in all_records)
-            return [r for r in all_records if r['calibration_date'] == last_date]
+            return [
+                r for r in all_records if r['calibration_date'] == last_date
+            ]
 
         if time_idx == 'last combinations':
             # For each (device, wavelength, power) keep the latest entry
             seen: Dict[Tuple, Dict] = {}
             for r in all_records:
-                key = (r['device_name'], r['wavelength_nm'], r['laser_power_mw'])
-                seen[key] = r  # later entries overwrite earlier ones (sorted above)
+                key = (
+                    r['device_name'],
+                    r['wavelength_nm'],
+                    r['laser_power_mw'],
+                )
+                seen[key] = (
+                    r  # later entries overwrite earlier ones (sorted above)
+                )
             return list(seen.values())
 
         # 'all' or list-filtered (already filtered in the query above)
@@ -199,29 +228,43 @@ class LocalCache:
             'parameters': json.loads(r.parameters_json),
         }
 
-    # ── Factor CRUD ───────────────────────────────────────────────────────────
+    # ── Factor CRUD ──
 
     def upsert_factor(self, record: Dict) -> None:
         """Insert or update a factor record in the local cache."""
         with self._Session() as session:
-            existing = session.query(Factor).filter_by(
-                device_name=record['device_name'],
-                wavelength_nm=float(record['wavelength_nm']),
-                calibration_date=record['calibration_date'],
-            ).first()
-            if existing:
-                existing.transmission_objective_mean = record['transmission_objective_mean']
-                existing.transmission_objective_std = record['transmission_objective_std']
-                existing.n_points = record['n_points']
-            else:
-                session.add(Factor(
+            existing = (
+                session.query(Factor)
+                .filter_by(
                     device_name=record['device_name'],
                     wavelength_nm=float(record['wavelength_nm']),
                     calibration_date=record['calibration_date'],
-                    transmission_objective_mean=record['transmission_objective_mean'],
-                    transmission_objective_std=record['transmission_objective_std'],
-                    n_points=record['n_points'],
-                ))
+                )
+                .first()
+            )
+            if existing:
+                existing.transmission_objective_mean = record[
+                    'transmission_objective_mean'
+                ]
+                existing.transmission_objective_std = record[
+                    'transmission_objective_std'
+                ]
+                existing.n_points = record['n_points']
+            else:
+                session.add(
+                    Factor(
+                        device_name=record['device_name'],
+                        wavelength_nm=float(record['wavelength_nm']),
+                        calibration_date=record['calibration_date'],
+                        transmission_objective_mean=record[
+                            'transmission_objective_mean'
+                        ],
+                        transmission_objective_std=record[
+                            'transmission_objective_std'
+                        ],
+                        n_points=record['n_points'],
+                    )
+                )
             session.commit()
 
     def query_factors(
@@ -244,14 +287,14 @@ class LocalCache:
                     'device_name': r.device_name,
                     'wavelength_nm': r.wavelength_nm,
                     'calibration_date': r.calibration_date,
-                    'transmission_objective_mean': r.transmission_objective_mean,
+                    'transmission_objective_mean': r.transmission_objective_mean,  # noqa: E501
                     'transmission_objective_std': r.transmission_objective_std,
                     'n_points': r.n_points,
                 }
                 for r in q.order_by(Factor.calibration_date).all()
             ]
 
-    # ── Outbox ────────────────────────────────────────────────────────────────
+    # ── Outbox ──
 
     def add_to_outbox(
         self,
@@ -259,7 +302,7 @@ class LocalCache:
         payload: Dict,
         local_key: Optional[Dict] = None,
     ) -> int:
-        """Queue *payload* for *endpoint* to be replayed when the server is back.
+        """Queue *payload* for *endpoint*, to replay when the server is back.
 
         *local_key* identifies the corresponding locally-generated cache entry
         so it can be cleaned up after a successful sync (only used for
@@ -268,22 +311,30 @@ class LocalCache:
         Returns the outbox entry id.
         """
         from datetime import datetime
+
         with self._Session() as session:
             entry = OutboxEntry(
                 endpoint=endpoint,
                 payload_json=json.dumps(payload),
                 created_at=datetime.utcnow().isoformat(),
-                local_key_json=json.dumps(local_key) if local_key is not None else None,
+                local_key_json=(
+                    json.dumps(local_key) if local_key is not None else None
+                ),
             )
             session.add(entry)
             session.commit()
             eid = entry.id
         logger.warning(
-            'Server unreachable — queued %s to local outbox (id=%d)', endpoint, eid)
+            'Server unreachable — queued %s to local outbox (id=%d)',
+            endpoint,
+            eid,
+        )
         return eid
 
-    def get_pending_outbox(self) -> List[Tuple[int, str, Dict, Optional[Dict]]]:
-        """Return all pending entries as (id, endpoint, payload, local_key) tuples."""
+    def get_pending_outbox(
+        self,
+    ) -> List[Tuple[int, str, Dict, Optional[Dict]]]:
+        """Return pending entries as (id, endpoint, payload, local_key)."""
         with self._Session() as session:
             entries = (
                 session.query(OutboxEntry)

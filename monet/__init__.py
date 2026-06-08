@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 """
-    monet/__init__.py
-    ~~~~~~~~~~~~~~~~~
+monet/__init__.py
+~~~~~~~~~~~~~~~~~
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
-import os.path as _ospath
-import yaml as _yaml
-import importlib_resources
 
 import logging
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from logging import handlers
 
-from importlib.metadata import version as _pkg_version, PackageNotFoundError
+import importlib_resources
+import yaml as _yaml
 
 try:
     __version__ = _pkg_version('monet')
@@ -26,9 +26,11 @@ def config_logger():
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
-        '%(asctime)s | %(name)s | %(levelname)s -> %(message)s')
+        '%(asctime)s | %(name)s | %(levelname)s -> %(message)s'
+    )
     file_handler = handlers.RotatingFileHandler(
-        'monet.log', maxBytes=1e6, backupCount=5)
+        'monet.log', maxBytes=1e6, backupCount=5
+    )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
     stream_handler = logging.StreamHandler()
@@ -37,17 +39,17 @@ def config_logger():
     logger.addHandler(file_handler)
     # logger.addHandler(stream_handler)
 
+
 config_logger()
 logger = logging.getLogger(__name__)
 
 DEVICE_TAG = 'name'
 LASER_TAG = 'wavelength [nm]'
 POWER_TAG = 'laser_power [mW]'
-DATABASE_INDEXLEVELS = [
-    DEVICE_TAG, LASER_TAG, POWER_TAG, 'date', 'time'
-]
+DATABASE_INDEXLEVELS = [DEVICE_TAG, LASER_TAG, POWER_TAG, 'date', 'time']
 
-# Power-meter location (stored per calibration in the 'powermeter_type' column):
+# Power-meter location (stored per calibration in the
+# 'powermeter_type' column):
 #   'bfp'    — measured in the back focal plane (BFP) powermeter
 #   'sample' — measured manually in the sample plane
 # Legacy databases used 'beampath' and 'manual'; normalize_powermeter_type()
@@ -69,12 +71,13 @@ def normalize_powermeter_type(value):
         return POWERMETER_SAMPLE
     return v
 
+
 try:
     ref = importlib_resources.files('monet') / '..\\env.yaml'
     with importlib_resources.as_file(ref) as envpath:
         with open(envpath, 'r') as f:
             env = _yaml.full_load(f)
-except:
+except Exception:
     logger.debug('env.yaml cannot be loaded.')
     env = None
 
@@ -87,55 +90,57 @@ except:
 
 default_config = {
     'database': '../power_database.xlsx',
-    'index': {
-        'name': 'DefaultMicroscope',
-        LASER_TAG: 488,
-        POWER_TAG: 100},
+    'index': {'name': 'DefaultMicroscope', LASER_TAG: 488, POWER_TAG: 100},
     'powermeter': {
         'classpath': 'monet.powermeter.ThorlabsPowerMeter',
         'init_kwargs': {
-            'address': 'find connection',}
+            'address': 'find connection',
         },
-    'attenuation' : {
+    },
+    'attenuation': {
         'classpath': 'monet.attenuation.KinesisAttenuator',
         'init_kwargs': {
-            'serial': '27257033',},},
+            'serial': '27257033',
+        },
+    },
     'analysis': {
         'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
         'init_kwargs': {
             'min': 40,
             'max': 100,
-            'step': 5,}
-        }
+            'step': 5,
+        },
+    },
 }
 
 
 test_config = {
     'database': 'power_database.xlsx',
-    'index': {
-        'name': 'DefaultMicroscope',
-        LASER_TAG: 488,
-        POWER_TAG: 100},
+    'index': {'name': 'DefaultMicroscope', LASER_TAG: 488, POWER_TAG: 100},
     'powermeter': {
         'classpath': 'monet.powermeter.TestPowerMeter',
         'init_kwargs': {
-            'address': 'find connection',}
+            'address': 'find connection',
         },
-    'attenuation' : {
+    },
+    'attenuation': {
         'classpath': 'monet.attenuation.TestAttenuator',
         'init_kwargs': {
             'bkg': 0,
             'amp': 50,
             'phi': 30,
             'start': 10,
-            'step': 5},},
+            'step': 5,
+        },
+    },
     'analysis': {
         'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
         'init_kwargs': {
             'min': 30,
             'max': 100,
-            'step': 5,}
-        }
+            'step': 5,
+        },
+    },
 }
 
 calibration_protocol = {
@@ -148,13 +153,14 @@ calibration_protocol = {
     'laser_powers': {
         488: [100, 200, 500, 1000],
         561: [200, 500, 1000, 2000],
-        640: [200, 500, 1000, 2000],},
+        640: [200, 500, 1000, 2000],
+    },
     'beampath': {
         488: {'DC': 'Ti488setting', 'shutter': True},
         561: {'DC': 'Ti561setting', 'shutter': True},
         640: {'DC': 'Ti640setting', 'shutter': True},
         'end': {'DC': 'Ti488setting', 'shutter': False},
-    }
+    },
 }
 
 test_config_2d = {
@@ -162,50 +168,56 @@ test_config_2d = {
     'dest_calibration_plot': './',
     'index': {
         'name': 'DefaultMicroscope',
-        },
+    },
     'powermeter': {
         'classpath': 'monet.powermeter.TestPowerMeter',
         'init_kwargs': {
-            'address': 'find connection',}
+            'address': 'find connection',
         },
-    'attenuation' : {
+    },
+    'attenuation': {
         'classpath': 'monet.attenuation.TestAttenuator',
         'init_kwargs': {
             'bkg': 0,
             'amp': 50,
             'phi': 30,
             'start': 10,
-            'step': 5},
+            'step': 5,
+        },
         'analysis': {
             'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
             'init_kwargs': {
                 'min': 30,
                 'max': 100,
-                'step': 5,}
+                'step': 5,
             },
         },
-    'lasers' : {
+    },
+    'lasers': {
         488: {
             'classpath': 'monet.laser.Toptica',
             'init_kwargs': {'port': 'COM4'},
-            },
+        },
         561: {
             'classpath': 'monet.laser.MPBVFL',
             'init_kwargs': {'port': 'COM7'},
-            },
+        },
         640: {
             'classpath': 'monet.laser.MPBVFL',
             'init_kwargs': {'port': 'COM8'},
-            },
         },
+    },
     'beampath': {
         'DC': {
             'classpath': 'monet.beampath.NikonFilterWheel',
-            'init_kwargs': {'SN': 1234},},
+            'init_kwargs': {'SN': 1234},
+        },
         'shutter': {
             'classpath': 'monet.beampath.NikonShutter',
-            'init_kwargs': {'SN': 123456},},},
-    }
+            'init_kwargs': {'SN': 123456},
+        },
+    },
+}
 
 ###########################################################
 #
@@ -239,13 +251,14 @@ for defpath in default_config_paths:
             print('Loaded configurations from ' + defpath)
             CONFIGS_PATH = defpath
             break
-    except:
+    except Exception:
         pass
-if CONFIGS =={}:
+if CONFIGS == {}:
     CONFIGS = {
         'default': default_config,
         'test': test_config,
-        'test_2D': test_config_2d}
+        'test_2D': test_config_2d,
+    }
 
 
 # load protocols from file
@@ -257,8 +270,7 @@ for defpath in default_protocol_paths:
             print('Loaded protocols from ' + defpath)
             PROTOCOLS_PATH = defpath
             break
-    except:
+    except Exception:
         pass
 if PROTOCOLS == {}:
-    PROTOCOLS = {
-        'test_2D': calibration_protocol}
+    PROTOCOLS = {'test_2D': calibration_protocol}

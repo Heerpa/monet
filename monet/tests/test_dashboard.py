@@ -1,10 +1,11 @@
 """
-    monet/tests/test_dashboard.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_dashboard.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Tests for the dashboard API endpoints (mounted under /dashboard) and the
-    transmission-objective factor endpoints they read from.
+Tests for the dashboard API endpoints (mounted under /dashboard) and the
+transmission-objective factor endpoints they read from.
 """
+
 import os
 import tempfile
 import unittest
@@ -19,39 +20,55 @@ class TestDashboard(unittest.TestCase):
         self.db_path = os.path.join(self.tmpdir, 'test.db')
         os.environ['MONET_DB_PATH'] = self.db_path
         from monet.server import app
+
         self.client = TestClient(app)
         self.client.__enter__()
 
     def tearDown(self):
         self.client.__exit__(None, None, None)
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _save_record(self, name='TestScope', wavelength=488,
-                     laser_power=100, params=None):
+    def _save_record(
+        self, name='TestScope', wavelength=488, laser_power=100, params=None
+    ):
         if params is None:
             params = {'bkg': 0.5, 'amp': 45.0, 'phi': 32.0}
-        resp = self.client.post('/calibrations', json={
-            'index': {
-                'name': name,
-                'wavelength [nm]': wavelength,
-                'laser_power [mW]': laser_power,
+        resp = self.client.post(
+            '/calibrations',
+            json={
+                'index': {
+                    'name': name,
+                    'wavelength [nm]': wavelength,
+                    'laser_power [mW]': laser_power,
+                },
+                'parameters': params,
             },
-            'parameters': params,
-        })
+        )
         self.assertEqual(resp.status_code, 200)
         return resp.json()
 
-    def _save_factor(self, device='TestScope', wavelength=488,
-                     date='2024-01-01', mean=0.8, std=0.05, n=20):
-        resp = self.client.post('/factors', json={
-            'device_name': device,
-            'wavelength_nm': wavelength,
-            'calibration_date': date,
-            'transmission_objective_mean': mean,
-            'transmission_objective_std': std,
-            'n_points': n,
-        })
+    def _save_factor(
+        self,
+        device='TestScope',
+        wavelength=488,
+        date='2024-01-01',
+        mean=0.8,
+        std=0.05,
+        n=20,
+    ):
+        resp = self.client.post(
+            '/factors',
+            json={
+                'device_name': device,
+                'wavelength_nm': wavelength,
+                'calibration_date': date,
+                'transmission_objective_mean': mean,
+                'transmission_objective_std': std,
+                'n_points': n,
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         return resp.json()
 
@@ -99,9 +116,12 @@ class TestDashboard(unittest.TestCase):
     def test_timeseries_filtered(self):
         self._save_record(wavelength=488)
         self._save_record(wavelength=561)
-        resp = self.client.post('/dashboard/api/timeseries', json={
-            'wavelengths': [488.0],
-        })
+        resp = self.client.post(
+            '/dashboard/api/timeseries',
+            json={
+                'wavelengths': [488.0],
+            },
+        )
         records = resp.json()['records']
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]['wavelength'], 488.0)
@@ -109,9 +129,12 @@ class TestDashboard(unittest.TestCase):
     def test_timeseries_date_range(self):
         self._save_record()
         # A future date_from should exclude today's record.
-        resp = self.client.post('/dashboard/api/timeseries', json={
-            'date_from': '2999-01-01',
-        })
+        resp = self.client.post(
+            '/dashboard/api/timeseries',
+            json={
+                'date_from': '2999-01-01',
+            },
+        )
         self.assertEqual(resp.json()['records'], [])
 
     # ── /dashboard/api/transmission_objectives + /factors ────────────────
@@ -133,7 +156,9 @@ class TestDashboard(unittest.TestCase):
         self._save_factor(device='ScopeA')
         self._save_factor(device='ScopeB')
         resp = self.client.get(
-            '/dashboard/api/transmission_objectives', params={'device': 'ScopeA'})
+            '/dashboard/api/transmission_objectives',
+            params={'device': 'ScopeA'},
+        )
         rows = resp.json()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['device'], 'ScopeA')
@@ -149,7 +174,9 @@ class TestDashboard(unittest.TestCase):
     def test_factor_query_endpoint(self):
         self._save_factor(device='ScopeA', wavelength=488)
         self._save_factor(device='ScopeB', wavelength=561)
-        resp = self.client.post('/factors/query', json={'device_name': 'ScopeA'})
+        resp = self.client.post(
+            '/factors/query', json={'device_name': 'ScopeA'}
+        )
         self.assertEqual(resp.status_code, 200)
         records = resp.json()['records']
         self.assertEqual(len(records), 1)

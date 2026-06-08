@@ -1,13 +1,15 @@
 """
-    monet/migrate.py
-    ~~~~~~~~~~~~~~~~
+monet/migrate.py
+~~~~~~~~~~~~~~~~
 
-    Migration utility to convert Excel calibration databases to SQLite.
+Migration utility to convert Excel calibration databases to SQLite.
 
-    :authors: Heinrich Grabmayr, 2024
-    :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2024
+:copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
+
 import json
+
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -20,9 +22,12 @@ def migrate_excel_to_sqlite(excel_path, db_path):
 
     Preserves original dates and times from the Excel database.
 
-    Args:
-        excel_path: Path to the source Excel database.
-        db_path: Path to the destination SQLite database file.
+    Parameters
+    ----------
+    excel_path : str
+        Path to the source Excel database.
+    db_path : str
+        Path to the destination SQLite database file.
     """
     n_index = len(DATABASE_INDEXLEVELS)
     df = pd.read_excel(excel_path, index_col=list(range(n_index)))

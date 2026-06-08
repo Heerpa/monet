@@ -1,23 +1,23 @@
 """
-    monet/tests/test_control.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_control.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test the control module of monet.
+Test the control module of monet.
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
+
+import os
 import unittest
+from datetime import datetime
 from unittest import mock
-import monet.calibrate as mca
+
 import numpy as np
 import pandas as pd
-import os
-import shutil
-from datetime import datetime
 
-from monet import DATABASE_INDEXLEVELS
 import monet.control as mco
+from monet import DATABASE_INDEXLEVELS
 
 
 class _TrackingAttenuator:
@@ -84,13 +84,26 @@ class TestControl(unittest.TestCase):
         os.makedirs('monet/tests/TestData/calibrate', exist_ok=True)
         os.makedirs('monet/tests/TestData/control', exist_ok=True)
 
-        datim = [datetime.now().strftime('%Y-%m-%d'),
-                 datetime.now().strftime('%H:%M')]
+        datim = [
+            datetime.now().strftime('%Y-%m-%d'),
+            datetime.now().strftime('%H:%M'),
+        ]
         db = pd.DataFrame(
             index=pd.MultiIndex.from_product(
-                [['DefaultMicroscope'], ['488', '561'], [50, 100], [datim[0]], [datim[1]]],
-                names=tuple(DATABASE_INDEXLEVELS)),
-            data={'bkg': [0]*4, 'amp': [50, 100, 40, 80], 'phi': [30, 30, 25, 25]}
+                [
+                    ['DefaultMicroscope'],
+                    ['488', '561'],
+                    [50, 100],
+                    [datim[0]],
+                    [datim[1]],
+                ],
+                names=tuple(DATABASE_INDEXLEVELS),
+            ),
+            data={
+                'bkg': [0] * 4,
+                'amp': [50, 100, 40, 80],
+                'phi': [30, 30, 25, 25],
+            },
         )
         db_path = 'monet/tests/TestData/control/power_database.xlsx'
         db.to_excel(db_path)
@@ -100,7 +113,7 @@ class TestControl(unittest.TestCase):
             'dest_calibration_plot': 'monet/tests/TestData/control/',
             'index': {
                 'name': 'DefaultMicroscope',
-                },
+            },
             'powermeter': {
                 'classpath': 'monet.powermeter.TestPowerMeter',
                 'init_kwargs': {
@@ -109,95 +122,41 @@ class TestControl(unittest.TestCase):
                     'phi': 30,
                     'start': 10,
                     'step': 5,
-                    'noise': 3}
+                    'noise': 3,
                 },
-            'attenuation' : {
+            },
+            'attenuation': {
                 'classpath': 'monet.attenuation.TestAttenuator',
-                'init_kwargs': {
-                    'bkg': 0,
-                    'amp': 50,
-                    'phi': 30,
-                    'start': 10,
-                    'step': 5},},
-            'analysis': {
-                'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
-                'init_kwargs': {
-                    'min': 30,
-                    'max': 100,
-                    'step': 5,}
-                },
-        }
-        ctrl = mco.IlluminationControl(config)
-
-        print(ctr.power)
-        ctrl.power = 50
-        ctrl.power = 200
-
-        assert True
-
-
-    def test_02_IlluminationLaserControl(self):
-        # TestData/ is git-ignored, so create the dirs we write into (a fresh
-        # clone won't have them).
-        os.makedirs('monet/tests/TestData/calibrate', exist_ok=True)
-        os.makedirs('monet/tests/TestData/control', exist_ok=True)
-
-        datim = [datetime.now().strftime('%Y-%m-%d'),
-                 datetime.now().strftime('%H:%M')]
-        db = pd.DataFrame(
-            index=pd.MultiIndex.from_product(
-                [['DefaultMicroscope'], ['488', '561'], [50, 100], [datim[0]], [datim[1]]],
-                names=tuple(DATABASE_INDEXLEVELS)),
-            data={'bkg': [0]*4, 'amp': [50, 100, 40, 80], 'phi': [30, 30, 25, 25]}
-        )
-        db_path = 'monet/tests/TestData/control/power_database.xlsx'
-        db.to_excel(db_path)
-
-        config = {
-            'database': db_path,
-            'dest_calibration_plot': 'monet/tests/TestData/control/',
-            'index': {
-                'name': 'DefaultMicroscope',
-                },
-            'powermeter': {
-                'classpath': 'monet.powermeter.TestPowerMeter',
                 'init_kwargs': {
                     'bkg': 0,
                     'amp': 50,
                     'phi': 30,
                     'start': 10,
                     'step': 5,
-                    'noise': 3}
                 },
-            'attenuation' : {
-                'classpath': 'monet.attenuation.TestAttenuator',
-                'init_kwargs': {
-                    'bkg': 0,
-                    'amp': 50,
-                    'phi': 30,
-                    'start': 10,
-                    'step': 5},},
+            },
             'analysis': {
                 'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
                 'init_kwargs': {
                     'min': 30,
                     'max': 100,
-                    'step': 5,}
+                    'step': 5,
                 },
-            'lasers' : {
+            },
+            'lasers': {
                 '488': {
                     'classpath': 'monet.laser.TestLaser',
                     'init_kwargs': {'port': 'COM4'},
-                    },
+                },
                 '561': {
                     'classpath': 'monet.laser.TestLaser',
                     'init_kwargs': {'port': 'COM7'},
-                    },
+                },
                 '640': {
                     'classpath': 'monet.laser.TestLaser',
                     'init_kwargs': {'port': 'COM8'},
-                    },
                 },
+            },
         }
         ctrl = mco.IlluminationLaserControl(config)
 
@@ -217,13 +176,21 @@ class TestControl(unittest.TestCase):
         swapped for one that tracks its position so the feedback loop can be
         exercised."""
         os.makedirs('monet/tests/TestData/control', exist_ok=True)
-        datim = [datetime.now().strftime('%Y-%m-%d'),
-                 datetime.now().strftime('%H:%M')]
+        datim = [
+            datetime.now().strftime('%Y-%m-%d'),
+            datetime.now().strftime('%H:%M'),
+        ]
         db = pd.DataFrame(
             index=pd.MultiIndex.from_product(
-                [['DefaultMicroscope'], ['488', '561'], [50, 100],
-                 [datim[0]], [datim[1]]],
-                names=tuple(DATABASE_INDEXLEVELS)),
+                [
+                    ['DefaultMicroscope'],
+                    ['488', '561'],
+                    [50, 100],
+                    [datim[0]],
+                    [datim[1]],
+                ],
+                names=tuple(DATABASE_INDEXLEVELS),
+            ),
             data={'bkg': [0, 0, 0, 0], 'amp': [1.0, 2.0, 0.8, 1.6]},
         )
         db_path = 'monet/tests/TestData/control/feedback_test_db.xlsx'
@@ -236,18 +203,26 @@ class TestControl(unittest.TestCase):
             'attenuation': {
                 'classpath': 'monet.attenuation.TestAttenuator',
                 'init_kwargs': {
-                    'bkg': 0, 'amp': 50, 'phi': 30,
-                    'start': 30, 'step': 5},
+                    'bkg': 0,
+                    'amp': 50,
+                    'phi': 30,
+                    'start': 30,
+                    'step': 5,
+                },
             },
             'analysis': {
                 'classpath': 'monet.analysis.LinearCurveAnalyzer',
                 'init_kwargs': {'min': 0, 'max': 100, 'step': 5},
             },
             'lasers': {
-                '488': {'classpath': 'monet.laser.TestLaser',
-                        'init_kwargs': {'port': 'COM4'}},
-                '561': {'classpath': 'monet.laser.TestLaser',
-                        'init_kwargs': {'port': 'COM7'}},
+                '488': {
+                    'classpath': 'monet.laser.TestLaser',
+                    'init_kwargs': {'port': 'COM4'},
+                },
+                '561': {
+                    'classpath': 'monet.laser.TestLaser',
+                    'init_kwargs': {'port': 'COM7'},
+                },
             },
         }
         ctrl = mco.IlluminationLaserControl(config)
@@ -265,15 +240,28 @@ class TestControl(unittest.TestCase):
         pm = _LaserPowerMeter(ctrl, laser=488, gain=1.0)
         progress = []
         result = mco.run_power_feedback(
-            ctrl, pm, target_pwr=30, laser=488, mode='fixed_attenuator',
-            max_dev_pct=1.0, max_iter=20,
-            progress_callback=lambda i, s, m: progress.append((i, s, m)))
+            ctrl,
+            pm,
+            target_pwr=30,
+            laser=488,
+            mode='fixed_attenuator',
+            max_dev_pct=1.0,
+            max_iter=20,
+            progress_callback=lambda i, s, m: progress.append((i, s, m)),
+        )
 
         self.assertTrue(result['converged'])
         self.assertLessEqual(abs(result['measured'] - 30) / 30 * 100.0, 1.0)
         self.assertGreaterEqual(len(progress), 2)
-        for key in ('measured', 'converged', 'cali_pred', 'out_of_range',
-                    'att_pos', 'laser_pwr', 'iterations'):
+        for key in (
+            'measured',
+            'converged',
+            'cali_pred',
+            'out_of_range',
+            'att_pos',
+            'laser_pwr',
+            'iterations',
+        ):
             self.assertIn(key, result)
 
     @mock.patch('time.sleep')
@@ -284,9 +272,15 @@ class TestControl(unittest.TestCase):
         pm = _AttenuatorCurvePowerMeter(ctrl, miscal=1.1)
         progress = []
         result = mco.run_power_feedback(
-            ctrl, pm, target_pwr=30, laser=488, mode='fixed_laser',
-            max_dev_pct=2.0, max_iter=20,
-            progress_callback=lambda i, s, m: progress.append((i, s, m)))
+            ctrl,
+            pm,
+            target_pwr=30,
+            laser=488,
+            mode='fixed_laser',
+            max_dev_pct=2.0,
+            max_iter=20,
+            progress_callback=lambda i, s, m: progress.append((i, s, m)),
+        )
 
         self.assertTrue(result['converged'])
         self.assertLessEqual(abs(result['measured'] - 30) / 30 * 100.0, 2.0)
@@ -299,7 +293,8 @@ class TestControl(unittest.TestCase):
         pm = _LaserPowerMeter(ctrl, laser=488)
         with self.assertRaises(ValueError):
             mco.run_power_feedback(
-                ctrl, pm, target_pwr=30, laser=488, mode='combined')
+                ctrl, pm, target_pwr=30, laser=488, mode='combined'
+            )
 
     def test_accessible_power_range(self):
         """accessible_power_range returns a sane (lo, hi) for every mode."""
@@ -326,10 +321,10 @@ class TestControl(unittest.TestCase):
     def test_to_sample_plane_legacy_values(self):
         """Legacy stored values 'beampath'/'manual' are still honoured."""
         ctrl = self._build_laser_control()
-        ctrl._powermeter_type[488] = 'beampath'   # legacy → bfp
+        ctrl._powermeter_type[488] = 'beampath'  # legacy → bfp
         ctrl._factors[488] = 2.0
         self.assertAlmostEqual(ctrl.to_sample_plane(10.0, 488), 20.0)
-        ctrl._powermeter_type[561] = 'manual'     # legacy → sample
+        ctrl._powermeter_type[561] = 'manual'  # legacy → sample
         self.assertEqual(ctrl.to_sample_plane(10.0, 561), 10.0)
 
     @mock.patch('time.sleep')
@@ -344,9 +339,15 @@ class TestControl(unittest.TestCase):
         pm = _AttenuatorCurvePowerMeter(ctrl, miscal=1.0)
         progress = []
         result = mco.run_power_feedback(
-            ctrl, pm, target_pwr=30, laser=488, mode='fixed_laser',
-            max_dev_pct=2.0, max_iter=20,
-            progress_callback=lambda i, s, m: progress.append((i, s, m)))
+            ctrl,
+            pm,
+            target_pwr=30,
+            laser=488,
+            mode='fixed_laser',
+            max_dev_pct=2.0,
+            max_iter=20,
+            progress_callback=lambda i, s, m: progress.append((i, s, m)),
+        )
 
         self.assertTrue(result['converged'])
         # Returned measured is sample-plane: raw beampath ≈ 15, ×2 ≈ 30.
@@ -425,8 +426,10 @@ class TestControl(unittest.TestCase):
     def test_predict_power_fixed_attenuator(self):
         ctrl = self._build_laser_control()
         self.assertAlmostEqual(
-            ctrl.predict_power_fixed_attenuator(75.0, laser=488), 45.0,
-            places=4)
+            ctrl.predict_power_fixed_attenuator(75.0, laser=488),
+            45.0,
+            places=4,
+        )
 
     def test_fixed_modes_not_calibrated_raise(self):
         ctrl = self._build_laser_control()
@@ -469,8 +472,10 @@ class TestControl(unittest.TestCase):
             # KeyError in the cleanup loop; the missing-laser cleanup must now
             # pop the original key and reach the graceful RuntimeError.
             'lasers': {
-                '488': {'classpath': 'monet.laser.NoSuchLaser',
-                        'init_kwargs': {}},
+                '488': {
+                    'classpath': 'monet.laser.NoSuchLaser',
+                    'init_kwargs': {},
+                },
             },
         }
         with self.assertRaises(RuntimeError):

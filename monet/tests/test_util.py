@@ -1,18 +1,20 @@
 """
-    monet/tests/test_util.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_util.py
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Tests for monet.util — dynamic class loading and the MicroManager
-    acquisition-comment helper.
+Tests for monet.util — dynamic class loading and the MicroManager
+acquisition-comment helper.
 
-    :authors: Heinrich Grabmayr, 2024
-    :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2024
+:copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
+
 import sys
 import types
 import unittest
 
 import monet.util as util
+
 # Aliased so pytest doesn't try to collect it as a test case.
 from monet.attenuation import TestAttenuator as _TestAttenuator
 
@@ -33,7 +35,8 @@ class TestLoadClass(unittest.TestCase):
         # When `settings` is given it is spread as keyword arguments:
         # Met(init_kwargs, **settings). Use a stdlib type that accepts both.
         obj = util.load_class(
-            'collections.OrderedDict', {'a': 1}, settings={'b': 2})
+            'collections.OrderedDict', {'a': 1}, settings={'b': 2}
+        )
         self.assertEqual(obj['a'], 1)
         self.assertEqual(obj['b'], 2)
 
@@ -109,8 +112,7 @@ class TestUpdateMMComment(unittest.TestCase):
     def test_appends_line(self):
         err = util.update_mm_acquisition_comment(488, 12.345, 'mW')
         self.assertIsNone(err)
-        self.assertEqual(
-            self.mgr.settings.comment(), 'Power 488nm: 12.345 mW')
+        self.assertEqual(self.mgr.settings.comment(), 'Power 488nm: 12.345 mW')
 
     def test_replaces_existing_line_for_same_laser(self):
         util.update_mm_acquisition_comment(488, 10.0, 'mW')
@@ -129,7 +131,8 @@ class TestUpdateMMComment(unittest.TestCase):
 
     def test_optional_fields_in_line(self):
         util.update_mm_acquisition_comment(
-            640, 3.5, 'mW', att_pos=12.3456, laser_pwr=100.0)
+            640, 3.5, 'mW', att_pos=12.3456, laser_pwr=100.0
+        )
         comment = self.mgr.settings.comment()
         self.assertIn('@ att=12.3456', comment)
         self.assertIn('lp=100.0mW', comment)
@@ -151,8 +154,7 @@ class TestUpdateMMCommentNoPycromanager(unittest.TestCase):
 
     def test_noop_returns_none(self):
         # No MicroManager / pycromanager: graceful no-op.
-        self.assertIsNone(
-            util.update_mm_acquisition_comment(488, 1.0, 'mW'))
+        self.assertIsNone(util.update_mm_acquisition_comment(488, 1.0, 'mW'))
 
 
 if __name__ == '__main__':

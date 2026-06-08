@@ -1,13 +1,14 @@
 """
-    monet/models.py
-    ~~~~~~~~~~~~~~~
+monet/models.py
+~~~~~~~~~~~~~~~
 
-    SQLAlchemy models for the calibration database.
+SQLAlchemy models for the calibration database.
 
-    :authors: Heinrich Grabmayr, 2024
-    :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2024
+:copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
-from sqlalchemy import create_engine, Column, Integer, Float, String, Text
+
+from sqlalchemy import Column, Float, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -42,11 +43,15 @@ class Calibration(Base):
 def get_engine(db_path):
     """Create a SQLAlchemy engine and ensure all tables exist.
 
-    Args:
-        db_path: Path to the SQLite database file.
+    Parameters
+    ----------
+    db_path : str
+        Path to the SQLite database file.
 
-    Returns:
-        engine: SQLAlchemy Engine instance.
+    Returns
+    -------
+    engine : sqlalchemy.Engine
+        SQLAlchemy Engine instance.
     """
     engine = create_engine(
         f'sqlite:///{db_path}',

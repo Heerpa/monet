@@ -1,17 +1,20 @@
 """
-    monet/tests/test_analysis.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_analysis.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test the analysis module of monet.
+Test the analysis module of monet.
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
+
 import os
 import tempfile
 import unittest
-import monet.analysis as man
+
 import numpy as np
+
+import monet.analysis as man
 
 
 class TestAnalysis(unittest.TestCase):
@@ -20,7 +23,8 @@ class TestAnalysis(unittest.TestCase):
         config = {
             'min': 30,
             'max': 100,
-            'step': 5,}
+            'step': 5,
+        }
         self.att = man.SinusAttenuationCurveAnalyzer(config)
 
     def tearDown(self):
@@ -30,8 +34,9 @@ class TestAnalysis(unittest.TestCase):
         config = {
             'min': 30,
             'max': 100,
-            'step': 5,}
-        att = man.SinusAttenuationCurveAnalyzer(config)
+            'step': 5,
+        }
+        man.SinusAttenuationCurveAnalyzer(config)
 
     def test_02_Sin_model_fun(self):
         model = {
@@ -40,36 +45,44 @@ class TestAnalysis(unittest.TestCase):
             'phi': 30,
             'start': 10,
             'step': 5,
-            'stop': 100}
+            'stop': 100,
+        }
         x = np.arange(model['start'], model['stop'], model['step'])
         print('x in ', x)
 
         pwr = self.att._model_function(
-            x, model['bkg'], model['amp'], model['phi'])
-        self.att._model_function(
-            90, model['bkg'], model['amp'], model['phi'])
+            x, model['bkg'], model['amp'], model['phi']
+        )
+        self.att._model_function(90, model['bkg'], model['amp'], model['phi'])
 
         print('pwr', pwr)
 
         x_back = self.att._model_function_inv(
-            pwr, model['bkg'], model['amp'], model['phi'],
-            mini=0, maxi=100)
+            pwr, model['bkg'], model['amp'], model['phi'], mini=0, maxi=100
+        )
         self.att._model_function_inv(
-            .5, model['bkg'], model['amp'], model['phi'],
-            mini=0, maxi=100)
+            0.5, model['bkg'], model['amp'], model['phi'], mini=0, maxi=100
+        )
         with self.assertRaises(ValueError) as context:
             self.att._model_function_inv(
-                2*(model['amp']+model['bkg']), model['bkg'],
-                model['amp'], model['phi'],
-                mini=0, maxi=100)
+                2 * (model['amp'] + model['bkg']),
+                model['bkg'],
+                model['amp'],
+                model['phi'],
+                mini=0,
+                maxi=100,
+            )
         self.assertTrue('out of range.' in str(context.exception))
         with self.assertRaises(ValueError) as context:
             self.att._model_function_inv(
-                2*pwr, model['bkg'],
-                model['amp'], model['phi'],
-                mini=0, maxi=100)
+                2 * pwr,
+                model['bkg'],
+                model['amp'],
+                model['phi'],
+                mini=0,
+                maxi=100,
+            )
         self.assertTrue('out of range.' in str(context.exception))
-
 
         print('x back', x_back)
 
@@ -170,7 +183,8 @@ class TestPointAnalyzer(unittest.TestCase):
         x = np.array([0.0, 5.0, 9.0])
         np.testing.assert_allclose(att.estimate(x), np.zeros_like(x))
         np.testing.assert_allclose(
-            att.estimate_power(x), 6.0 * np.ones_like(x))
+            att.estimate_power(x), 6.0 * np.ones_like(x)
+        )
 
     def test_model_internals(self):
         att = man.PointCurveAnalyzer({})
@@ -197,7 +211,7 @@ class TestPolynomAnalyzer(unittest.TestCase):
         self.config = {'min': 0.0, 'max': 10.0, 'polydegree': 4}
         self.att = man.PolynomAttenuationCurveAnalyzer(self.config)
         self.x = np.linspace(0.0, 10.0, 60)
-        self.y = self.x ** 2  # monotonic increasing over [0, 10]
+        self.y = self.x**2  # monotonic increasing over [0, 10]
 
     def test_fit_estimate_power_roundtrip(self):
         self.att.fit(self.x, self.y)
@@ -243,7 +257,8 @@ class TestPolynomAnalyzer(unittest.TestCase):
         self.att.fit(self.x, self.y)
         model = self.att.get_model()
         fresh = man.PolynomAttenuationCurveAnalyzer(
-            {'min': 0.0, 'max': 10.0, 'polydegree': 4})
+            {'min': 0.0, 'max': 10.0, 'polydegree': 4}
+        )
         fresh.load_model(model)
         with tempfile.TemporaryDirectory() as d:
             fname = os.path.join(d, 'poly2.png')

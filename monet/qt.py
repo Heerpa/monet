@@ -11,7 +11,7 @@ Embed the whole 4-tab interface as a single widget::
     from monet.qt import MonetWidget
 
     widget = MonetWidget(show_toolbar=False)
-    widget.set_pc(my_pc)                    # see CalibrationProtocol* in monet.calibrate
+    widget.set_pc(my_pc)  # see CalibrationProtocol* in monet.calibrate
     widget.status_changed.connect(host.statusBar().showMessage)
     host_layout.addWidget(widget)
 
@@ -26,13 +26,14 @@ Embed just one tab inside a host's own ``QTabWidget``::
 
 See ``examples/embed_monet.py`` for a runnable demonstration.
 """
+
 from monet.gui import (
-    MonetWidget,
-    MonetMainWindow,
-    CalibrateTab,
-    SetPowerTab,
     AdjustTab,
+    CalibrateTab,
     DatabaseTab,
+    MonetMainWindow,
+    MonetWidget,
+    SetPowerTab,
 )
 
 __all__ = [

@@ -1,12 +1,13 @@
 """
-    monet/tests/test_migrate.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_migrate.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Tests for the Excel -> SQLite migration utility.
+Tests for the Excel -> SQLite migration utility.
 
-    :authors: Heinrich Grabmayr, 2024
-    :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2024
+:copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
+
 import json
 import os
 import tempfile
@@ -50,6 +51,7 @@ class TestMigrate(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_migrate_inserts_all_rows(self):
@@ -57,8 +59,11 @@ class TestMigrate(unittest.TestCase):
 
         engine = get_engine(self.db_path)
         with Session(engine) as session:
-            rows = session.query(Calibration).order_by(
-                Calibration.wavelength_nm).all()
+            rows = (
+                session.query(Calibration)
+                .order_by(Calibration.wavelength_nm)
+                .all()
+            )
 
         self.assertEqual(len(rows), 2)
 
@@ -67,8 +72,9 @@ class TestMigrate(unittest.TestCase):
 
         engine = get_engine(self.db_path)
         with Session(engine) as session:
-            row = session.query(Calibration).filter_by(
-                wavelength_nm=488.0).one()
+            row = (
+                session.query(Calibration).filter_by(wavelength_nm=488.0).one()
+            )
 
         self.assertEqual(row.device_name, 'TestScope')
         self.assertEqual(row.laser_power_mw, 100.0)
@@ -80,10 +86,12 @@ class TestMigrate(unittest.TestCase):
 
         engine = get_engine(self.db_path)
         with Session(engine) as session:
-            row_488 = session.query(Calibration).filter_by(
-                wavelength_nm=488.0).one()
-            row_561 = session.query(Calibration).filter_by(
-                wavelength_nm=561.0).one()
+            row_488 = (
+                session.query(Calibration).filter_by(wavelength_nm=488.0).one()
+            )
+            row_561 = (
+                session.query(Calibration).filter_by(wavelength_nm=561.0).one()
+            )
 
         params_488 = json.loads(row_488.parameters_json)
         self.assertEqual(params_488['bkg'], 0.1)

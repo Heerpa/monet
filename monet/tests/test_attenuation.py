@@ -1,13 +1,15 @@
 """
-    monet/tests/test_attenuation.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_attenuation.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test the attenuation module of monet.
+Test the attenuation module of monet.
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
+
 import unittest
+
 import monet.attenuation as mat
 
 
@@ -21,7 +23,8 @@ class TestAttenuation(unittest.TestCase):
 
     def test_basics_01_TestAttenuator(self):
         config = {
-            'test': 'config',}
+            'test': 'config',
+        }
         att = mat.TestAttenuator(config)
 
         att._connect()

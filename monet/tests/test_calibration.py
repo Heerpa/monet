@@ -1,17 +1,18 @@
 """
-    monet/tests/test_calibration.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_calibration.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test the calibration module of monet.
+Test the calibration module of monet.
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
-import unittest
-import monet.calibrate as mca
-import numpy as np
+
 import os
 import shutil
+import unittest
+
+import monet.calibrate as mca
 
 
 class TestCalibration(unittest.TestCase):
@@ -25,11 +26,11 @@ class TestCalibration(unittest.TestCase):
     def test_01_Calibrator1D(self):
         try:
             shutil.rmtree('monet/tests/TestData/calibrate')
-        except:
+        except Exception:
             pass
         try:
             os.makedirs('monet/tests/TestData/calibrate', exist_ok=True)
-        except:
+        except Exception:
             pass
 
         config = {
@@ -37,7 +38,8 @@ class TestCalibration(unittest.TestCase):
             'index': {
                 'name': 'DefaultMicroscope',
                 'wavelength [nm]': 488,
-                'laser_power [mW]': 100},
+                'laser_power [mW]': 100,
+            },
             'powermeter': {
                 'classpath': 'monet.powermeter.TestPowerMeter',
                 'init_kwargs': {
@@ -46,23 +48,27 @@ class TestCalibration(unittest.TestCase):
                     'phi': 30,
                     'start': 10,
                     'step': 5,
-                    'noise': 3}
+                    'noise': 3,
                 },
-            'attenuation' : {
+            },
+            'attenuation': {
                 'classpath': 'monet.attenuation.TestAttenuator',
                 'init_kwargs': {
                     'bkg': 0,
                     'amp': 50,
                     'phi': 30,
                     'start': 10,
-                    'step': 5},},
+                    'step': 5,
+                },
+            },
             'analysis': {
                 'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
                 'init_kwargs': {
                     'min': 30,
                     'max': 100,
-                    'step': 5,}
-                }
+                    'step': 5,
+                },
+            },
         }
         pc = mca.CalibrationProtocol1D(config)
 
@@ -74,7 +80,7 @@ class TestCalibration(unittest.TestCase):
         # remove the database to test creating a new one
         try:
             os.remove(config['database'])
-        except:
+        except Exception:
             pass
         pc.calibrate(wait_time=0)
         # test saving into an existing database
@@ -87,17 +93,18 @@ class TestCalibration(unittest.TestCase):
     def test_01_Calibrator2D(self):
         try:
             shutil.rmtree('monet/tests/TestData/calibrate')
-        except:
+        except Exception:
             pass
         try:
             os.makedirs('monet/tests/TestData/calibrate', exist_ok=True)
-        except:
+        except Exception:
             pass
 
         config = {
             'database': 'monet/tests/TestData/calibrate/power_database.xlsx',
             'index': {
-                'name': 'DefaultMicroscope',},
+                'name': 'DefaultMicroscope',
+            },
             'powermeter': {
                 'classpath': 'monet.powermeter.TestPowerMeter',
                 'init_kwargs': {
@@ -106,55 +113,62 @@ class TestCalibration(unittest.TestCase):
                     'phi': 30,
                     'start': 10,
                     'step': 5,
-                    'noise': 3}
+                    'noise': 3,
                 },
-            'attenuation' : {
+            },
+            'attenuation': {
                 'classpath': 'monet.attenuation.TestAttenuator',
                 'init_kwargs': {
                     'bkg': 0,
                     'amp': 50,
                     'phi': 30,
                     'start': 10,
-                    'step': 5},},
+                    'step': 5,
+                },
+            },
             'analysis': {
                 'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
                 'init_kwargs': {
                     'min': 30,
                     'max': 100,
-                    'step': 5,}
+                    'step': 5,
                 },
-            'lasers' : {
+            },
+            'lasers': {
                 488: {
                     'classpath': 'monet.laser.TestLaser',
                     'init_kwargs': {'port': 'COM4'},
-                    },
+                },
                 561: {
                     'classpath': 'monet.laser.TestLaser',
                     'init_kwargs': {'port': 'COM7'},
-                    },
+                },
                 640: {
                     'classpath': 'monet.laser.TestLaser',
                     'init_kwargs': {'port': 'COM8'},
-                    },
                 },
+            },
             'beampath': {
                 'shutter01': {
                     'classpath': 'monet.beampath.TestShutter',
-                    'init_kwargs': {'SN': 234}},
+                    'init_kwargs': {'SN': 234},
+                },
                 'shutter02': {
                     'classpath': 'monet.beampath.TestShutter',
-                    'init_kwargs': {'SN': 456}},
-            }
+                    'init_kwargs': {'SN': 456},
+                },
+            },
         }
         calibration_protocol = {
             'laser_sequence': [488, 561],
             'laser_powers': {
                 488: [100, 200, 500],
-                561: [200, 500, 1000],},
+                561: [200, 500, 1000],
+            },
             'beampath': {
                 488: {'shutter01': True, 'shutter02': True},
                 561: {'shutter01': True, 'shutter02': False},
-            }
+            },
         }
         pc = mca.CalibrationProtocol2D(config, calibration_protocol)
 
@@ -166,7 +180,7 @@ class TestCalibration(unittest.TestCase):
         # remove the database to test creating a new one
         try:
             os.remove(config['database'])
-        except:
+        except Exception:
             pass
         pc.run_protocol(wait_time=0)
 

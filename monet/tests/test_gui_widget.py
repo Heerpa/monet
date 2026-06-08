@@ -1,10 +1,11 @@
 """
-    monet/tests/test_gui_widget.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_gui_widget.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Smoke tests for the embeddable :class:`MonetWidget` and its tabs.
-    Skipped automatically when PyQt6 is not installed.
+Smoke tests for the embeddable :class:`MonetWidget` and its tabs.
+Skipped automatically when PyQt6 is not installed.
 """
+
 import os
 import unittest
 
@@ -17,9 +18,13 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
-from monet.gui import (                    # noqa: E402
-    MonetWidget, SetPowerTab, CalibrateTab, AdjustTab, DatabaseTab)
-
+from monet.gui import (  # noqa: E402
+    AdjustTab,
+    CalibrateTab,
+    DatabaseTab,
+    MonetWidget,
+    SetPowerTab,
+)
 
 # A single QApplication is required for any QWidget construction.
 _app = QApplication.instance() or QApplication([])
@@ -44,7 +49,7 @@ class TestMonetWidget(unittest.TestCase):
         self.assertIsNotNone(w.tab('database'))
 
     def test_status_signal_bubbles_up(self):
-        """A tab's ``status`` signal is re-emitted as MonetWidget.status_changed."""
+        """A tab's ``status`` signal re-emits as status_changed."""
         w = MonetWidget(show_toolbar=False, tabs=('set_power',))
         received = []
         w.status_changed.connect(lambda msg, t: received.append((msg, t)))

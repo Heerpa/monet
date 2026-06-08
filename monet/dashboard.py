@@ -1,14 +1,15 @@
 """
-    monet/dashboard.py
-    ~~~~~~~~~~~~~~~~~~
+monet/dashboard.py
+~~~~~~~~~~~~~~~~~~
 
-    Interactive web dashboard for the Monet calibration database.
-    Mounted at /dashboard by server.py (imported at the bottom of that file
-    to avoid circular-import issues).
+Interactive web dashboard for the Monet calibration database.
+Mounted at /dashboard by server.py (imported at the bottom of that file
+to avoid circular-import issues).
 
-    :authors: Heinrich Grabmayr, 2024
-    :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2024
+:copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
+
 import json
 from typing import List, Optional
 
@@ -17,16 +18,16 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from monet.models import Calibration, Factor
-
 # Imported lazily inside each handler to avoid a circular-import at module
 # load time (server.py imports this module at its very bottom).
 import monet.server as _server  # noqa: E402
+from monet.models import Calibration, Factor
 
 router = APIRouter(prefix='/dashboard', tags=['dashboard'])
 
 
 # ── Pydantic schema ────────────────────────────────────────────────────────────
+
 
 class TimeseriesRequest(BaseModel):
     devices: Optional[List[str]] = None
@@ -37,6 +38,7 @@ class TimeseriesRequest(BaseModel):
 
 
 # ── API endpoints ──────────────────────────────────────────────────────────────
+
 
 @router.get('/api/filters')
 def get_filters():
@@ -71,7 +73,8 @@ def get_transmission_objectives(device: str = None):
     """Return all transmission_objective factor records, optionally filtered by device."""
     with _server._get_session() as session:
         stmt = select(Factor).order_by(
-            Factor.device_name, Factor.wavelength_nm, Factor.calibration_date)
+            Factor.device_name, Factor.wavelength_nm, Factor.calibration_date
+        )
         if device:
             stmt = stmt.where(Factor.device_name == device)
         rows = session.execute(stmt).scalars().all()
@@ -115,15 +118,17 @@ def get_timeseries(req: TimeseriesRequest):
     records = []
     for r in rows:
         dt = f'{r.calibration_date}T{r.calibration_time}:00'
-        records.append({
-            'device': r.device_name,
-            'wavelength': r.wavelength_nm,
-            'laser_power': r.laser_power_mw,
-            'date': r.calibration_date,
-            'time': r.calibration_time,
-            'dt': dt,
-            'parameters': json.loads(r.parameters_json),
-        })
+        records.append(
+            {
+                'device': r.device_name,
+                'wavelength': r.wavelength_nm,
+                'laser_power': r.laser_power_mw,
+                'date': r.calibration_date,
+                'time': r.calibration_time,
+                'dt': dt,
+                'parameters': json.loads(r.parameters_json),
+            }
+        )
     return {'records': records}
 
 

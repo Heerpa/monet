@@ -1,60 +1,68 @@
 #!/usr/bin/env python
 """
-    monet/calibrate.py
-    ~~~~~~~~~~~~~~~~~~
+monet/calibrate.py
+~~~~~~~~~~~~~~~~~~
 
-    Here, the calibration is performed. This orchestrates attenuation,
-    power measurement and analysis.
+Here, the calibration is performed. This orchestrates attenuation,
+power measurement and analysis.
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
+
 import logging
-from icecream import ic
 import os
 import shutil
-
 import time
 from datetime import datetime
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from icecream import ic
 
-from monet import (LASER_TAG, POWER_TAG, DEVICE_TAG,
-                   POWERMETER_BFP, POWERMETER_SAMPLE,
-                   normalize_powermeter_type)
-from monet.util import load_class
 import monet.io as io
+from monet import (
+    DEVICE_TAG,
+    LASER_TAG,
+    POWER_TAG,
+    POWERMETER_BFP,
+    POWERMETER_SAMPLE,
+    normalize_powermeter_type,
+)
 from monet.control import IlluminationControl, IlluminationLaserControl
-
+from monet.util import load_class
 
 logger = logging.getLogger(__name__)
 ic.configureOutput(outputFunction=logger.debug)
 
 
-class CalibrationProtocol1D():
-    """Calibrates the power of an instrument with one laser power input,
-    varying the attenuator.
+class CalibrationProtocol1D:
+    """Calibrate the power of an instrument with one laser power input.
 
-    Additional entries of the config, compared to IlluminationControl:
-    'powermeter': {
-        'classpath': 'monet.powermeter.TestPowerMeter',
-        'init_kwargs': {
-            'address': 'find connection',}
-        },
+    The attenuator is varied while the power is measured.
 
+    Notes
+    -----
+    Additional config entries compared to IlluminationControl::
+
+        'powermeter': {
+            'classpath': 'monet.powermeter.TestPowerMeter',
+            'init_kwargs': {
+                'address': 'find connection'}},
     """
-    def __init__(self, config, load_instrument=True):
-        """Initialize the analyzer, powermeter, and attenuator classes
-        defined in the configuration file.
 
-        Args:
-            config : dict
-                keys: 'analysis', 'attenuation', 'powermeter'
-                with sub-keys each: 'classpath', and 'init_kwargs'
-            load_instrument : bool
-                whether to load the instrument hardware. For inheriting
-                classes this option should be disabled.
+    def __init__(self, config, load_instrument=True):
+        """Initialize the analyzer, powermeter and attenuator from config.
+
+        Parameters
+        ----------
+        config : dict
+            Keys 'analysis', 'attenuation' and 'powermeter', each with
+            sub-keys 'classpath' and 'init_kwargs'.
+        load_instrument : bool
+            Whether to load the instrument hardware. For inheriting classes
+            this option should be disabled.
         """
         # load analysis and attenuation
         if load_instrument:
@@ -63,7 +71,8 @@ class CalibrationProtocol1D():
         pwrconfig = config['powermeter']
         try:
             self.powermeter = load_class(
-                pwrconfig['classpath'], pwrconfig['init_kwargs'])
+                pwrconfig['classpath'], pwrconfig['init_kwargs']
+            )
             self.powermeter_available = True
             self.powermeter_error = None
         except Exception as exc:
@@ -72,35 +81,44 @@ class CalibrationProtocol1D():
             # Keep the concrete reason so the GUI / caller can surface *why*
             # the meter failed instead of a generic "not available".
             self.powermeter_error = '{:s}: {!s}'.format(
-                type(exc).__name__, exc)
+                type(exc).__name__, exc
+            )
             logger.warning(
                 'PowerMeter (%s) not available: %s',
-                pwrconfig.get('classpath', '?'), self.powermeter_error,
-                exc_info=True)
+                pwrconfig.get('classpath', '?'),
+                self.powermeter_error,
+                exc_info=True,
+            )
 
-    def calibrate(self, wait_time=0.1, dry_run=False,
-                  powermeter_type=POWERMETER_SAMPLE, save_plot=True):
-        """Calibrate power, with parameters according to the
-        configuration file.
+    def calibrate(
+        self,
+        wait_time=0.1,
+        dry_run=False,
+        powermeter_type=POWERMETER_SAMPLE,
+        save_plot=True,
+    ):
+        """Calibrate power with parameters from the configuration file.
 
-        Args:
-            wait_time : float
-                time to wait between attenuator steps [s]
-            dry_run : bool
-                if True, calibration is performed but not saved to the database
-            powermeter_type : str
-                'sample' (sample plane) or 'bfp' (back focal plane) — annotated
-                in the database
-            save_plot : bool
-                whether to save the calibration-curve plot (the 2D protocol
-                suppresses it and re-renders projected curves once the
-                transmission factor for the run is known)
+        Parameters
+        ----------
+        wait_time : float
+            Time to wait between attenuator steps [s].
+        dry_run : bool
+            If True, calibration is performed but not saved to the database.
+        powermeter_type : str
+            'sample' (sample plane) or 'bfp' (back focal plane) — annotated
+            in the database.
+        save_plot : bool
+            Whether to save the calibration-curve plot (the 2D protocol
+            suppresses it and re-renders projected curves once the
+            transmission factor for the run is known).
 
-        Returns:
-            control_par_vals : 1D np array
-                the control values (e.g. angles)
-            powers : 1D np array
-                the measured power
+        Returns
+        -------
+        control_par_vals : 1D np array
+            The control values (e.g. angles).
+        powers : 1D np array
+            The measured power.
         """
         minval = self.instrument.config['analysis']['init_kwargs']['min']
         if np.isnan(minval):
@@ -122,28 +140,38 @@ class CalibrationProtocol1D():
         # print(self.instrument.analyzer.fit_result.fit_report())
         self.instrument.is_calibrated = True
 
-        self.save_calibration(save_plot=save_plot, dry_run=dry_run,
-                              powermeter_type=powermeter_type,
-                              ctrl_vals=control_par_vals, powers=powers)
+        self.save_calibration(
+            save_plot=save_plot,
+            dry_run=dry_run,
+            powermeter_type=powermeter_type,
+            ctrl_vals=control_par_vals,
+            powers=powers,
+        )
 
         return control_par_vals, powers
 
-    def save_calibration(self, save_plot=True, dry_run=False,
-                         powermeter_type=POWERMETER_SAMPLE,
-                         ctrl_vals=None, powers=None):
-        """Save the calibration to the database
+    def save_calibration(
+        self,
+        save_plot=True,
+        dry_run=False,
+        powermeter_type=POWERMETER_SAMPLE,
+        ctrl_vals=None,
+        powers=None,
+    ):
+        """Save the calibration to the database.
 
-        Args:
-            save_plot : bool
-                whether to save a plot of the calibration
-            dry_run : bool
-                if True, skip writing to the database
-            powermeter_type : str
-                'sample' (sample plane) or 'bfp' (back focal plane) — stored as
-                a column in the database
-            ctrl_vals, powers : 1D arrays, optional
-                the raw control values and measured powers, plotted as the data
-                points behind the fitted curve when available
+        Parameters
+        ----------
+        save_plot : bool
+            Whether to save a plot of the calibration.
+        dry_run : bool
+            If True, skip writing to the database.
+        powermeter_type : str
+            'sample' (sample plane) or 'bfp' (back focal plane) — stored as
+            a column in the database.
+        ctrl_vals, powers : 1D arrays, optional
+            The raw control values and measured powers, plotted as the data
+            points behind the fitted curve when available.
         """
         powermeter_type = normalize_powermeter_type(powermeter_type)
         cali_pars = self.instrument.analyzer.get_model()
@@ -152,15 +180,21 @@ class CalibrationProtocol1D():
         fname = self.instrument.config['database']
         if not dry_run:
             io.save_calibration(
-                fname, self.instrument.config['index'], cali_pars)
+                fname, self.instrument.config['index'], cali_pars
+            )
 
         if save_plot:
             laser = self.instrument.config['index'].get(LASER_TAG)
             lpwr = self.instrument.config['index'].get(POWER_TAG)
             if laser is not None:
                 self._save_curve_plot(
-                    laser, lpwr, ctrl_vals, powers,
-                    self.instrument.analyzer.get_model(), powermeter_type)
+                    laser,
+                    lpwr,
+                    ctrl_vals,
+                    powers,
+                    self.instrument.analyzer.get_model(),
+                    powermeter_type,
+                )
 
     def _sample_plane_factor(self, laser, powermeter_type):
         """Transmission factor (P_sample / P_bfp) used to project a saved plot
@@ -175,100 +209,129 @@ class CalibrationProtocol1D():
         try:
             device = self.instrument.config['index'][DEVICE_TAG]
             factors_df = io.load_factors(
-                self.instrument.config['database'], device=device, laser=laser)
+                self.instrument.config['database'], device=device, laser=laser
+            )
             if factors_df is not None and not factors_df.empty:
                 sub = factors_df.loc[
-                    factors_df.index.get_level_values(LASER_TAG) == int(laser)]
+                    factors_df.index.get_level_values(LASER_TAG) == int(laser)
+                ]
                 if not sub.empty:
                     return float(sub.iloc[-1]['transmission_objective_mean'])
         except Exception as exc:
-            logger.debug('Could not load transmission factor for %s nm: %s',
-                         laser, exc)
+            logger.debug(
+                'Could not load transmission factor for %s nm: %s', laser, exc
+            )
         return 1.0
 
     def _curve_plot_title(self, laser, lpwr, powermeter_type, projected):
-        """Build the plot title, naming the power-meter position and whether the
-        values are sample-plane projected."""
+        """Build the plot title.
+
+        Names the power-meter position and whether the values are
+        sample-plane projected.
+        """
         pm = normalize_powermeter_type(powermeter_type)
         if pm == POWERMETER_BFP:
-            plane = ('back focal plane → sample plane (projected)' if projected
-                     else 'back focal plane (raw, no transmission factor yet)')
+            plane = (
+                'back focal plane → sample plane (projected)'
+                if projected
+                else 'back focal plane (raw, no transmission factor yet)'
+            )
         else:
             plane = 'sample plane'
         return 'power calibration — {:d} nm, {} mW\n{}'.format(
-            int(laser), lpwr, plane)
+            int(laser), lpwr, plane
+        )
 
-    def _save_curve_plot(self, laser, lpwr, ctrl_vals, powers, model_pars,
-                         powermeter_type):
-        """Save a single attenuation curve to '<wl>nm_<power>mW.png' in the plot
-        folder, overwriting any previous file for that wavelength/power so only
-        the newest (and latest power-meter position) is kept. Power values are
-        projected to the sample plane when a transmission factor is available.
+    def _save_curve_plot(
+        self, laser, lpwr, ctrl_vals, powers, model_pars, powermeter_type
+    ):
+        """Save a single attenuation curve as '<wl>nm_<power>mW.png'.
+
+        Saves into the plot folder, overwriting any previous file for that
+        wavelength/power so only the newest (and latest power-meter
+        position) is kept. Power values are projected to the sample plane
+        when a transmission factor is available.
         """
         folder = self.instrument.config.get('dest_calibration_plot')
         if folder is None:
             fname = self.instrument.config['database']
-            folder = os.getcwd() if io._is_server_url(fname) else os.path.split(fname)[0]
+            folder = (
+                os.getcwd()
+                if io._is_server_url(fname)
+                else os.path.split(fname)[0]
+            )
 
         factor = self._sample_plane_factor(laser, powermeter_type)
-        projected = (normalize_powermeter_type(powermeter_type) == POWERMETER_BFP
-                     and factor != 1.0)
+        projected = (
+            normalize_powermeter_type(powermeter_type) == POWERMETER_BFP
+            and factor != 1.0
+        )
 
         plt.switch_backend('agg')
         fig, ax = plt.subplots()
 
         # measured data points (projected to the sample plane)
         if ctrl_vals is not None and powers is not None:
-            ax.plot(np.asarray(ctrl_vals, dtype=float),
-                    np.asarray(powers, dtype=float) * factor,
-                    marker='x', linestyle='none', label='measured')
+            ax.plot(
+                np.asarray(ctrl_vals, dtype=float),
+                np.asarray(powers, dtype=float) * factor,
+                marker='x',
+                linestyle='none',
+                label='measured',
+            )
 
         # fitted model curve, evaluated over the control range and projected
         try:
             analyzer = load_class(
                 self.instrument.config['analysis']['classpath'],
-                self.instrument.config['analysis']['init_kwargs'])
+                self.instrument.config['analysis']['init_kwargs'],
+            )
             analyzer.load_model(model_pars)
             init = self.instrument.config['analysis']['init_kwargs']
             grid = np.linspace(init['min'], init['max'], 200)
-            ax.plot(grid, np.array([analyzer.estimate_power(g) for g in grid]) * factor,
-                    label='fit')
+            ax.plot(
+                grid,
+                np.array([analyzer.estimate_power(g) for g in grid]) * factor,
+                label='fit',
+            )
             ax.legend()
         except Exception as exc:
-            logger.debug('Could not overlay fitted curve for %s nm: %s', laser, exc)
+            logger.debug(
+                'Could not overlay fitted curve for %s nm: %s', laser, exc
+            )
 
         ax.set_xlabel('attenuator control value')
         ax.set_ylabel('Power [{:s}]'.format(self.powermeter.unit))
         ax.grid(True)
-        ax.set_title(self._curve_plot_title(laser, lpwr, powermeter_type, projected))
+        ax.set_title(
+            self._curve_plot_title(laser, lpwr, powermeter_type, projected)
+        )
         fig.tight_layout()
-        fnplot = os.path.join(folder, '{:d}nm_{}mW.png'.format(int(laser), lpwr))
+        fnplot = os.path.join(
+            folder, '{:d}nm_{}mW.png'.format(int(laser), lpwr)
+        )
         fig.savefig(fnplot)
         plt.close(fig)
 
 
 class CalibrationProtocol2D(CalibrationProtocol1D):
-    """Calibrates different lasers at different power settings
-    """
+    """Calibrate different lasers at different power settings."""
 
     def __init__(self, config, protocol):
-        """
-        Args:
-            config : dict
-                the configuration, with entries the union of those necessary
-                for CalibrationProtocol1D and IlluminationLaserControl
-            protocol : dict
-                keys:
-                    required: 'laser_sequence', 'laser_powers',
-                    optional: 'beapath'
-                values:
-                    'laser_sequence': list of lasers matching 'laser' keys
-                        in config
-                    'laser_powers': dict of laser keys and
-                        list of respective laser powers
-                    'beampath': dict of laser keys and dict of respective
-                        beampath object settings for object ids as set in
-                        'beampath' section of config
+        """Initialize the 2D calibration protocol.
+
+        Parameters
+        ----------
+        config : dict
+            The configuration, with entries the union of those necessary
+            for CalibrationProtocol1D and IlluminationLaserControl.
+        protocol : dict
+            Required keys ``'laser_sequence'`` (list of lasers matching
+            'laser' keys in config) and ``'laser_powers'`` (dict of laser
+            keys and lists of respective laser powers); optional key
+            ``'beampath'`` (dict of laser keys and dicts of respective
+            beampath object settings for object ids as set in the
+            'beampath' section of config).
         """
         self.protocol = protocol
 
@@ -277,62 +340,87 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         # if not all lasers are present
         lasers_present = list(self.instrument.lasers.keys())
         self.protocol['laser_sequence'] = [
-            it for it in self.protocol['laser_sequence']
-            if it in lasers_present]
+            it
+            for it in self.protocol['laser_sequence']
+            if it in lasers_present
+        ]
         self.protocol['laser_powers'] = {
-            k: v for k, v in self.protocol['laser_powers'].items()
-            if k in lasers_present}
+            k: v
+            for k, v in self.protocol['laser_powers'].items()
+            if k in lasers_present
+        }
         self.protocol['beampath'] = {
-            k: v for k, v in self.protocol['beampath'].items()
-            if k in lasers_present or k=='end' or k=='start_calibrate' or k=='end_calibrate'}
+            k: v
+            for k, v in self.protocol['beampath'].items()
+            if k in lasers_present
+            or k == 'end'
+            or k == 'start_calibrate'
+            or k == 'end_calibrate'
+        }
 
         super().__init__(config, load_instrument=False)
 
-    def run_protocol(self, wait_time=0, switch_time=10,
-                     laser_filter=None, dry_run=False,
-                     progress_callback=None, manage_laser_state=True,
-                     powermeter_type='manual'):
-        """Run a protocol: loop through lasers and respective power settings,
-        doing calibrations, and saving them for every combination.
+    def run_protocol(
+        self,
+        wait_time=0,
+        switch_time=10,
+        laser_filter=None,
+        dry_run=False,
+        progress_callback=None,
+        manage_laser_state=True,
+        powermeter_type='manual',
+    ):
+        """Run a protocol over lasers and power settings.
 
-        Args:
-            wait_time : float
-                time to wait between attenuator steps [s]
-            switch_time : float
-                time to wait after switching laser [s]
-            laser_filter : list or None
-                if not None, only calibrate lasers in this list
-            dry_run : bool
-                if True, calibration is performed but not saved to the database
-            progress_callback : callable or None
-                called after each power step with (step, total, laser, lpwr)
-            manage_laser_state : bool
-                if True (CLI mode), switch off all lasers at start and after
-                each wavelength. If False (GUI mode), leave laser state as-is.
-            powermeter_type : str
-                'sample' (sample plane) or 'bfp' (back focal plane) — annotated
-                in every saved calibration
+        Loop through lasers and respective power settings, doing
+        calibrations and saving them for every combination.
+
+        Parameters
+        ----------
+        wait_time : float
+            Time to wait between attenuator steps [s].
+        switch_time : float
+            Time to wait after switching laser [s].
+        laser_filter : list or None
+            If not None, only calibrate lasers in this list.
+        dry_run : bool
+            If True, calibration is performed but not saved to the database.
+        progress_callback : callable or None
+            Called after each power step with (step, total, laser, lpwr).
+        manage_laser_state : bool
+            If True (CLI mode), switch off all lasers at start and after
+            each wavelength. If False (GUI mode), leave laser state as-is.
+        powermeter_type : str
+            'sample' (sample plane) or 'bfp' (back focal plane) — annotated
+            in every saved calibration.
         """
         powermeter_type = normalize_powermeter_type(powermeter_type)
         plotfolder = self.instrument.config.get('dest_calibration_plot')
 
-        lasers = [l for l in self.protocol['laser_sequence']
-                  if laser_filter is None or l in laser_filter]
+        lasers = [
+            las
+            for las in self.protocol['laser_sequence']
+            if laser_filter is None or las in laser_filter
+        ]
 
-        # delete plots belonging to the lasers being calibrated so stale power
-        # levels do not linger. Per-curve files are named '<wl>nm_<power>mW.png'
-        # and model/meas plots '<wl>nm.png' / 'pwrmeasured_<wl>nm.*'; all are
-        # overwritten on re-run, but pruning removes powers no longer calibrated.
-        laser_ints = {int(l) for l in lasers}
+        # delete plots belonging to the lasers being calibrated so stale
+        # power levels do not linger. Per-curve files are named
+        # '<wl>nm_<power>mW.png' and model/meas plots '<wl>nm.png' /
+        # 'pwrmeasured_<wl>nm.*'; all are overwritten on re-run, but
+        # pruning removes powers no longer calibrated.
+        laser_ints = {int(las) for las in lasers}
         for fname in os.listdir(plotfolder):
             matched = any(
-                fname in (
+                fname
+                in (
                     '{:d}nm.png'.format(li),
                     'pwrmeasured_{:d}nm.png'.format(li),
                     'pwrmeasured_{:d}nm.xlsx'.format(li),
                 )
-                or (fname.startswith('{:d}nm_'.format(li))
-                    and fname.endswith('mW.png'))
+                or (
+                    fname.startswith('{:d}nm_'.format(li))
+                    and fname.endswith('mW.png')
+                )
                 # legacy timestamped curve files from older versions
                 or 'wavelength (nm)-{:d}_'.format(li) in fname
                 for li in laser_ints
@@ -342,7 +430,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     os.remove(os.path.join(plotfolder, fname))
                 except Exception:
                     pass
-        total = sum(len(self.protocol['laser_powers'][l]) for l in lasers)
+        total = sum(len(self.protocol['laser_powers'][las]) for las in lasers)
         step = 0
 
         if manage_laser_state:
@@ -358,9 +446,13 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             self.instrument.laser_enabled = True
             laserpowers = self.protocol['laser_powers'][laser]
             if self.instrument.use_beampath:
-                self.instrument.beampath.positions = self.protocol['beampath'][laser]
+                self.instrument.beampath.positions = self.protocol['beampath'][
+                    laser
+                ]
                 if powermeter_type == POWERMETER_BFP:
-                    start_cal_pos = self.protocol['beampath'].get('start_calibrate')
+                    start_cal_pos = self.protocol['beampath'].get(
+                        'start_calibrate'
+                    )
                     if start_cal_pos:
                         self.instrument.beampath.positions = start_cal_pos
             self.instrument.attenuator.set_wavelength(laser)
@@ -380,10 +472,12 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
                 # suppress the per-step plot; projected curves are rendered
                 # below once the transmission factor for this run is known
-                angles, powers = self.calibrate(wait_time=wait_time,
-                                                dry_run=dry_run,
-                                                powermeter_type=powermeter_type,
-                                                save_plot=False)
+                angles, powers = self.calibrate(
+                    wait_time=wait_time,
+                    dry_run=dry_run,
+                    powermeter_type=powermeter_type,
+                    save_plot=False,
+                )
                 for an, pw in zip(angles, powers):
                     measpwrs.loc[an, lpwr] = pw
 
@@ -408,7 +502,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     self.instrument.config['database'],
                     self.instrument.config['index'][DEVICE_TAG],
                     laser,
-                    self.instrument.config['analysis'])
+                    self.instrument.config['analysis'],
+                )
             self.plot_model(modelpars, laser)
             self.save_measvals(measpwrs, laser, powermeter_type)
             # Render one projected attenuation curve per power level, named
@@ -417,19 +512,33 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 try:
                     col = measpwrs[lpwr]
                     self._save_curve_plot(
-                        laser, lpwr, col.index.to_numpy(), col.to_numpy(),
-                        modelpars.loc[lpwr].to_dict(), powermeter_type)
+                        laser,
+                        lpwr,
+                        col.index.to_numpy(),
+                        col.to_numpy(),
+                        modelpars.loc[lpwr].to_dict(),
+                        powermeter_type,
+                    )
                 except Exception as exc:
-                    logger.debug('Could not save curve plot %s nm / %s mW: %s',
-                                 laser, lpwr, exc)
+                    logger.debug(
+                        'Could not save curve plot %s nm / %s mW: %s',
+                        laser,
+                        lpwr,
+                        exc,
+                    )
         self.plot_device_history()
         # post-actions
         # move beampath to end_calibrate position
         if end_pos := self.protocol['beampath'].get('end_calibrate'):
             self.instrument.beampath.positions = end_pos
-        # move beampath to general end position (which is also used for shutdowbn)
-        if self.instrument.use_beampath and 'end' in self.protocol['beampath'].keys():
-            self.instrument.beampath.positions = self.protocol['beampath']['end']
+        # move beampath to general end position (also used for shutdown)
+        if (
+            self.instrument.use_beampath
+            and 'end' in self.protocol['beampath'].keys()
+        ):
+            self.instrument.beampath.positions = self.protocol['beampath'][
+                'end'
+            ]
         # re-enable autoshutter so the microscope is left ready for normal
         # imaging: calibration drives the shutter manually, which requires
         # autoshutter to be switched off (see NikonShutter._connect).
@@ -439,30 +548,38 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 try:
                     shutter.autoshutter = True
                 except Exception:
-                    logger.debug('Could not re-enable autoshutter after '
-                                 'calibration', exc_info=True)
+                    logger.debug(
+                        'Could not re-enable autoshutter after ' 'calibration',
+                        exc_info=True,
+                    )
         # self.instrument.is_calibrated = True
         # self.instrument.load_calibration_database()
 
         # copy all plots from local folder into a timestamped archive folder
         # (file-based DB only, and only when a plot folder is configured)
         lfolder = self.instrument.config.get('dest_calibration_plot')
-        if lfolder and not io._is_server_url(self.instrument.config['database']):
+        if lfolder and not io._is_server_url(
+            self.instrument.config['database']
+        ):
             device = self.instrument.config['index'][DEVICE_TAG]
             sfolder = os.path.join(
                 os.path.split(self.instrument.config['database'])[0],
                 'Calibrations',
-                datetime.now().strftime('%y%m%d-%H%M') + '_' + device)
+                datetime.now().strftime('%y%m%d-%H%M') + '_' + device,
+            )
             # dirs_exist_ok lets copytree create sfolder itself and tolerates
             # re-runs within the same minute.
             shutil.copytree(lfolder, sfolder, dirs_exist_ok=True)
 
     def plot_model(self, modeldf, laser):
         plt.switch_backend('agg')
-        fig, ax = plt.subplots(nrows=len(modeldf.columns), sharex=True, squeeze=False)
+        fig, ax = plt.subplots(
+            nrows=len(modeldf.columns), sharex=True, squeeze=False
+        )
         for i, col in enumerate(modeldf.columns):
-            ax[i, 0].plot(modeldf.index.to_numpy(), modeldf[col].to_numpy(),
-                          marker='x')
+            ax[i, 0].plot(
+                modeldf.index.to_numpy(), modeldf[col].to_numpy(), marker='x'
+            )
             ax[i, 0].set_ylabel(str(col))
         ax[-1, 0].set_xlabel('laser power [mW]')
         fig.suptitle('laser {:d} nm'.format(int(laser)))
@@ -470,39 +587,52 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         fname = self.instrument.config['database']
         folder = self.instrument.config.get('dest_calibration_plot')
         if folder is None:
-            folder = os.getcwd() if io._is_server_url(fname) else os.path.split(fname)[0]
-        fnplot = os.path.join(
-            folder, '{:d}nm'.format(int(laser)) + '.png')
+            folder = (
+                os.getcwd()
+                if io._is_server_url(fname)
+                else os.path.split(fname)[0]
+            )
+        fnplot = os.path.join(folder, '{:d}nm'.format(int(laser)) + '.png')
         fig.savefig(fnplot)
         plt.close(fig)
 
     def save_measvals(self, measdf, laser, powermeter_type=POWERMETER_SAMPLE):
-        """Save measured values as excel sheet and png, projected to the sample
-        plane when a transmission factor is available.
+        """Save measured values as an Excel sheet and png.
 
-        Args:
-            measdf : pandas DataFrame
-                measured powers; index = attenuator control values,
-                columns = laser power levels
-            laser : int or str
-                laser wavelength
-            powermeter_type : str
-                'sample' or 'bfp' — selects whether projection applies
+        Values are projected to the sample plane when a transmission factor
+        is available.
+
+        Parameters
+        ----------
+        measdf : pandas DataFrame
+            Measured powers; index = attenuator control values, columns =
+            laser power levels.
+        laser : int or str
+            Laser wavelength.
+        powermeter_type : str
+            'sample' or 'bfp' — selects whether projection applies.
         """
         fname = self.instrument.config['database']
         folder = self.instrument.config.get('dest_calibration_plot')
         if folder is None:
-            folder = os.getcwd() if io._is_server_url(fname) else os.path.split(fname)[0]
+            folder = (
+                os.getcwd()
+                if io._is_server_url(fname)
+                else os.path.split(fname)[0]
+            )
 
         factor = self._sample_plane_factor(laser, powermeter_type)
-        projected = (normalize_powermeter_type(powermeter_type) == POWERMETER_BFP
-                     and factor != 1.0)
+        projected = (
+            normalize_powermeter_type(powermeter_type) == POWERMETER_BFP
+            and factor != 1.0
+        )
         # measpwrs is assembled via .loc and can be object dtype; coerce so the
         # multiplication and rounding below behave numerically.
         measdf = measdf.apply(pd.to_numeric, errors='coerce') * factor
 
         fnxlsx = os.path.join(
-            folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.xlsx')
+            folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.xlsx'
+        )
         measdf.to_excel(fnxlsx)
 
         plt.switch_backend('agg')
@@ -514,24 +644,26 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         for c in tab.get_celld().values():
             c.visible_edges = 'horizontal'
         fig.tight_layout()
-        ax.set_title('measured powers in mW\n'
-                     + self._curve_plot_title(laser, '', powermeter_type, projected)
-                       .split('\n')[-1])
+        ax.set_title(
+            'measured powers in mW\n'
+            + self._curve_plot_title(
+                laser, '', powermeter_type, projected
+            ).split('\n')[-1]
+        )
         fnplot = os.path.join(
-            folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.png')
+            folder, 'pwrmeasured_{:d}nm'.format(int(laser)) + '.png'
+        )
         fig.tight_layout()
         plt.savefig(fnplot)
         plt.close(fig)
 
     def plot_device_history(self):
-        """Plot the historic evolution of model parameters
-        """
+        """Plot the historic evolution of model parameters."""
         plt.switch_backend('agg')
         device = self.instrument.config['index'][DEVICE_TAG]
         plot_dir = self.instrument.config.get('dest_calibration_plot')
         db_fname = self.instrument.config['database']
         io.plot_device_history(db_fname, device, plot_dir)
         anaconfig = self.instrument.config['analysis']
-        analyzer = load_class(
-                anaconfig['classpath'], anaconfig['init_kwargs'])
+        analyzer = load_class(anaconfig['classpath'], anaconfig['init_kwargs'])
         io.plot_device_amplitude_history(db_fname, device, plot_dir, analyzer)

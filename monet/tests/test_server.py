@@ -1,17 +1,15 @@
 """
-    monet/tests/test_server.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_server.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Test the FastAPI server endpoints.
+Test the FastAPI server endpoints.
 """
-import json
+
 import os
 import tempfile
 import unittest
 
 from fastapi.testclient import TestClient
-
-from monet.models import get_engine
 
 
 class TestServer(unittest.TestCase):
@@ -22,26 +20,32 @@ class TestServer(unittest.TestCase):
         os.environ['MONET_DB_PATH'] = self.db_path
         # Import after setting env var so lifespan picks it up
         from monet.server import app
+
         self.client = TestClient(app)
         self.client.__enter__()
 
     def tearDown(self):
         self.client.__exit__(None, None, None)
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _save_record(self, name='TestScope', wavelength=488,
-                     laser_power=100, params=None):
+    def _save_record(
+        self, name='TestScope', wavelength=488, laser_power=100, params=None
+    ):
         if params is None:
             params = {'bkg': 0.5, 'amp': 45.0, 'phi': 32.0}
-        resp = self.client.post('/calibrations', json={
-            'index': {
-                'name': name,
-                'wavelength [nm]': wavelength,
-                'laser_power [mW]': laser_power,
+        resp = self.client.post(
+            '/calibrations',
+            json={
+                'index': {
+                    'name': name,
+                    'wavelength [nm]': wavelength,
+                    'laser_power [mW]': laser_power,
+                },
+                'parameters': params,
             },
-            'parameters': params,
-        })
+        )
         self.assertEqual(resp.status_code, 200)
         return resp.json()
 
@@ -63,11 +67,17 @@ class TestServer(unittest.TestCase):
         self._save_record(params={'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
         self._save_record(params={'bkg': 2.0, 'amp': 50.0, 'phi': 35.0})
 
-        resp = self.client.post('/calibrations/query', json={
-            'index': {'name': 'TestScope', 'wavelength [nm]': 488,
-                      'laser_power [mW]': 100},
-            'time_idx': 'latest',
-        })
+        resp = self.client.post(
+            '/calibrations/query',
+            json={
+                'index': {
+                    'name': 'TestScope',
+                    'wavelength [nm]': 488,
+                    'laser_power [mW]': 100,
+                },
+                'time_idx': 'latest',
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         records = resp.json()['records']
         self.assertEqual(len(records), 1)
@@ -78,28 +88,37 @@ class TestServer(unittest.TestCase):
         self._save_record(params={'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
         self._save_record(params={'bkg': 2.0, 'amp': 50.0, 'phi': 35.0})
 
-        resp = self.client.post('/calibrations/query', json={
-            'index': {'name': 'TestScope'},
-            'time_idx': 'all',
-        })
+        resp = self.client.post(
+            '/calibrations/query',
+            json={
+                'index': {'name': 'TestScope'},
+                'time_idx': 'all',
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         records = resp.json()['records']
         self.assertEqual(len(records), 2)
 
     def test_query_last_combinations(self):
         # Save records for two different laser powers
-        self._save_record(laser_power=100,
-                          params={'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
-        self._save_record(laser_power=200,
-                          params={'bkg': 1.5, 'amp': 42.0, 'phi': 31.0})
+        self._save_record(
+            laser_power=100, params={'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+        )
+        self._save_record(
+            laser_power=200, params={'bkg': 1.5, 'amp': 42.0, 'phi': 31.0}
+        )
         # Save a newer record for laser_power=100
-        self._save_record(laser_power=100,
-                          params={'bkg': 2.0, 'amp': 50.0, 'phi': 35.0})
+        self._save_record(
+            laser_power=100, params={'bkg': 2.0, 'amp': 50.0, 'phi': 35.0}
+        )
 
-        resp = self.client.post('/calibrations/query', json={
-            'index': {'name': 'TestScope', 'wavelength [nm]': 488},
-            'time_idx': 'last combinations',
-        })
+        resp = self.client.post(
+            '/calibrations/query',
+            json={
+                'index': {'name': 'TestScope', 'wavelength [nm]': 488},
+                'time_idx': 'last combinations',
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         records = resp.json()['records']
         # Should have 2 records: one per (device, wavelength, power) combo
@@ -114,29 +133,38 @@ class TestServer(unittest.TestCase):
         self._save_record(wavelength=561)
 
         # Query with None wavelength (wildcard)
-        resp = self.client.post('/calibrations/query', json={
-            'index': {'name': 'TestScope', 'wavelength [nm]': None},
-            'time_idx': 'all',
-        })
+        resp = self.client.post(
+            '/calibrations/query',
+            json={
+                'index': {'name': 'TestScope', 'wavelength [nm]': None},
+                'time_idx': 'all',
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         records = resp.json()['records']
         self.assertEqual(len(records), 2)
 
     def test_query_not_found(self):
-        resp = self.client.post('/calibrations/query', json={
-            'index': {'name': 'NonexistentScope'},
-            'time_idx': 'all',
-        })
+        resp = self.client.post(
+            '/calibrations/query',
+            json={
+                'index': {'name': 'NonexistentScope'},
+                'time_idx': 'all',
+            },
+        )
         self.assertEqual(resp.status_code, 404)
 
     def test_restart_database(self):
         # Save multiple records for same combo
-        self._save_record(laser_power=100,
-                          params={'bkg': 1.0, 'amp': 40.0, 'phi': 30.0})
-        self._save_record(laser_power=100,
-                          params={'bkg': 2.0, 'amp': 50.0, 'phi': 35.0})
-        self._save_record(laser_power=200,
-                          params={'bkg': 3.0, 'amp': 55.0, 'phi': 36.0})
+        self._save_record(
+            laser_power=100, params={'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+        )
+        self._save_record(
+            laser_power=100, params={'bkg': 2.0, 'amp': 50.0, 'phi': 35.0}
+        )
+        self._save_record(
+            laser_power=200, params={'bkg': 3.0, 'amp': 55.0, 'phi': 36.0}
+        )
 
         resp = self.client.post('/database/restart')
         self.assertEqual(resp.status_code, 200)
@@ -160,10 +188,13 @@ class TestServer(unittest.TestCase):
         date = record['calibration_date']
         time_val = record['calibration_time']
 
-        resp = self.client.post('/calibrations/query', json={
-            'index': {'name': 'TestScope'},
-            'time_idx': [date, time_val],
-        })
+        resp = self.client.post(
+            '/calibrations/query',
+            json={
+                'index': {'name': 'TestScope'},
+                'time_idx': [date, time_val],
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         records = resp.json()['records']
         self.assertGreaterEqual(len(records), 1)

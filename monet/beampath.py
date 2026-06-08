@@ -1,29 +1,26 @@
 #!/usr/bin/env python
 """
-    monet/beampath.py
-    ~~~~~~~~~~~~~~~~~
+monet/beampath.py
+~~~~~~~~~~~~~~~~~
 
-    This module provides functionality to control things in the beam path
-    other than those which are central to the functionality of monet. E.g.
-    opening shutters or positioning dichroics.
+This module provides functionality to control things in the beam path
+other than those which are central to the functionality of monet. E.g.
+opening shutters or positioning dichroics.
 
-    :authors: Heinrich Grabmayr, 2022
-    :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
+:authors: Heinrich Grabmayr, 2022
+:copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
-import logging
-from icecream import ic
-import os
+
 import abc
+import logging
+
+from icecream import ic
+
+from monet.util import load_class
 
 # pycromanager is imported lazily inside get_pycromgr() so the rest of the
 # package can be used (and tested) on machines without Micro-Manager.
 # import pymmcore
-
-import time
-import numpy as np
-import pandas as pd
-
-from monet.util import load_class
 
 
 logger = logging.getLogger(__name__)
@@ -32,16 +29,21 @@ ic.configureOutput(outputFunction=logger.debug)
 pycrocore = None
 # or load specific config here: https://github.com/micro-manager/pymmcore/
 
-def get_pycromgr(pycore_config=None):
-    """Initialize the pycromanager core, either using a saved configuration,
-    or the default.
-    Args:
-        pycrocore_config : None or dict
-            if dict, with keys: 'micromanager_path', 'mmconfig_name'
 
-    Returns:
-        pycrocore : pycromanger.Core
-            the global pycromanger core instance
+def get_pycromgr(pycore_config=None):
+    """Initialize the pycromanager core.
+
+    Uses a saved configuration if supplied, otherwise the default.
+
+    Parameters
+    ----------
+    pycore_config : None or dict
+        If a dict, with keys 'micromanager_path' and 'mmconfig_name'.
+
+    Returns
+    -------
+    pycrocore : pycromanager.Core
+        The global pycromanager core instance.
     """
     global pycrocore
     if pycrocore is not None:
@@ -57,18 +59,23 @@ def get_pycromgr(pycore_config=None):
             raise TimeoutError(
                 'Timed out connecting to Micro-Manager (pycromanager). '
                 'Check that Micro-Manager is running and the Java gateway is '
-                'accessible on the expected port.') from e
+                'accessible on the expected port.'
+            ) from e
     else:
         # no need to specifically load the config
-        logger.debug('Ignoring pycromanager configuration {:s}.'.format(str(pycore_config)))
+        logger.debug(
+            'Ignoring pycromanager configuration {:s}.'.format(
+                str(pycore_config)
+            )
+        )
         try:
             pycrocore = Core()
         except TimeoutError as e:
             raise TimeoutError(
                 'Timed out connecting to Micro-Manager (pycromanager). '
                 'Check that Micro-Manager is running and the Java gateway is '
-                'accessible on the expected port.') from e
-        # raise NotImplementedError('Loading pycromanager from pymmcore is not implemented.')
+                'accessible on the expected port.'
+            ) from e
         # pycrocore = pymmcore.CMMCore()
         # pycrocore.setDeviceAdapterSearchPaths(
         #     [pycore_config['micromanager_path']])
@@ -81,25 +88,32 @@ def get_pycromgr(pycore_config=None):
     return pycrocore
 
 
-class BeamPath():
-    """A class holding all objects in the beam path that can be opened
-    or put into a correct position.
-    Example config:
-    {
-        'DC': {
-            'classpath': 'monet.beampath.NikonFilterWheel',
-            init_kwargs: {'SN': 1234}},
-        'shutter': {
-            'classpath': 'monet.beampath.NikonShutter',
-            init_kwargs: {'SN': 123456}},
+class BeamPath:
+    """Hold all beam-path objects that can be opened or positioned.
+
+    Notes
+    -----
+    Example config::
+
+        {
+            'DC': {
+                'classpath': 'monet.beampath.NikonFilterWheel',
+                'init_kwargs': {'SN': 1234}},
+            'shutter': {
+                'classpath': 'monet.beampath.NikonShutter',
+                'init_kwargs': {'SN': 123456}},
+        }
     """
+
     def __init__(self, config, pycore_config=None):
-        """
-        Args:
-            config : dict
-                keys: BeamPathObject identifier, as used in protocol
-            pycore_config : dict
-                'micromanager_path', 'mmconfig_name'
+        """Initialize the beam path.
+
+        Parameters
+        ----------
+        config : dict
+            Keys are BeamPathObject identifiers, as used in the protocol.
+        pycore_config : dict
+            Keys 'micromanager_path' and 'mmconfig_name'.
         """
         # Only initialise the Micro-Manager core eagerly when an explicit
         # configuration is supplied. The real (Nikon*) beam-path objects each
@@ -115,28 +129,33 @@ class BeamPath():
     @property
     def positions(self):
         """Query the positions of the beam path objects.
-        Returns:
-            positions : dict
-                keys object its as in self.objects
+
+        Returns
+        -------
+        positions : dict
+            Keys are object ids as in self.objects.
         """
         return {obid: obj.position for obid, obj in self.objects.items()}
 
     @positions.setter
     def positions(self, positions):
         """Set the position of beam path objects.
-        Args:
-            positions : dict
-                keys: object ids as in self.objects
-                values: position values compatible with the respective object.
+
+        Parameters
+        ----------
+        positions : dict
+            Keys are object ids as in self.objects; values are position
+            values compatible with the respective object.
         """
         for obid, pos in positions.items():
             self.objects[obid].position = pos
 
 
 class AbstractBeamPathObject(abc.ABC):
-    """The prototypic beam path object, with standard methods.
-    """
+    """The prototypic beam path object, with standard methods."""
+
     _position = None
+
     def __init__(self, config):
         self._position = 0
         self._autoshutter = True
@@ -145,8 +164,7 @@ class AbstractBeamPathObject(abc.ABC):
     @property
     @abc.abstractmethod
     def position(self):
-        """Get the position of the beam path object
-        """
+        """Get the position of the beam path object."""
         return self._position
 
     @position.setter
@@ -157,15 +175,16 @@ class AbstractBeamPathObject(abc.ABC):
 
 
 class TestShutter(AbstractBeamPathObject):
-    """Implments a test shutter.
-    """
+    """Implments a test shutter."""
+
     def __init__(self, config):
-        """
-        Args:
-            config : dict
-                the configuration of the shutter. Keys
-                'SN': serial number
-                ...
+        """Initialize the shutter.
+
+        Parameters
+        ----------
+        config : dict
+            The configuration of the shutter, e.g. with key 'SN' (serial
+            number).
         """
         super().__init__(config)
         logger.debug('initializing TestShutter')
@@ -174,8 +193,7 @@ class TestShutter(AbstractBeamPathObject):
 
     @property
     def autoshutter(self):
-        """Get the whether shutter is on autoshutter
-        """
+        """Get whether the shutter is on autoshutter."""
         return self._autoshutter
 
     @autoshutter.setter
@@ -196,21 +214,24 @@ class TestShutter(AbstractBeamPathObject):
     @position.setter
     def position(self, pos):
         if not isinstance(pos, bool):
-            raise ValueError('TestShutter position must be bool, got {!r}'.format(pos))
+            raise ValueError(
+                'TestShutter position must be bool, got {!r}'.format(pos)
+            )
         logger.debug('setting position of TestShutter to {:b}'.format(pos))
         super(self.__class__, self.__class__).position.__set__(self, pos)
 
 
 class NikonShutter(AbstractBeamPathObject):
-    """Implments the shutter of a Nikon Ti2 Microscope.
-    """
+    """Implments the shutter of a Nikon Ti2 Microscope."""
+
     def __init__(self, config):
-        """
-        Args:
-            config : dict
-                the configuration of the shutter. Keys
-                'SN': serial number
-                ...
+        """Initialize the shutter.
+
+        Parameters
+        ----------
+        config : dict
+            The configuration of the shutter, e.g. with key 'SN' (serial
+            number).
         """
         super().__init__(config)
         self._connect(config)
@@ -238,7 +259,9 @@ class NikonShutter(AbstractBeamPathObject):
     @position.setter
     def position(self, pos):
         if not isinstance(pos, bool):
-            raise ValueError('NikonShutter position must be bool, got {!r}'.format(pos))
+            raise ValueError(
+                'NikonShutter position must be bool, got {!r}'.format(pos)
+            )
         # if pos:
         #     self.device.open()
         #     # core.setShutterOpen(True)
@@ -250,15 +273,16 @@ class NikonShutter(AbstractBeamPathObject):
 
 
 class NikonFilterWheel(AbstractBeamPathObject):
-    """Implments the filter wheel of a Nikon Ti2 Microscope.
-    """
+    """Implments the filter wheel of a Nikon Ti2 Microscope."""
+
     def __init__(self, config):
-        """
-        Args:
-            config : dict
-                the configuration of the filter wheel. Keys:
-                'SN': serial number
-                ...
+        """Initialize the filter wheel.
+
+        Parameters
+        ----------
+        config : dict
+            The configuration of the filter wheel, e.g. with key 'SN'
+            (serial number).
         """
         super().__init__(config)
         self._connect(config)
@@ -268,37 +292,46 @@ class NikonFilterWheel(AbstractBeamPathObject):
         # find the correct filter config name
         filter_config_name = 'Filter turret'
         cfg_groups = self.core.get_available_config_groups()
-        config_names = [
-            cfg_groups.get(i)
-            for i in range(cfg_groups.size())]
+        config_names = [cfg_groups.get(i) for i in range(cfg_groups.size())]
         if filter_config_name not in config_names:
             config_names_upper = [it.upper() for it in config_names]
             if filter_config_name.upper() in config_names_upper:
                 filter_config_name = config_names[
-                    config_names_upper.index(filter_config_name.upper())]
+                    config_names_upper.index(filter_config_name.upper())
+                ]
             else:
                 # try the parts
                 name_candidates = []
                 for test_cn in filter_config_name.split(' '):
-                    found = [test_cn.upper() in cn for cn in config_names_upper]
+                    found = [
+                        test_cn.upper() in cn for cn in config_names_upper
+                    ]
                     if sum(found) > 0:
                         name_candidates.append(config_names[found.index(True)])
                 if len(name_candidates) == 1:
                     filter_config_name = name_candidates[0]
                 elif len(name_candidates) > 1:
                     logger.debug(
-                        'Multiple configs could be the ' + filter_config_name +
-                        ': ' + ', '.join(name_candidates) + '. Choosing the first.')
+                        'Multiple configs could be the '
+                        + filter_config_name
+                        + ': '
+                        + ', '.join(name_candidates)
+                        + '. Choosing the first.'
+                    )
                     filter_config_name = name_candidates[0]
                 else:
                     raise KeyError(
                         'Cannot find Micro-Manager configuration group for '
                         '{!r}. Available groups: {}'.format(
-                            filter_config_name, config_names))
+                            filter_config_name, config_names
+                        )
+                    )
         self.filter_config_name = filter_config_name
         # load the options
         configopts = self.core.get_available_configs(filter_config_name)
-        self.filter_options = [configopts.get(i) for i in range(configopts.size())]
+        self.filter_options = [
+            configopts.get(i) for i in range(configopts.size())
+        ]
 
     @property
     def position(self):
@@ -309,25 +342,31 @@ class NikonFilterWheel(AbstractBeamPathObject):
     @position.setter
     def position(self, pos):
         if not isinstance(pos, str):
-            raise ValueError('MMConfigFilter position must be str, got {!r}'.format(pos))
+            raise ValueError(
+                'MMConfigFilter position must be str, got {!r}'.format(pos)
+            )
         if pos not in self.filter_options:
             raise ValueError(
                 'Position {!r} not available for {}. Options: {}'.format(
-                    pos, self.filter_config_name, self.filter_options))
+                    pos, self.filter_config_name, self.filter_options
+                )
+            )
         self.core.set_config(self.filter_config_name, pos)
 
         super(self.__class__, self.__class__).position.__set__(self, pos)
 
+
 class NikonNosepiece(AbstractBeamPathObject):
-    """Implments the Nosepiece / objective turret of a Nikon Ti2 Microscope.
-    """
+    """Implments the Nosepiece / objective turret of a Nikon Ti2 Microscope."""
+
     def __init__(self, config):
-        """
-        Args:
-            config : dict
-                the configuration of the nosepiece. Keys:
-                'SN': serial number
-                ...
+        """Initialize the nosepiece.
+
+        Parameters
+        ----------
+        config : dict
+            The configuration of the nosepiece, e.g. with key 'SN' (serial
+            number).
         """
         super().__init__(config)
         self._connect(config)
@@ -337,37 +376,46 @@ class NikonNosepiece(AbstractBeamPathObject):
         # find the correct filter config name
         filter_config_name = 'Nosepiece'
         cfg_groups = self.core.get_available_config_groups()
-        config_names = [
-            cfg_groups.get(i)
-            for i in range(cfg_groups.size())]
+        config_names = [cfg_groups.get(i) for i in range(cfg_groups.size())]
         if filter_config_name not in config_names:
             config_names_upper = [it.upper() for it in config_names]
             if filter_config_name.upper() in config_names_upper:
                 filter_config_name = config_names[
-                    config_names_upper.index(filter_config_name.upper())]
+                    config_names_upper.index(filter_config_name.upper())
+                ]
             else:
                 # try the parts
                 name_candidates = []
                 for test_cn in filter_config_name.split(' '):
-                    found = [test_cn.upper() in cn for cn in config_names_upper]
+                    found = [
+                        test_cn.upper() in cn for cn in config_names_upper
+                    ]
                     if sum(found) > 0:
                         name_candidates.append(config_names[found.index(True)])
                 if len(name_candidates) == 1:
                     filter_config_name = name_candidates[0]
                 elif len(name_candidates) > 1:
                     logger.debug(
-                        'Multiple configs could be the ' + filter_config_name +
-                        ': ' + ', '.join(name_candidates) + '. Choosing the first.')
+                        'Multiple configs could be the '
+                        + filter_config_name
+                        + ': '
+                        + ', '.join(name_candidates)
+                        + '. Choosing the first.'
+                    )
                     filter_config_name = name_candidates[0]
                 else:
                     raise KeyError(
                         'Cannot find Micro-Manager configuration group for '
                         '{!r}. Available groups: {}'.format(
-                            filter_config_name, config_names))
+                            filter_config_name, config_names
+                        )
+                    )
         self.filter_config_name = filter_config_name
         # load the options
         configopts = self.core.get_available_configs(filter_config_name)
-        self.filter_options = [configopts.get(i) for i in range(configopts.size())]
+        self.filter_options = [
+            configopts.get(i) for i in range(configopts.size())
+        ]
 
     @property
     def position(self):
@@ -378,11 +426,15 @@ class NikonNosepiece(AbstractBeamPathObject):
     @position.setter
     def position(self, pos):
         if not isinstance(pos, str):
-            raise ValueError('NikonNosepiece position must be str, got {!r}'.format(pos))
+            raise ValueError(
+                'NikonNosepiece position must be str, got {!r}'.format(pos)
+            )
         if pos not in self.filter_options:
             raise ValueError(
                 'Position {!r} not available for {}. Options: {}'.format(
-                    pos, self.filter_config_name, self.filter_options))
+                    pos, self.filter_config_name, self.filter_options
+                )
+            )
         self.core.set_config(self.filter_config_name, pos)
 
         super(self.__class__, self.__class__).position.__set__(self, pos)

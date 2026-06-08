@@ -1,12 +1,13 @@
 """
-    monet/tests/test_io_offline.py
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+monet/tests/test_io_offline.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Integration tests for io.py offline behaviour:
-    - When the server is unreachable, saves go to the local outbox.
-    - Reads fall back to the local cache.
-    - The outbox is flushed when connectivity is restored.
+Integration tests for io.py offline behaviour:
+- When the server is unreachable, saves go to the local outbox.
+- Reads fall back to the local cache.
+- The outbox is flushed when connectivity is restored.
 """
+
 import os
 import tempfile
 import unittest
@@ -33,6 +34,7 @@ class TestOfflineSave(unittest.TestCase):
         self.server_url = 'http://offline-test-server:8000'
 
         import requests as _requests
+
         self._orig_post = _requests.post
         _requests.post = self._raise_connection_error
 
@@ -41,16 +43,24 @@ class TestOfflineSave(unittest.TestCase):
 
     def tearDown(self):
         import requests as _requests
+
         _requests.post = self._orig_post
         mcache._clear_cache_registry()
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_save_goes_to_outbox_and_cache(self):
-        index = {'name': 'TestScope', 'wavelength [nm]': 488, 'laser_power [mW]': 100}
+        index = {
+            'name': 'TestScope',
+            'wavelength [nm]': 488,
+            'laser_power [mW]': 100,
+        }
         cali_pars = {'bkg': 0.5, 'amp': 45.0}
 
-        indexnames, indexvals = mio.save_calibration(self.server_url, index, cali_pars)
+        indexnames, indexvals = mio.save_calibration(
+            self.server_url, index, cali_pars
+        )
 
         # Return values should still be meaningful
         self.assertEqual(indexvals[0], 'TestScope')
@@ -58,7 +68,9 @@ class TestOfflineSave(unittest.TestCase):
 
         # Entry must be in the local cache
         cache = mcache._get_cache(self.server_url)
-        records = cache.query_calibrations({'name': 'TestScope'}, time_idx='latest')
+        records = cache.query_calibrations(
+            {'name': 'TestScope'}, time_idx='latest'
+        )
         self.assertEqual(len(records), 1)
         self.assertAlmostEqual(records[0]['parameters']['bkg'], 0.5)
 
@@ -68,19 +80,26 @@ class TestOfflineSave(unittest.TestCase):
     def test_load_falls_back_to_cache(self):
         # Pre-populate the cache directly
         cache = mcache._get_cache(self.server_url)
-        cache.upsert_calibration({
-            'device_name': 'TestScope',
-            'wavelength_nm': 488.0,
-            'laser_power_mw': 100.0,
-            'calibration_date': '2024-01-01',
-            'calibration_time': '10:00',
-            'parameters': {'bkg': 3.0, 'amp': 42.0},
-        })
+        cache.upsert_calibration(
+            {
+                'device_name': 'TestScope',
+                'wavelength_nm': 488.0,
+                'laser_power_mw': 100.0,
+                'calibration_date': '2024-01-01',
+                'calibration_time': '10:00',
+                'parameters': {'bkg': 3.0, 'amp': 42.0},
+            }
+        )
 
         import pandas as pd
+
         result = mio.load_database(
             self.server_url,
-            {'name': 'TestScope', 'wavelength [nm]': 488.0, 'laser_power [mW]': 100.0},
+            {
+                'name': 'TestScope',
+                'wavelength [nm]': 488.0,
+                'laser_power [mW]': 100.0,
+            },
             time_idx='latest',
         )
         self.assertIsInstance(result, pd.Series)
@@ -97,27 +116,31 @@ class TestOfflineSave(unittest.TestCase):
     def test_delete_queued_in_outbox(self):
         # Save something to the cache first
         cache = mcache._get_cache(self.server_url)
-        cache.upsert_calibration({
-            'device_name': 'TestScope',
-            'wavelength_nm': 488.0,
-            'laser_power_mw': 100.0,
-            'calibration_date': '2024-01-01',
-            'calibration_time': '10:00',
-            'parameters': {'bkg': 1.0},
-        })
+        cache.upsert_calibration(
+            {
+                'device_name': 'TestScope',
+                'wavelength_nm': 488.0,
+                'laser_power_mw': 100.0,
+                'calibration_date': '2024-01-01',
+                'calibration_time': '10:00',
+                'parameters': {'bkg': 1.0},
+            }
+        )
 
-        count = mio.delete_calibration(
-            self.server_url, {'name': 'TestScope'})
+        count = mio.delete_calibration(self.server_url, {'name': 'TestScope'})
         self.assertEqual(count, 1)
         # Local cache should be empty
-        records = cache.query_calibrations({'name': 'TestScope'}, time_idx='all')
+        records = cache.query_calibrations(
+            {'name': 'TestScope'}, time_idx='all'
+        )
         self.assertEqual(len(records), 0)
         # Outbox should have the delete queued
         self.assertEqual(cache.pending_outbox_count(), 1)
 
     def test_factor_save_goes_to_cache_and_outbox(self):
         mio._save_factor_http(
-            self.server_url, 'TestScope', 488, '2024-01-01', 0.92, 0.01, 50)
+            self.server_url, 'TestScope', 488, '2024-01-01', 0.92, 0.01, 50
+        )
         cache = mcache._get_cache(self.server_url)
         records = cache.query_factors('TestScope', 488)
         self.assertEqual(len(records), 1)
@@ -137,14 +160,17 @@ class TestOutboxFlush(unittest.TestCase):
         db_path = os.path.join(self.tmpdir, 'test.db')
         os.environ['MONET_DB_PATH'] = db_path
 
-        from monet.server import app
         from fastapi.testclient import TestClient
+
+        from monet.server import app
+
         self.test_client = TestClient(app)
         self.test_client.__enter__()
 
         self.server_url = 'http://flush-test:8000'
 
         import requests as _requests
+
         self._orig_post = _requests.post
         self._fail_next = False
         self._test_client = self.test_client
@@ -158,9 +184,11 @@ class TestOutboxFlush(unittest.TestCase):
                 def __init__(self, r):
                     self._r = r
                     self.status_code = r.status_code
+
                 def raise_for_status(self):
                     if self.status_code >= 400:
                         raise Exception(f'HTTP {self.status_code}')
+
                 def json(self):
                     return self._r.json()
 
@@ -172,14 +200,20 @@ class TestOutboxFlush(unittest.TestCase):
 
     def tearDown(self):
         import requests as _requests
+
         _requests.post = self._orig_post
         self.test_client.__exit__(None, None, None)
         mcache._clear_cache_registry()
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_outbox_flushed_on_reconnect(self):
-        index = {'name': 'TestScope', 'wavelength [nm]': 488, 'laser_power [mW]': 100}
+        index = {
+            'name': 'TestScope',
+            'wavelength [nm]': 488,
+            'laser_power [mW]': 100,
+        }
         cali_pars = {'bkg': 7.0, 'amp': 30.0}
 
         # Simulate offline save
@@ -188,17 +222,18 @@ class TestOutboxFlush(unittest.TestCase):
         cache = mcache._get_cache(self.server_url)
         self.assertEqual(cache.pending_outbox_count(), 1)
 
-        # Restore connectivity and trigger a new operation — outbox should flush
+        # Restore connectivity and trigger a new operation — outbox
+        # should flush
         self._fail_next = False
         mio._last_flush_failure.clear()  # bypass cooldown
-        mio.save_calibration(
-            self.server_url, index, {'bkg': 8.0, 'amp': 31.0})
+        mio.save_calibration(self.server_url, index, {'bkg': 8.0, 'amp': 31.0})
 
         # Outbox should now be empty
         self.assertEqual(cache.pending_outbox_count(), 0)
 
         # Server should have the previously-offline calibration
         import pandas as pd
+
         result = mio.load_database(self.server_url, index, time_idx='all')
         self.assertIsInstance(result, pd.DataFrame)
         bkgs = [result.iloc[i]['bkg'] for i in range(len(result))]
