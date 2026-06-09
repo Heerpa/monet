@@ -31,7 +31,7 @@ from monet import (
     normalize_powermeter_type,
 )
 from monet.control import IlluminationControl, IlluminationLaserControl
-from monet.util import load_class
+from monet.util import load_class, release_hardware
 
 logger = logging.getLogger(__name__)
 ic.configureOutput(outputFunction=logger.debug)
@@ -89,6 +89,23 @@ class CalibrationProtocol1D:
                 self.powermeter_error,
                 exc_info=True,
             )
+
+    def disconnect(self):
+        """Release all hardware held by this protocol.
+
+        Closes the instrument (lasers + attenuator) and the power meter so
+        the same devices can be re-opened by a fresh connection. Safe to
+        call more than once and on partially-constructed objects.
+        """
+        instrument = getattr(self, 'instrument', None)
+        if instrument is not None:
+            try:
+                instrument.disconnect()
+            except Exception:
+                logger.debug(
+                    'disconnect: instrument teardown failed', exc_info=True
+                )
+        release_hardware(getattr(self, 'powermeter', None))
 
     def calibrate(
         self,

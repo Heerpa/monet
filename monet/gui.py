@@ -130,16 +130,30 @@ class ConnectWorker(QThread):
     warning = pyqtSignal(str)  # non-fatal warning (e.g. no powermeter)
     error = pyqtSignal(str)
 
-    def __init__(self, name, config, protocol):
+    def __init__(self, name, config, protocol, old_pc=None):
         super().__init__()
         self._name = name
         self._config = config
         self._protocol = protocol
+        self._old_pc = old_pc
 
     def run(self):
         import monet.calibrate as mca
 
         try:
+            # Release the previous connection first so its serial ports /
+            # SDK sessions are freed; otherwise re-opening the same hardware
+            # (e.g. after switching on another laser) fails with the ports
+            # still held by the old instance. Done here (worker thread) so
+            # the potentially-blocking close does not freeze the UI.
+            if self._old_pc is not None:
+                try:
+                    self._old_pc.disconnect()
+                except Exception:
+                    logging.getLogger(__name__).debug(
+                        'old connection teardown failed', exc_info=True
+                    )
+
             if self._protocol:
                 pc = mca.CalibrationProtocol2D(self._config, self._protocol)
             else:
@@ -2303,7 +2317,9 @@ class MonetWidget(QWidget):
             self._scope_combo.setEnabled(False)
         self.status_changed.emit('Connecting to {}…'.format(name), 0)
 
-        self._connect_worker = ConnectWorker(name, config, protocol)
+        self._connect_worker = ConnectWorker(
+            name, config, protocol, old_pc=self._pc
+        )
         self._connect_worker.connected.connect(self._on_connected)
         self._connect_worker.warning.connect(self._on_connect_warning)
         self._connect_worker.error.connect(self._on_connect_error)
@@ -2336,9 +2352,17 @@ class MonetWidget(QWidget):
             except Exception:
                 pass
         if self._pc is not None:
+            # disconnect() disables every laser and releases all hardware
+            # (serial ports, SDK sessions); fall back to just disabling the
+            # lasers if a custom pc object has no disconnect().
             try:
-                for laser in self._pc.instrument.lasers:
-                    self._pc.instrument.lasers[laser].enabled = False
+                self._pc.disconnect()
+            except AttributeError:
+                try:
+                    for laser in self._pc.instrument.lasers:
+                        self._pc.instrument.lasers[laser].enabled = False
+                except Exception:
+                    pass
             except Exception:
                 pass
 

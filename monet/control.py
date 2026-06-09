@@ -25,7 +25,7 @@ from monet import (
     normalize_powermeter_type,
 )
 from monet.beampath import BeamPath
-from monet.util import load_class
+from monet.util import load_class, release_hardware
 
 logger = logging.getLogger(__name__)
 ic.configureOutput(outputFunction=logger.debug)
@@ -134,6 +134,15 @@ class IlluminationControl:
 
         self.analyzer.load_model(cali_pars)
         self.is_calibrated = True
+
+    def disconnect(self):
+        """Release the attenuator hardware so its port/handle is freed.
+
+        Call this before re-creating the control on the same hardware
+        (e.g. reconnecting in the GUI) so ports are not held open by the
+        previous instance. Safe to call more than once.
+        """
+        release_hardware(getattr(self, 'attenuator', None))
 
 
 class IlluminationLaserControl(IlluminationControl):
@@ -747,6 +756,23 @@ class IlluminationLaserControl(IlluminationControl):
 
         self.laser = self.curr_laser  # to populate the analyzers
         self.laserpower = self.curr_laserpower
+
+    def disconnect(self):
+        """Switch off and release all lasers and the attenuator.
+
+        Frees the serial ports / SDK sessions held by every laser (and the
+        attenuator) so a fresh connection on the same hardware can re-open
+        them. Lasers are disabled first so the beam is never left on.
+        """
+        for laser in list(getattr(self, 'lasers', {}).values()):
+            try:
+                laser.enabled = False
+            except Exception:
+                logger.debug(
+                    'disconnect: disabling laser failed', exc_info=True
+                )
+            release_hardware(laser)
+        super().disconnect()
 
 
 def run_power_feedback(

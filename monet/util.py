@@ -9,7 +9,52 @@ Utility functions for the monet package
 :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
 
+import logging
 from importlib import import_module
+
+logger = logging.getLogger(__name__)
+
+
+def release_hardware(obj, _seen=None):
+    """Best-effort release of a hardware object's OS handles.
+
+    Closes serial ports, SDK sessions and motor connections so the device
+    can be re-opened by a fresh connection (e.g. when reconnecting in the
+    GUI after a laser was switched on). Tries the object's own
+    ``stop_polling`` / ``close`` / ``disconnect`` methods and recurses into
+    common wrapped handles (``las``, ``laser``, ``lowlvl``, ``device``,
+    ``pm``). All errors are swallowed, and ``None`` / simulated ``Test*``
+    devices are no-ops.
+
+    Parameters
+    ----------
+    obj : object or None
+        The hardware wrapper to release.
+    """
+    if obj is None:
+        return
+    if _seen is None:
+        _seen = set()
+    if id(obj) in _seen:
+        return
+    _seen.add(id(obj))
+
+    for name in ('stop_polling', 'close', 'disconnect'):
+        fn = getattr(obj, name, None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception:
+                logger.debug(
+                    'release_hardware: %s.%s() failed',
+                    type(obj).__name__,
+                    name,
+                    exc_info=True,
+                )
+    for attr in ('las', 'laser', 'lowlvl', 'device', 'pm'):
+        inner = getattr(obj, attr, None)
+        if inner is not None and inner is not obj:
+            release_hardware(inner, _seen)
 
 
 def load_class(classpath, init_kwargs={}, settings=None):
