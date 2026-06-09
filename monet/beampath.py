@@ -88,6 +88,19 @@ def get_pycromgr(pycore_config=None):
     return pycrocore
 
 
+def _config_is_current(core, group, pos):
+    """Return True if Micro-Manager config ``group`` is already at ``pos``.
+
+    Used to skip redundant Nikon turret moves, which make the controller
+    report error 0xe01004b6. Returns False if the current config cannot be
+    queried, so the move is still attempted.
+    """
+    try:
+        return core.get_current_config(group) == pos
+    except Exception:
+        return False
+
+
 class BeamPath:
     """Hold all beam-path objects that can be opened or positioned.
 
@@ -141,14 +154,32 @@ class BeamPath:
     def positions(self, positions):
         """Set the position of beam path objects.
 
+        Each object is set independently: a hardware error on one object
+        (e.g. a Nikon filter turret the controller rejects) does not stop
+        the others from being set. In particular the shutter is still
+        commanded even if a filter/nosepiece move fails, so closing the
+        beam path keeps working. Any errors are collected and re-raised
+        together once every object has been attempted.
+
         Parameters
         ----------
         positions : dict
             Keys are object ids as in self.objects; values are position
             values compatible with the respective object.
         """
+        errors = []
         for obid, pos in positions.items():
-            self.objects[obid].position = pos
+            try:
+                self.objects[obid].position = pos
+            except Exception as exc:
+                logger.exception(
+                    'Could not set beam-path object %r to %r', obid, pos
+                )
+                errors.append('{!r}->{!r}: {}'.format(obid, pos, exc))
+        if errors:
+            raise RuntimeError(
+                'Failed to set beam-path object(s): ' + '; '.join(errors)
+            )
 
 
 class AbstractBeamPathObject(abc.ABC):
@@ -351,7 +382,11 @@ class NikonFilterWheel(AbstractBeamPathObject):
                     pos, self.filter_config_name, self.filter_options
                 )
             )
-        self.core.set_config(self.filter_config_name, pos)
+        # Re-selecting the filter block's *current* position makes the
+        # Nikon Ti controller report an error (0xe01004b6), so only issue
+        # the move when the requested position actually differs.
+        if not _config_is_current(self.core, self.filter_config_name, pos):
+            self.core.set_config(self.filter_config_name, pos)
 
         super(self.__class__, self.__class__).position.__set__(self, pos)
 
@@ -435,6 +470,9 @@ class NikonNosepiece(AbstractBeamPathObject):
                     pos, self.filter_config_name, self.filter_options
                 )
             )
-        self.core.set_config(self.filter_config_name, pos)
+        # Avoid re-selecting the current position (see NikonFilterWheel):
+        # the Nikon controller errors (0xe01004b6) on a redundant move.
+        if not _config_is_current(self.core, self.filter_config_name, pos):
+            self.core.set_config(self.filter_config_name, pos)
 
         super(self.__class__, self.__class__).position.__set__(self, pos)
