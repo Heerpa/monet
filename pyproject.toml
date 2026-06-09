@@ -37,6 +37,10 @@ dependencies = [
     "icecream>=2.1",
     "requests>=2.31",
     "importlib_resources>=5.0",
+    # SQLAlchemy is imported eagerly via monet.io -> monet.cache -> monet.models
+    # (the local SQLite cache/outbox that backs the HTTP database mode), so it is
+    # required to import the core workflow even when only the Excel DB is used.
+    "sqlalchemy>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -45,11 +49,11 @@ gui = [
     "PyQt6>=6.5",
 ]
 
-# SQLite + FastAPI calibration server (`python -m monet serve`).
+# FastAPI calibration server (`python -m monet serve`). SQLAlchemy is a core
+# dependency (see above), so only the web-server packages live here.
 server = [
     "fastapi>=0.104",
     "uvicorn[standard]>=0.24",
-    "sqlalchemy>=2.0",
 ]
 
 # Real-hardware SDKs. All imported lazily, so they are only required on the

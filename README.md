@@ -36,9 +36,20 @@ conda activate monet
 
 ## Installation
 
+All dependencies are declared in `pyproject.toml`. The base install covers the
+CLI and analysis (and runs against the simulated `Test*` hardware); optional
+extras add the GUI, the database server, and the real-instrument SDKs.
+
 ```bash
-pip install -r requirements.txt
+# Base install (development mode)
 pip install -e .
+
+# Optional extras — combine in one bracket as needed, e.g. ".[gui,server]"
+pip install -e ".[gui]"       # PyQt6 GUI (python -m monet gui)
+pip install -e ".[server]"    # FastAPI calibration server (python -m monet serve)
+pip install -e ".[hardware]"  # real-instrument SDKs (pyvisa, nidaqmx, ...)
+pip install -e ".[dev]"       # test / development tooling
+pip install -e ".[all]"       # everything above
 ```
 
 ## Quick Start
