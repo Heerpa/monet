@@ -11,14 +11,15 @@ Thorlabs PM100D via USB.
 :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
 
-# `ThorlabsPM100` is imported lazily inside ThorlabsPowerMeter._open_powermeter
-# and `TLPM` lazily inside ThorlabsTLPMPowerMeter._open_powermeter, so the rest
-# of the package is usable without those optional SDKs installed.
+# `pyvisa` and `ThorlabsPM100` are imported lazily inside
+# ThorlabsPowerMeter._open_powermeter, and `TLPM` lazily inside
+# ThorlabsTLPMPowerMeter._open_powermeter, so the rest of the package (including
+# TestPowerMeter and the TLPM meter) is usable without any of those optional
+# SDKs installed.
 import abc
 import logging
 
 import numpy as np
-import pyvisa
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
         power_meter : ThorlabsPM100 instance
             The interface to reading power values.
         """
+        import pyvisa
         from ThorlabsPM100 import ThorlabsPM100
 
         manufacturer = 'thorlabs'
