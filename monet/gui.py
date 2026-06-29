@@ -681,6 +681,18 @@ class AdjustTab(QWidget):
                 self._pwr_spin.setValue(float(pwr))
         except Exception:
             pass
+        # Overlay the last persisted settings for the current laser so the
+        # user can restore them after a restart with a single Set. Populate
+        # only — nothing is sent to the hardware here.
+        try:
+            saved = pc.instrument.saved_state(pc.instrument.curr_laser)
+        except Exception:
+            saved = None
+        if saved:
+            if saved.get('laser_power') is not None:
+                self._pwr_spin.setValue(float(saved['laser_power']))
+            if saved.get('attenuator') is not None:
+                self._att_spin.setValue(float(saved['attenuator']))
 
     def _on_refresh(self):
         """Read attenuator position and laser power from hardware."""
@@ -762,6 +774,7 @@ class AdjustTab(QWidget):
 
         def _do():
             self._pc.instrument.attenuator.set(pos)
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText(f'Attenuator set to {pos}.')
@@ -775,6 +788,7 @@ class AdjustTab(QWidget):
 
         def _do():
             self._pc.instrument.attenuator.home()
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText('Attenuator homed.')
@@ -796,6 +810,7 @@ class AdjustTab(QWidget):
 
         def _do():
             self._pc.instrument.laserpower = pwr
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText(f'Laser power set to {pwr} mW.')
@@ -1105,6 +1120,30 @@ class SetPowerTab(QWidget):
                     self._hw_pwr_spin.setValue(float(pwr))
             except Exception:
                 pass
+            # Overlay the last persisted settings for the current laser so
+            # the user can restore them after a restart with a single Set.
+            self._apply_saved_state_to_ui(pc.instrument.curr_laser)
+
+    def _apply_saved_state_to_ui(self, laser):
+        """Populate the direct hardware spin boxes from persisted settings.
+
+        Loads the laser power set-point and attenuator position last saved for
+        ``laser`` (see :mod:`monet.hwstate`) into the direct-control spin boxes.
+        This only updates the UI — nothing is sent to the hardware until the
+        user clicks Set. Does nothing if no settings were stored.
+        """
+        if self._pc is None:
+            return
+        try:
+            saved = self._pc.instrument.saved_state(laser)
+        except Exception:
+            saved = None
+        if not saved:
+            return
+        if saved.get('laser_power') is not None:
+            self._hw_pwr_spin.setValue(float(saved['laser_power']))
+        if saved.get('attenuator') is not None:
+            self._hw_att_spin.setValue(float(saved['attenuator']))
 
     def _on_laser_changed(self, idx):
         if self._pc is None:
@@ -1136,6 +1175,9 @@ class SetPowerTab(QWidget):
             self._btn_onoff.setText('switch OFF' if enabled else 'switch ON')
         except Exception as exc:
             self._status.setText(str(exc))
+        # Show the persisted hardware settings for the newly selected laser
+        # line (populate only — not applied to hardware).
+        self._apply_saved_state_to_ui(laser)
         self._update_range_label()
 
     # --- helpers ---
@@ -1286,6 +1328,7 @@ class SetPowerTab(QWidget):
 
                 def _do():
                     self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
+                    self._pc.instrument.record_state(laser)
 
                 done_msg = (
                     f'Laser power adjusted for {pwr} mW output '
@@ -1296,6 +1339,7 @@ class SetPowerTab(QWidget):
 
                 def _do():
                     self._pc.instrument.set_power_fixed_laser(pwr, laser)
+                    self._pc.instrument.record_state(laser)
 
                 done_msg = (
                     f'Attenuator set for {pwr} mW '
@@ -1307,6 +1351,7 @@ class SetPowerTab(QWidget):
                 def _do():
                     self._pc.instrument.laser = laser
                     self._pc.instrument.power = pwr
+                    self._pc.instrument.record_state(laser)
 
                 done_msg = f'Power set to {pwr} mW for laser {laser} nm.'
                 status_msg = f'Setting power to {pwr} mW…'
@@ -1361,6 +1406,8 @@ class SetPowerTab(QWidget):
                     self._pc.instrument.beampath.positions = bp_end_calibrate
                 if bp_end is not None:
                     self._pc.instrument.beampath.positions = bp_end
+
+                self._pc.instrument.record_state(laser)
 
                 return (
                     result['measured'],
@@ -1727,6 +1774,7 @@ class SetPowerTab(QWidget):
 
         def _do():
             self._pc.instrument.attenuator.set(pos)
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText(f'Attenuator set to {pos:.3f}.')
@@ -1740,6 +1788,7 @@ class SetPowerTab(QWidget):
 
         def _do():
             self._pc.instrument.attenuator.home()
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText('Attenuator homed.')
@@ -1760,6 +1809,7 @@ class SetPowerTab(QWidget):
 
         def _do():
             self._pc.instrument.laserpower = pwr
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText(f'Laser power set to {pwr} mW.')

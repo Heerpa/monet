@@ -454,6 +454,40 @@ class TestControl(unittest.TestCase):
         with self.assertRaises(ValueError):
             ctrl.accessible_power_range('combined', 488)
 
+    # ── hardware-state persistence ───────────────────────────────────────
+
+    def test_record_and_restore_state(self):
+        """record_state persists the live laser power / attenuator position;
+        saved_state reads it back per laser line."""
+        import tempfile
+        from pathlib import Path
+
+        import monet.hwstate as hwstate
+
+        ctrl = self._build_laser_control()
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                hwstate, 'STATE_FILE', Path(tmp) / 'state.json'
+            ):
+                ctrl.laser = 488
+                ctrl.laserpower = 50
+                ctrl.attenuator.set(42.0)
+                ctrl.record_state()  # defaults to current laser
+
+                ctrl.laser = 561
+                ctrl.lasers[561].power = 80
+                ctrl.attenuator.set(17.5)
+                ctrl.record_state(561)
+
+                s488 = ctrl.saved_state(488)
+                s561 = ctrl.saved_state(561)
+                self.assertEqual(s488['laser_power'], 50.0)
+                self.assertEqual(s488['attenuator'], 42.0)
+                self.assertEqual(s561['laser_power'], 80.0)
+                self.assertEqual(s561['attenuator'], 17.5)
+                # A laser line never recorded has no saved state.
+                self.assertIsNone(ctrl.saved_state(640))
+
     # ── construction edge case ───────────────────────────────────────────
 
     def test_no_lasers_loadable_raises_runtimeerror(self):

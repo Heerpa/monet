@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from icecream import ic
 
+import monet.hwstate as hwstate
 import monet.io as io
 from monet import (
     DEVICE_TAG,
@@ -756,6 +757,71 @@ class IlluminationLaserControl(IlluminationControl):
 
         self.laser = self.curr_laser  # to populate the analyzers
         self.laserpower = self.curr_laserpower
+
+    def record_state(self, laser=None):
+        """Persist the current laser power set-point and attenuator position.
+
+        Reads the present values from the hardware and stores them per
+        microscope and laser line (see :mod:`monet.hwstate`) so they can be
+        restored into the GUI after an unexpected restart. Any failure is
+        swallowed — persistence must never break a hardware operation.
+
+        Parameters
+        ----------
+        laser : int or str, optional
+            Laser line to record; defaults to the current laser.
+        """
+        if laser is None:
+            laser = self.curr_laser
+        try:
+            microscope = self.config['index'][DEVICE_TAG]
+        except Exception:
+            return
+        laser_power = None
+        try:
+            laser_power = float(self.lasers[laser].power)
+        except Exception:
+            logger.debug(
+                'record_state: reading laser power failed', exc_info=True
+            )
+        attenuator = None
+        try:
+            attenuator = float(self.attenuator.curr_pos())
+        except Exception:
+            logger.debug(
+                'record_state: reading attenuator failed', exc_info=True
+            )
+        try:
+            hwstate.save_laser_state(
+                microscope,
+                laser,
+                laser_power=laser_power,
+                attenuator=attenuator,
+            )
+        except Exception:
+            logger.debug('record_state: persisting failed', exc_info=True)
+
+    def saved_state(self, laser=None):
+        """Return the persisted ``{'laser_power', 'attenuator'}`` for a laser.
+
+        Returns ``None`` if no settings were stored for this microscope/laser.
+
+        Parameters
+        ----------
+        laser : int or str, optional
+            Laser line to look up; defaults to the current laser.
+        """
+        if laser is None:
+            laser = self.curr_laser
+        try:
+            microscope = self.config['index'][DEVICE_TAG]
+        except Exception:
+            return None
+        try:
+            return hwstate.get_laser_state(microscope, laser)
+        except Exception:
+            logger.debug('saved_state: lookup failed', exc_info=True)
+            return None
 
     def disconnect(self):
         """Switch off and release all lasers and the attenuator.
