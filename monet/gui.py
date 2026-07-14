@@ -316,8 +316,8 @@ class FeedbackPlotDialog(QDialog):
 class CalibrationPlots(QWidget):
     """Live plots shown alongside the calibration log.
 
-    Top axes: the attenuation curve (power vs. attenuator control value) of
-    the power step just measured. Bottom axes: the amplitude — the maximum
+    Left axes: the attenuation curve (power vs. attenuator control value) of
+    the power step just measured. Right axes: the amplitude — the maximum
     measured power — of every curve of the run, against the laser power
     set-point, with one series per wavelength.
 
@@ -330,7 +330,7 @@ class CalibrationPlots(QWidget):
         # {laser: {laser power set-point: max measured power}}
         self._amplitudes = {}
 
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         try:
@@ -344,11 +344,11 @@ class CalibrationPlots(QWidget):
             return
 
         self._has_mpl = True
-        self._curve_fig = Figure(figsize=(4.0, 2.4), tight_layout=True)
+        self._curve_fig = Figure(figsize=(3.4, 2.8), tight_layout=True)
         self._curve_ax = self._curve_fig.add_subplot(111)
         self._curve_canvas = FigureCanvasQTAgg(self._curve_fig)
 
-        self._amp_fig = Figure(figsize=(4.0, 2.4), tight_layout=True)
+        self._amp_fig = Figure(figsize=(3.4, 2.8), tight_layout=True)
         self._amp_ax = self._amp_fig.add_subplot(111)
         self._amp_canvas = FigureCanvasQTAgg(self._amp_fig)
 
@@ -499,13 +499,17 @@ class CalibrateTab(QWidget):
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setFont(QFont('Courier', 9))
+        # The two side-by-side canvases have wide size hints; without a floor
+        # the splitter would squeeze the log down to an unreadable column.
+        self._log.setMinimumWidth(240)
         self._plots = CalibrationPlots()
 
         lower = QSplitter(Qt.Orientation.Horizontal)
         lower.addWidget(self._log)
         lower.addWidget(self._plots)
         lower.setStretchFactor(0, 1)
-        lower.setStretchFactor(1, 1)
+        lower.setStretchFactor(1, 2)
+        lower.setSizes([320, 640])
         lower.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
