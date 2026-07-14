@@ -68,6 +68,10 @@ class CalibrationProtocol1D:
         if load_instrument:
             self.instrument = IlluminationControl(config, do_load_cal=False)
 
+        # Database index of every calibration written since the last
+        # reset_saved_calibrations(); lets a caller undo a whole run.
+        self.saved_calibrations = []
+
         pwrconfig = config['powermeter']
         try:
             self.powermeter = load_class(
@@ -89,6 +93,10 @@ class CalibrationProtocol1D:
                 self.powermeter_error,
                 exc_info=True,
             )
+
+    def reset_saved_calibrations(self):
+        """Forget which calibrations were written, starting a fresh run."""
+        self.saved_calibrations = []
 
     def disconnect(self):
         """Release all hardware held by this protocol.
@@ -196,8 +204,11 @@ class CalibrationProtocol1D:
 
         fname = self.instrument.config['database']
         if not dry_run:
-            io.save_calibration(
+            indexnames, indexvals = io.save_calibration(
                 fname, self.instrument.config['index'], cali_pars
+            )
+            self.saved_calibrations.append(
+                {k: v for k, v in zip(indexnames, indexvals)}
             )
 
         if save_plot:
@@ -384,6 +395,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         laser_filter=None,
         dry_run=False,
         progress_callback=None,
+        curve_callback=None,
         manage_laser_state=True,
         powermeter_type='manual',
     ):
@@ -404,6 +416,9 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             If True, calibration is performed but not saved to the database.
         progress_callback : callable or None
             Called after each power step with (step, total, laser, lpwr).
+        curve_callback : callable or None
+            Called after each power step with the raw attenuation curve
+            (laser, lpwr, control values, measured powers).
         manage_laser_state : bool
             If True (CLI mode), switch off all lasers at start and after
             each wavelength. If False (GUI mode), leave laser state as-is.
@@ -413,6 +428,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         """
         powermeter_type = normalize_powermeter_type(powermeter_type)
         plotfolder = self.instrument.config.get('dest_calibration_plot')
+        self.reset_saved_calibrations()
 
         lasers = [
             las
@@ -497,6 +513,9 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                 )
                 for an, pw in zip(angles, powers):
                     measpwrs.loc[an, lpwr] = pw
+
+                if curve_callback:
+                    curve_callback(laser, lpwr, angles, powers)
 
                 # get model parameters for plotting
                 model_dict = self.instrument.analyzer.get_model()

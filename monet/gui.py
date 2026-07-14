@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -71,6 +72,8 @@ class CalibrationWorker(QThread):
     """Runs CalibrationProtocol2D.run_protocol() in a background thread."""
 
     progress = pyqtSignal(int, int, object, object)  # step, total, laser, lpwr
+    # laser, lpwr, control values, measured powers
+    curve = pyqtSignal(object, object, object, object)
     log_message = pyqtSignal(str)
     finished = pyqtSignal()
     error = pyqtSignal(str)
@@ -79,18 +82,18 @@ class CalibrationWorker(QThread):
         self,
         pc,
         laser_filter,
-        dry_run,
         wait_time=0.1,
         switch_time=10,
         powermeter_type=POWERMETER_SAMPLE,
+        manage_laser_state=True,
     ):
         super().__init__()
         self._pc = pc
         self._laser_filter = laser_filter
-        self._dry_run = dry_run
         self._wait_time = wait_time
         self._switch_time = switch_time
         self._powermeter_type = powermeter_type
+        self._manage_laser_state = manage_laser_state
         self._cancel_requested = False
 
     def request_cancel(self):
@@ -105,14 +108,17 @@ class CalibrationWorker(QThread):
                 f'Step {step}/{total}: laser {laser} nm at {lpwr} mW done.'
             )
 
+        def _curve_callback(laser, lpwr, ctrl_vals, powers):
+            self.curve.emit(laser, lpwr, ctrl_vals, powers)
+
         try:
             self._pc.run_protocol(
                 wait_time=self._wait_time,
                 switch_time=self._switch_time,
                 laser_filter=self._laser_filter,
-                dry_run=self._dry_run,
                 progress_callback=_progress_callback,
-                manage_laser_state=False,
+                curve_callback=_curve_callback,
+                manage_laser_state=self._manage_laser_state,
                 powermeter_type=self._powermeter_type,
             )
         except InterruptedError:
@@ -303,6 +309,118 @@ class FeedbackPlotDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Calibration live plots
+# ---------------------------------------------------------------------------
+
+
+class CalibrationPlots(QWidget):
+    """Live plots shown alongside the calibration log.
+
+    Top axes: the attenuation curve (power vs. attenuator control value) of
+    the power step just measured. Bottom axes: the amplitude — the maximum
+    measured power — of every curve of the run, against the laser power
+    set-point, with one series per wavelength.
+
+    Fed by ``add_curve``, which is connected to ``CalibrationWorker.curve``
+    and therefore runs on the main thread.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # {laser: {laser power set-point: max measured power}}
+        self._amplitudes = {}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+        except Exception:
+            self._has_mpl = False
+            layout.addWidget(
+                QLabel('matplotlib not available — cannot show plots.')
+            )
+            return
+
+        self._has_mpl = True
+        self._curve_fig = Figure(figsize=(4.0, 2.4), tight_layout=True)
+        self._curve_ax = self._curve_fig.add_subplot(111)
+        self._curve_canvas = FigureCanvasQTAgg(self._curve_fig)
+
+        self._amp_fig = Figure(figsize=(4.0, 2.4), tight_layout=True)
+        self._amp_ax = self._amp_fig.add_subplot(111)
+        self._amp_canvas = FigureCanvasQTAgg(self._amp_fig)
+
+        for canvas in (self._curve_canvas, self._amp_canvas):
+            canvas.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+            layout.addWidget(canvas)
+
+        self.clear()
+
+    def clear(self):
+        """Drop all accumulated data and reset both axes."""
+        self._amplitudes = {}
+        if not self._has_mpl:
+            return
+        self._curve_ax.clear()
+        self._style_curve_axes('current attenuation curve')
+        self._curve_canvas.draw_idle()
+        self._redraw_amplitudes()
+
+    def _style_curve_axes(self, title):
+        ax = self._curve_ax
+        ax.set_xlabel('attenuator control value', fontsize=8)
+        ax.set_ylabel('power [mW]', fontsize=8)
+        ax.set_title(title, fontsize=9)
+        ax.tick_params(labelsize=7)
+        ax.grid(True, alpha=0.3)
+
+    def _redraw_amplitudes(self):
+        ax = self._amp_ax
+        ax.clear()
+        for laser in sorted(self._amplitudes, key=float):
+            points = self._amplitudes[laser]
+            lpwrs = sorted(points, key=float)
+            ax.plot(
+                lpwrs,
+                [points[lp] for lp in lpwrs],
+                marker='o',
+                label='{} nm'.format(laser),
+            )
+        ax.set_xlabel('laser power set-point [mW]', fontsize=8)
+        ax.set_ylabel('max measured power [mW]', fontsize=8)
+        ax.set_title('measured power amplitudes', fontsize=9)
+        ax.tick_params(labelsize=7)
+        ax.grid(True, alpha=0.3)
+        if self._amplitudes:
+            ax.legend(fontsize=7)
+        self._amp_canvas.draw_idle()
+
+    def add_curve(self, laser, lpwr, ctrl_vals, powers):
+        """Show a freshly measured attenuation curve and record its
+        amplitude."""
+        if not self._has_mpl:
+            return
+
+        self._curve_ax.clear()
+        self._curve_ax.plot(ctrl_vals, powers, marker='x')
+        self._style_curve_axes(
+            'current curve — {} nm, {} mW'.format(laser, lpwr)
+        )
+        self._curve_canvas.draw_idle()
+
+        try:
+            amplitude = float(max(powers))
+        except (TypeError, ValueError):
+            return
+        self._amplitudes.setdefault(laser, {})[lpwr] = amplitude
+        self._redraw_amplitudes()
+
+
+# ---------------------------------------------------------------------------
 # Tab 1 — Calibrate
 # ---------------------------------------------------------------------------
 
@@ -320,6 +438,7 @@ class CalibrateTab(QWidget):
         super().__init__(parent)
         self._pc = None
         self._worker = None
+        self._discard_worker = None  # keep alive to prevent GC
         self._checkboxes = {}
         self._build_ui()
 
@@ -347,11 +466,17 @@ class CalibrateTab(QWidget):
 
         layout.addWidget(self._wl_group)
 
-        # Dry-run checkbox
-        self._dry_run_cb = QCheckBox(
-            'Dry run (calibrate without saving to database)'
+        # Multi-laser checkbox
+        self._multi_cb = QCheckBox(
+            'Multi-laser mode (keep other lasers on during calibration)'
         )
-        layout.addWidget(self._dry_run_cb)
+        self._multi_cb.setChecked(False)
+        self._multi_cb.setToolTip(
+            'When unchecked, all lasers are switched off before the run and '
+            'each laser is switched off again once its calibration is done, '
+            'so only the laser being calibrated is ever on.'
+        )
+        layout.addWidget(self._multi_cb)
 
         # Back focal plane (BFP) powermeter checkbox
         self._bfp_pm_cb = QCheckBox('Use back focal plane (BFP) powermeter')
@@ -370,30 +495,47 @@ class CalibrateTab(QWidget):
         self._progress.setValue(0)
         layout.addWidget(self._progress)
 
-        # Log
+        # Lower half — log on the left, live plots on the right
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setFont(QFont('Courier', 9))
-        self._log.setSizePolicy(
+        self._plots = CalibrationPlots()
+
+        lower = QSplitter(Qt.Orientation.Horizontal)
+        lower.addWidget(self._log)
+        lower.addWidget(self._plots)
+        lower.setStretchFactor(0, 1)
+        lower.setStretchFactor(1, 1)
+        lower.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        layout.addWidget(self._log)
+        layout.addWidget(lower, 1)
 
-        # Start / Cancel buttons
+        # Start / Cancel / Discard buttons
         btn_row2 = QHBoxLayout()
         self._btn_start = QPushButton('Start')
         self._btn_cancel = QPushButton('Cancel')
         self._btn_cancel.setEnabled(False)
+        self._btn_discard = QPushButton('Discard')
+        self._btn_discard.setEnabled(False)
+        self._btn_discard.setToolTip(
+            'Delete the calibration records written by the last run from '
+            'the database.'
+        )
         self._btn_start.clicked.connect(self._on_start)
         self._btn_cancel.clicked.connect(self._on_cancel)
+        self._btn_discard.clicked.connect(self._on_discard)
         btn_row2.addWidget(self._btn_start)
         btn_row2.addWidget(self._btn_cancel)
+        btn_row2.addWidget(self._btn_discard)
         btn_row2.addStretch()
         layout.addLayout(btn_row2)
 
     def set_pc(self, pc):
         self._pc = pc
         self._rebuild_checkboxes()
+        self._plots.clear()
+        self._update_discard_enabled()
         has_beampath = (
             pc is not None
             and hasattr(pc, 'instrument')
@@ -458,30 +600,28 @@ class CalibrateTab(QWidget):
             )
             return
 
-        dry_run = self._dry_run_cb.isChecked()
-
         # 1D mode
         if not (hasattr(self._pc, 'protocol') and self._pc.protocol):
-            if dry_run:
-                reply = QMessageBox.question(
-                    self,
-                    'Dry run',
-                    'Dry run enabled — calibration will NOT be saved. '
-                    'Continue?',
-                    QMessageBox.StandardButton.Yes
-                    | QMessageBox.StandardButton.No,
-                )
-                if reply != QMessageBox.StandardButton.Yes:
-                    return
             self._log.append('Starting 1D calibration…')
             self._emit_status('Running 1D calibration…')
+            self._btn_discard.setEnabled(False)
+            self._plots.clear()
+            self._pc.reset_saved_calibrations()
             try:
-                self._pc.calibrate(dry_run=dry_run)
+                ctrl_vals, powers = self._pc.calibrate()
+                laser = self._pc.instrument.config['index'].get(
+                    'wavelength [nm]', ''
+                )
+                lpwr = self._pc.instrument.config['index'].get(
+                    'laser_power [mW]', ''
+                )
+                self._plots.add_curve(laser, lpwr, ctrl_vals, powers)
                 self._log.append('Done.')
                 self._emit_status('Calibration complete.', 5000)
             except Exception as exc:
                 QMessageBox.critical(self, 'Error', str(exc))
                 self._emit_status('Calibration failed.', 5000)
+            self._btn_discard.setEnabled(bool(self._pc.saved_calibrations))
             return
 
         selected = self._selected_lasers()
@@ -491,22 +631,14 @@ class CalibrateTab(QWidget):
             )
             return
 
-        if dry_run:
-            reply = QMessageBox.question(
-                self,
-                'Dry run',
-                'Dry run enabled — calibration will NOT be saved. Continue?',
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-
         self._log.clear()
+        self._plots.clear()
         self._log.append(f'Starting calibration for lasers: {selected}')
         self._progress.setValue(0)
         self._progress.setFormat('Starting…')
         self._btn_start.setEnabled(False)
         self._btn_cancel.setEnabled(True)
+        self._btn_discard.setEnabled(False)
         self._emit_status('Calibration running…')
 
         self.calibration_started.emit()
@@ -519,10 +651,11 @@ class CalibrateTab(QWidget):
         self._worker = CalibrationWorker(
             self._pc,
             laser_filter=selected,
-            dry_run=dry_run,
             powermeter_type=powermeter_type,
+            manage_laser_state=not self._multi_cb.isChecked(),
         )
         self._worker.progress.connect(self._on_progress)
+        self._worker.curve.connect(self._plots.add_curve)
         self._worker.log_message.connect(self._log.append)
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
@@ -547,6 +680,7 @@ class CalibrateTab(QWidget):
         self._progress.setFormat('Done')
         self._btn_start.setEnabled(True)
         self._btn_cancel.setEnabled(False)
+        self._update_discard_enabled()
         self._worker = None
         self._emit_status('Calibration complete.', 5000)
         self.calibration_finished.emit()
@@ -556,9 +690,69 @@ class CalibrateTab(QWidget):
         QMessageBox.critical(self, 'Calibration error', msg)
         self._btn_start.setEnabled(True)
         self._btn_cancel.setEnabled(False)
+        # A run that failed part-way may still have written records; let the
+        # user discard those.
+        self._update_discard_enabled()
         self._worker = None
         self._emit_status(f'Calibration error: {msg}', 5000)
         self.calibration_finished.emit()
+
+    def _update_discard_enabled(self):
+        saved = getattr(self._pc, 'saved_calibrations', None)
+        self._btn_discard.setEnabled(bool(saved))
+
+    def _on_discard(self):
+        """Delete the records written by the last calibration run."""
+        records = list(getattr(self._pc, 'saved_calibrations', None) or [])
+        if not records:
+            self._btn_discard.setEnabled(False)
+            return
+
+        reply = QMessageBox.question(
+            self,
+            'Discard calibration',
+            f'Delete the {len(records)} calibration record(s) written by the '
+            'last run from the database?\nThis cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        db_fname = self._pc.instrument.config['database']
+
+        def _do():
+            deleted = 0
+            for index in records:
+                deleted += io.delete_calibration(db_fname, index) or 0
+            return deleted
+
+        def _on_result(deleted):
+            self._pc.reset_saved_calibrations()
+            self._log.append(f'Discarded {deleted} calibration record(s).')
+            self._emit_status(
+                f'Discarded {deleted} calibration record(s).', 5000
+            )
+
+        def _on_error(msg):
+            self._log.append(f'ERROR discarding calibration: {msg}')
+            QMessageBox.critical(self, 'Discard error', msg)
+            self._emit_status(f'Discard failed: {msg}', 5000)
+
+        def _on_finished():
+            self._btn_start.setEnabled(True)
+            self._update_discard_enabled()
+            self._discard_worker = None
+
+        self._btn_start.setEnabled(False)
+        self._btn_discard.setEnabled(False)
+        self._emit_status('Discarding calibration…')
+
+        worker = GenericWorker(_do)
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_error)
+        worker.finished.connect(_on_finished)
+        self._discard_worker = worker
+        worker.start()
 
     def set_powermeter_available(self, available):
         """Enable or disable calibration controls per powermeter state."""
