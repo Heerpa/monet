@@ -74,6 +74,8 @@ class CalibrationWorker(QThread):
     progress = pyqtSignal(int, int, object, object)  # step, total, laser, lpwr
     # laser, lpwr, control values, measured powers
     curve = pyqtSignal(object, object, object, object)
+    # laser, lpwr, index, total, control value, measured power
+    point = pyqtSignal(object, object, int, int, object, object)
     log_message = pyqtSignal(str)
     finished = pyqtSignal()
     error = pyqtSignal(str)
@@ -111,6 +113,9 @@ class CalibrationWorker(QThread):
         def _curve_callback(laser, lpwr, ctrl_vals, powers):
             self.curve.emit(laser, lpwr, ctrl_vals, powers)
 
+        def _point_callback(laser, lpwr, index, total, ctrl_val, power):
+            self.point.emit(laser, lpwr, index, total, ctrl_val, power)
+
         try:
             self._pc.run_protocol(
                 wait_time=self._wait_time,
@@ -118,6 +123,7 @@ class CalibrationWorker(QThread):
                 laser_filter=self._laser_filter,
                 progress_callback=_progress_callback,
                 curve_callback=_curve_callback,
+                point_callback=_point_callback,
                 manage_laser_state=self._manage_laser_state,
                 powermeter_type=self._powermeter_type,
             )
@@ -321,14 +327,20 @@ class CalibrationPlots(QWidget):
     measured power — of every curve of the run, against the laser power
     set-point, with one series per wavelength.
 
-    Fed by ``add_curve``, which is connected to ``CalibrationWorker.curve``
-    and therefore runs on the main thread.
+    The curve grows point by point via ``add_point``; ``add_curve`` closes it
+    off at the end of a power step and records its amplitude. Both are
+    connected to ``CalibrationWorker`` signals and so run on the main thread.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         # {laser: {laser power set-point: max measured power}}
         self._amplitudes = {}
+        # (laser, lpwr) of the curve currently being acquired, or None
+        self._curve_key = None
+        self._curve_line = None
+        self._curve_x = []
+        self._curve_y = []
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -363,6 +375,10 @@ class CalibrationPlots(QWidget):
     def clear(self):
         """Drop all accumulated data and reset both axes."""
         self._amplitudes = {}
+        self._curve_key = None
+        self._curve_line = None
+        self._curve_x = []
+        self._curve_y = []
         if not self._has_mpl:
             return
         self._curve_ax.clear()
@@ -399,9 +415,38 @@ class CalibrationPlots(QWidget):
             ax.legend(fontsize=7)
         self._amp_canvas.draw_idle()
 
+    def add_point(self, laser, lpwr, index, total, ctrl_val, power):
+        """Extend the current curve by one freshly measured point.
+
+        Starts a new curve whenever the power step changes.
+        """
+        if not self._has_mpl:
+            return
+
+        if index == 0 or self._curve_key != (laser, lpwr):
+            self._curve_key = (laser, lpwr)
+            self._curve_x = []
+            self._curve_y = []
+            self._curve_ax.clear()
+            (self._curve_line,) = self._curve_ax.plot([], [], marker='x')
+            self._style_curve_axes(
+                'current curve — {} nm, {} mW'.format(laser, lpwr)
+            )
+
+        self._curve_x.append(ctrl_val)
+        self._curve_y.append(power)
+        self._curve_line.set_data(self._curve_x, self._curve_y)
+        # The axes were built empty, so the limits have to follow the data.
+        self._curve_ax.relim()
+        self._curve_ax.autoscale_view()
+        self._curve_canvas.draw_idle()
+
     def add_curve(self, laser, lpwr, ctrl_vals, powers):
-        """Show a freshly measured attenuation curve and record its
-        amplitude."""
+        """Close off a completed attenuation curve and record its amplitude.
+
+        Redraws the curve from the values the protocol actually kept, so the
+        plot is right even if no live points arrived (e.g. the 1D protocol).
+        """
         if not self._has_mpl:
             return
 
@@ -411,6 +456,9 @@ class CalibrationPlots(QWidget):
             'current curve — {} nm, {} mW'.format(laser, lpwr)
         )
         self._curve_canvas.draw_idle()
+        # The next point belongs to a new curve.
+        self._curve_key = None
+        self._curve_line = None
 
         try:
             amplitude = float(max(powers))
@@ -659,6 +707,7 @@ class CalibrateTab(QWidget):
             manage_laser_state=not self._multi_cb.isChecked(),
         )
         self._worker.progress.connect(self._on_progress)
+        self._worker.point.connect(self._plots.add_point)
         self._worker.curve.connect(self._plots.add_curve)
         self._worker.log_message.connect(self._log.append)
         self._worker.finished.connect(self._on_finished)

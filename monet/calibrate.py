@@ -121,6 +121,7 @@ class CalibrationProtocol1D:
         dry_run=False,
         powermeter_type=POWERMETER_SAMPLE,
         save_plot=True,
+        point_callback=None,
     ):
         """Calibrate power with parameters from the configuration file.
 
@@ -137,6 +138,9 @@ class CalibrationProtocol1D:
             Whether to save the calibration-curve plot (the 2D protocol
             suppresses it and re-renders projected curves once the
             transmission factor for the run is known).
+        point_callback : callable or None
+            Called after every attenuator step with (index, total, control
+            value, measured power), so a caller can follow the curve live.
 
         Returns
         -------
@@ -159,6 +163,8 @@ class CalibrationProtocol1D:
             time.sleep(wait_time)
             powers[i] = self.powermeter.read()
             # print('Position: {:.1f}, Power: {:f}'.format(ctrlval, powers[i]))
+            if point_callback:
+                point_callback(i, len(control_par_vals), ctrlval, powers[i])
 
         # analyze
         self.instrument.analyzer.fit(control_par_vals, powers)
@@ -396,6 +402,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         dry_run=False,
         progress_callback=None,
         curve_callback=None,
+        point_callback=None,
         manage_laser_state=True,
         powermeter_type='manual',
     ):
@@ -419,6 +426,10 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         curve_callback : callable or None
             Called after each power step with the raw attenuation curve
             (laser, lpwr, control values, measured powers).
+        point_callback : callable or None
+            Called after every attenuator step with (laser, lpwr, index,
+            total, control value, measured power), so a caller can follow
+            each curve as it is acquired.
         manage_laser_state : bool
             If True (CLI mode), switch off all lasers at start and after
             each wavelength. If False (GUI mode), leave laser state as-is.
@@ -503,6 +514,14 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     # this is a test powermeter. set amplitude
                     self.powermeter.config['amp'] = lpwr
 
+                if point_callback:
+
+                    def _on_point(i, n, ctrl, pwr, las=laser, lp=lpwr):
+                        point_callback(las, lp, i, n, ctrl, pwr)
+
+                else:
+                    _on_point = None
+
                 # suppress the per-step plot; projected curves are rendered
                 # below once the transmission factor for this run is known
                 angles, powers = self.calibrate(
@@ -510,6 +529,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     dry_run=dry_run,
                     powermeter_type=powermeter_type,
                     save_plot=False,
+                    point_callback=_on_point,
                 )
                 for an, pw in zip(angles, powers):
                     measpwrs.loc[an, lpwr] = pw
