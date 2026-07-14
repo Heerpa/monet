@@ -1533,6 +1533,9 @@ class SetPowerTab(QWidget):
             )
             return
 
+        if not self._check_power_in_range(pwr, mode, laser):
+            return
+
         # --- Resolve feedback / beampath settings on the main thread ---
         use_feedback = self._feedback_cb.isChecked() and getattr(
             self._pc, 'powermeter_available', False
@@ -1966,6 +1969,33 @@ class SetPowerTab(QWidget):
                     self._hw_pwr_spin.setValue(float(pwr))
         except Exception:
             pass
+
+    def _check_power_in_range(self, pwr, mode, laser):
+        """Return True if pwr is reachable in this mode, else warn and
+        return False. Catches the request before it reaches the calibration
+        model, which would otherwise raise a bare out-of-range error."""
+        try:
+            lo, hi = self._pc.instrument.accessible_power_range(mode, laser)
+        except Exception as exc:
+            # cannot determine the range (e.g. not calibrated) — let the
+            # hardware call report the problem
+            logger.debug('Could not check power range: %s', exc)
+            return True
+
+        tol = 1e-6 * max(abs(hi), 1.0)
+        if lo - tol <= pwr <= hi + tol:
+            return True
+
+        QMessageBox.warning(
+            self,
+            'Power out of range',
+            f'{pwr:g} mW is not reachable for laser {laser} nm in mode\n'
+            f'"{self._mode_combo.currentText()}".\n\n'
+            f'Accessible range in this mode: {lo:.2f} – {hi:.2f} mW.\n\n'
+            'Choose a power within the range, or switch to a mode that '
+            'adjusts the other axis as well.',
+        )
+        return False
 
     def _update_range_label(self):
         """Compute and display the accessible power range for the mode."""
