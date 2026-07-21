@@ -49,6 +49,54 @@ class TestLoadClass(unittest.TestCase):
             util.load_class('monet.attenuation.NoSuchClass', {})
 
 
+class _Recorder:
+    """Records which teardown methods were called, optionally raising."""
+
+    def __init__(self, methods=('close',), inner=None, raise_on=()):
+        self.calls = []
+        self._raise_on = set(raise_on)
+        if inner is not None:
+            # expose the wrapped handle under a name release_hardware knows
+            self.device = inner
+        for name in methods:
+            setattr(self, name, self._make(name))
+
+    def _make(self, name):
+        def _fn():
+            self.calls.append(name)
+            if name in self._raise_on:
+                raise RuntimeError('boom in ' + name)
+
+        return _fn
+
+
+class TestReleaseHardware(unittest.TestCase):
+
+    def test_none_is_noop(self):
+        util.release_hardware(None)  # must not raise
+
+    def test_calls_close_and_disconnect(self):
+        dev = _Recorder(methods=('close', 'disconnect'))
+        util.release_hardware(dev)
+        self.assertIn('close', dev.calls)
+        self.assertIn('disconnect', dev.calls)
+
+    def test_recurses_into_wrapped_handle(self):
+        inner = _Recorder(methods=('close',))
+        wrapper = _Recorder(methods=(), inner=inner)
+        util.release_hardware(wrapper)
+        self.assertEqual(inner.calls, ['close'])
+
+    def test_swallows_errors(self):
+        dev = _Recorder(methods=('close',), raise_on=('close',))
+        util.release_hardware(dev)  # error swallowed
+        self.assertEqual(dev.calls, ['close'])
+
+    def test_no_close_methods_is_noop(self):
+        # An object without any teardown methods (e.g. a Test* device).
+        util.release_hardware(_TestAttenuator({}))
+
+
 # ---------------------------------------------------------------------------
 # A minimal in-memory stand-in for the pycromanager API surface that
 # update_mm_acquisition_comment touches. Lets us exercise the

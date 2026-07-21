@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from icecream import ic
 
+import monet.hwstate as hwstate
 import monet.io as io
 from monet import (
     DEVICE_TAG,
@@ -25,7 +26,7 @@ from monet import (
     normalize_powermeter_type,
 )
 from monet.beampath import BeamPath
-from monet.util import load_class
+from monet.util import load_class, release_hardware
 
 logger = logging.getLogger(__name__)
 ic.configureOutput(outputFunction=logger.debug)
@@ -134,6 +135,15 @@ class IlluminationControl:
 
         self.analyzer.load_model(cali_pars)
         self.is_calibrated = True
+
+    def disconnect(self):
+        """Release the attenuator hardware so its port/handle is freed.
+
+        Call this before re-creating the control on the same hardware
+        (e.g. reconnecting in the GUI) so ports are not held open by the
+        previous instance. Safe to call more than once.
+        """
+        release_hardware(getattr(self, 'attenuator', None))
 
 
 class IlluminationLaserControl(IlluminationControl):
@@ -364,6 +374,32 @@ class IlluminationLaserControl(IlluminationControl):
             return self._factors.get(laser, 1.0)
         return 1.0
 
+    def _sample_power_ranges(self, laser=None, power_ranges=None):
+        """Return calibrated output power ranges in sample-plane units.
+
+        The analyzers are fitted to power-meter readings, so
+        :attr:`_power_ranges` (built from ``analyzer.output_range()``) is in
+        BFP units whenever the calibration used the BFP meter. Every power the
+        user selects or reads is a sample-plane power, so ranges must be
+        projected before they are compared against such a power.
+
+        Parameters
+        ----------
+        laser : int or str, optional
+            Laser wavelength; defaults to curr_laser.
+        power_ranges : pandas DataFrame, optional
+            Ranges to project; defaults to :attr:`_power_ranges`.
+
+        Returns
+        -------
+        pandas DataFrame
+            Indexed by laser power setting, columns 'min' and 'max', in mW in
+            the sample plane.
+        """
+        if power_ranges is None:
+            power_ranges = self._power_ranges
+        return power_ranges.astype(float) * self._bfp_factor(laser)
+
     def to_sample_plane(self, raw, laser=None):
         """Project a raw power-meter reading to the sample plane.
 
@@ -411,28 +447,30 @@ class IlluminationLaserControl(IlluminationControl):
         if not self.is_calibrated:
             raise ValueError('Not calibrated. Cannot set power.')
 
+        # pwr is a sample-plane power; the calibrated ranges are in
+        # power-meter units. Compare both in the sample plane.
+        ranges = self._sample_power_ranges()
+
         newpwr = pwr
 
         if (
-            pwr < self._power_ranges.loc[self.curr_laserpower, 'min']
-            or pwr > self._power_ranges.loc[self.curr_laserpower, 'max']
+            pwr < ranges.loc[self.curr_laserpower, 'min']
+            or pwr > ranges.loc[self.curr_laserpower, 'max']
         ):
             # necessary to change laser output power setting
 
             # find best laserpwoer: minimal laserpower of which 95% of max
             # is larger than pwr to set
             laserpwr_best = list(
-                self._power_ranges.loc[
-                    self._power_ranges['max'] * 0.95 > pwr
-                ].index
+                ranges.loc[ranges['max'] * 0.95 > pwr].index
             )
             if len(laserpwr_best) > 0:
                 laserpwr_best = min(laserpwr_best)
             else:
-                laserpwr_best = max(list(self._power_ranges.index))
+                laserpwr_best = max(list(ranges.index))
 
-            if self._power_ranges.loc[laserpwr_best, 'min'] > pwr:
-                newpwr = self._power_ranges.loc[laserpwr_best, 'min']
+            if ranges.loc[laserpwr_best, 'min'] > pwr:
+                newpwr = ranges.loc[laserpwr_best, 'min']
                 logger.debug(
                     'Power setting {:.2f} is out of range. '.format(pwr)
                     + 'Setting closest power = {:.2f}.'.format(newpwr)
@@ -442,8 +480,8 @@ class IlluminationLaserControl(IlluminationControl):
                     + 'Setting closest power = {:.2f}.'.format(newpwr)
                 )
                 pwr = newpwr
-            elif self._power_ranges.loc[laserpwr_best, 'max'] < pwr:
-                newpwr = self._power_ranges.loc[laserpwr_best, 'max']
+            elif ranges.loc[laserpwr_best, 'max'] < pwr:
+                newpwr = ranges.loc[laserpwr_best, 'max']
                 logger.debug(
                     'Power setting {:.2f} is out of range. '.format(pwr)
                     + 'Setting closest power = {:.2f}.'.format(newpwr)
@@ -461,8 +499,16 @@ class IlluminationLaserControl(IlluminationControl):
             self.laserpower = laserpwr_best
 
         # Apply BFP correction: convert sample-plane target → BFP-equivalent
-        # P_bfp = P_sample / transmission_objective
-        newpwr = newpwr / self._bfp_factor()
+        # P_bfp = P_sample / transmission_objective, and keep it inside the
+        # calibrated model range so a boundary value cannot round out of it.
+        raw_lo, raw_hi = sorted(
+            self._power_ranges.loc[
+                self.curr_laserpower, ['min', 'max']
+            ].astype(float)
+        )
+        newpwr = float(
+            np.clip(newpwr / self._bfp_factor(), raw_lo, raw_hi)
+        )
         super(self.__class__, self.__class__).power.__set__(self, newpwr)
         # IlluminationControl.power.fset(self, pwr)
 
@@ -583,7 +629,25 @@ class IlluminationLaserControl(IlluminationControl):
         )
 
         factor = self._bfp_factor(laser)
-        ctrlval = analyzers[closest_level].estimate(pwr / factor)
+        raw_lo, raw_hi = sorted(analyzers[closest_level].output_range())
+        target = pwr / factor
+        span = max(abs(raw_hi - raw_lo), 1e-12)
+        if target < raw_lo - 1e-6 * span or target > raw_hi + 1e-6 * span:
+            raise ValueError(
+                'Requested power {:.3f} mW is outside the range reachable '
+                'with the attenuator at laser power {:s}: '
+                '{:.3f} – {:.3f} mW.'.format(
+                    pwr,
+                    str(closest_level),
+                    raw_lo * factor,
+                    raw_hi * factor,
+                )
+            )
+        # clip so a value right at the boundary cannot round out of the
+        # calibrated model range
+        ctrlval = analyzers[closest_level].estimate(
+            float(np.clip(target, raw_lo, raw_hi))
+        )
         self.set_attenuator(ctrlval)
 
     def predict_power_fixed_attenuator(self, laser_pwr, laser=None):
@@ -656,9 +720,20 @@ class IlluminationLaserControl(IlluminationControl):
         if laser is None:
             laser = self.curr_laser
 
-        pr = getattr(self, '_power_ranges', None)
+        # _power_ranges only holds the ranges of the instrument's current
+        # laser, so populate the analyzers for any other laser asked for.
+        try:
+            same_laser = int(laser) == int(self.curr_laser)
+        except (TypeError, ValueError):
+            same_laser = laser == self.curr_laser
+        if same_laser:
+            pr = getattr(self, '_power_ranges', None)
+        else:
+            _, pr = self._populate_analyzers(self.cali_db, laser)
         if pr is None or pr.empty:
             raise ValueError('No calibration power ranges available.')
+        # power-meter units → sample plane (no-op unless BFP-calibrated)
+        pr = self._sample_power_ranges(laser, pr)
 
         if mode == 'combined':
             lo = float(pr['min'].min())
@@ -747,6 +822,88 @@ class IlluminationLaserControl(IlluminationControl):
 
         self.laser = self.curr_laser  # to populate the analyzers
         self.laserpower = self.curr_laserpower
+
+    def record_state(self, laser=None):
+        """Persist the current laser power set-point and attenuator position.
+
+        Reads the present values from the hardware and stores them per
+        microscope and laser line (see :mod:`monet.hwstate`) so they can be
+        restored into the GUI after an unexpected restart. Any failure is
+        swallowed — persistence must never break a hardware operation.
+
+        Parameters
+        ----------
+        laser : int or str, optional
+            Laser line to record; defaults to the current laser.
+        """
+        if laser is None:
+            laser = self.curr_laser
+        try:
+            microscope = self.config['index'][DEVICE_TAG]
+        except Exception:
+            return
+        laser_power = None
+        try:
+            laser_power = float(self.lasers[laser].power)
+        except Exception:
+            logger.debug(
+                'record_state: reading laser power failed', exc_info=True
+            )
+        attenuator = None
+        try:
+            attenuator = float(self.attenuator.curr_pos())
+        except Exception:
+            logger.debug(
+                'record_state: reading attenuator failed', exc_info=True
+            )
+        try:
+            hwstate.save_laser_state(
+                microscope,
+                laser,
+                laser_power=laser_power,
+                attenuator=attenuator,
+            )
+        except Exception:
+            logger.debug('record_state: persisting failed', exc_info=True)
+
+    def saved_state(self, laser=None):
+        """Return the persisted ``{'laser_power', 'attenuator'}`` for a laser.
+
+        Returns ``None`` if no settings were stored for this microscope/laser.
+
+        Parameters
+        ----------
+        laser : int or str, optional
+            Laser line to look up; defaults to the current laser.
+        """
+        if laser is None:
+            laser = self.curr_laser
+        try:
+            microscope = self.config['index'][DEVICE_TAG]
+        except Exception:
+            return None
+        try:
+            return hwstate.get_laser_state(microscope, laser)
+        except Exception:
+            logger.debug('saved_state: lookup failed', exc_info=True)
+            return None
+
+    def disconnect(self):
+        """Switch off and release all lasers and the attenuator.
+
+        Frees the serial ports / SDK sessions held by every laser (and the
+        attenuator) so a fresh connection on the same hardware can re-open
+        them. Lasers are disabled first so the beam is never left on.
+        """
+        for laser in list(getattr(self, 'lasers', {}).values()):
+            try:
+                laser.enabled = False
+            except Exception:
+                logger.debug(
+                    'disconnect: disabling laser failed', exc_info=True
+                )
+            release_hardware(laser)
+        super().disconnect()
 
 
 def run_power_feedback(

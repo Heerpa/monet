@@ -441,6 +441,138 @@ class TestControl(unittest.TestCase):
         with self.assertRaises(ValueError):
             ctrl.predict_power_fixed_attenuator(75.0, laser=488)
 
+    # ── BFP-calibrated ranges (sample plane vs power-meter units) ─────────
+
+    def _build_bfp_control(self, factor=0.5):
+        """IlluminationLaserControl with a sinusoidal calibration (as on real
+        hardware) taken with the BFP powermeter: the calibrated model is in
+        BFP units, everything the user sets is in the sample plane.
+
+        Laser 488: max output 50 mW (BFP) at laser power 50, 100 mW at 100.
+        Laser 561: 40 / 80 mW. With factor=0.5 the sample-plane maxima are
+        half of that.
+        """
+        os.makedirs('monet/tests/TestData/control', exist_ok=True)
+        datim = [
+            datetime.now().strftime('%Y-%m-%d'),
+            datetime.now().strftime('%H:%M'),
+        ]
+        db = pd.DataFrame(
+            index=pd.MultiIndex.from_product(
+                [
+                    ['DefaultMicroscope'],
+                    ['488', '561'],
+                    [50, 100],
+                    [datim[0]],
+                    [datim[1]],
+                ],
+                names=tuple(DATABASE_INDEXLEVELS),
+            ),
+            data={
+                'bkg': [0] * 4,
+                'amp': [50, 100, 40, 80],
+                'phi': [30] * 4,
+            },
+        )
+        db_path = 'monet/tests/TestData/control/bfp_range_test_db.xlsx'
+        db.to_excel(db_path)
+
+        config = {
+            'database': db_path,
+            'dest_calibration_plot': 'monet/tests/TestData/control/',
+            'index': {'name': 'DefaultMicroscope'},
+            'attenuation': {
+                'classpath': 'monet.attenuation.TestAttenuator',
+                'init_kwargs': {
+                    'bkg': 0,
+                    'amp': 50,
+                    'phi': 30,
+                    'start': 30,
+                    'step': 5,
+                },
+            },
+            'analysis': {
+                'classpath': 'monet.analysis.SinusAttenuationCurveAnalyzer',
+                'init_kwargs': {'min': 30, 'max': 100, 'step': 5},
+            },
+            'lasers': {
+                '488': {
+                    'classpath': 'monet.laser.TestLaser',
+                    'init_kwargs': {'port': 'COM4'},
+                },
+                '561': {
+                    'classpath': 'monet.laser.TestLaser',
+                    'init_kwargs': {'port': 'COM7'},
+                },
+            },
+        }
+        ctrl = mco.IlluminationLaserControl(config)
+        ctrl.attenuator = _TrackingAttenuator(start=30)
+        ctrl.laser = 488
+        ctrl.laserpower = 50
+        for laser in (488, 561):
+            ctrl._powermeter_type[laser] = 'bfp'
+            ctrl._factors[laser] = factor
+        return ctrl
+
+    def test_accessible_power_range_is_sample_plane(self):
+        """The reachable range of a BFP calibration is reported in the sample
+        plane, not in (larger) BFP units — otherwise the GUI advertises powers
+        that the calibration model cannot deliver."""
+        ctrl = self._build_bfp_control(factor=0.5)
+        # combined: highest level max 100 mW BFP → 50 mW in the sample.
+        _, hi = ctrl.accessible_power_range('combined', 488)
+        self.assertAlmostEqual(hi, 50.0, places=4)
+        # fixed_laser at level 50: 50 mW BFP → 25 mW in the sample.
+        ctrl.laserpower = 50
+        _, hi = ctrl.accessible_power_range('fixed_laser', 488)
+        self.assertAlmostEqual(hi, 25.0, places=4)
+
+    def test_accessible_power_range_honours_laser_argument(self):
+        """The range is reported for the laser asked for, not for whichever
+        laser the instrument currently happens to be set to."""
+        ctrl = self._build_bfp_control(factor=0.5)
+        self.assertEqual(ctrl.curr_laser, 488)
+        _, hi_561 = ctrl.accessible_power_range('combined', 561)
+        # laser 561 tops out at 80 mW BFP → 40 mW in the sample.
+        self.assertAlmostEqual(hi_561, 40.0, places=4)
+        # querying another laser must not switch the instrument
+        self.assertEqual(ctrl.curr_laser, 488)
+
+    def test_power_setter_bfp_top_of_range(self):
+        """Regression: a sample-plane power just below the reported maximum
+        must not fail. Previously the target was compared against BFP-unit
+        ranges and only then divided by the transmission factor, so the value
+        handed to the model exceeded its calibrated maximum and it raised
+        'Desired value out of range'."""
+        ctrl = self._build_bfp_control(factor=0.5)
+        _, hi = ctrl.accessible_power_range('combined', 488)
+        ctrl.power = hi * 0.99  # 49.5 mW, comfortably below the reported max
+        self.assertAlmostEqual(ctrl.power, hi * 0.99, places=3)
+        # the exact boundary must not round out of the model range either
+        ctrl.power = hi
+        self.assertAlmostEqual(ctrl.power, hi, places=3)
+
+    def test_power_setter_bfp_above_range_clamps(self):
+        """Above the reachable maximum, combined mode picks the highest laser
+        power level and clamps to its sample-plane maximum."""
+        ctrl = self._build_bfp_control(factor=0.5)
+        ctrl.power = 60.0  # > sample max 50, but < BFP max 100
+        self.assertEqual(ctrl.curr_laserpower, 100)
+        self.assertAlmostEqual(ctrl.power, 50.0, places=3)
+
+    def test_set_power_fixed_laser_above_range_raises_clearly(self):
+        """fixed_laser mode rejects an unreachable power with a message that
+        names the reachable sample-plane range."""
+        ctrl = self._build_bfp_control(factor=0.5)
+        ctrl.laserpower = 50  # sample-plane range [0, 25] mW
+        with self.assertRaises(ValueError) as cm:
+            ctrl.set_power_fixed_laser(30.0, laser=488)
+        self.assertIn('25.000', str(cm.exception))
+        # within range it still works
+        ctrl.set_power_fixed_laser(20.0, laser=488)
+        self.assertAlmostEqual(ctrl.power, 20.0, places=3)
+
     # ── accessible_power_range error paths ───────────────────────────────
 
     def test_accessible_power_range_unknown_mode_raises(self):
@@ -453,6 +585,40 @@ class TestControl(unittest.TestCase):
         ctrl.is_calibrated = False
         with self.assertRaises(ValueError):
             ctrl.accessible_power_range('combined', 488)
+
+    # ── hardware-state persistence ───────────────────────────────────────
+
+    def test_record_and_restore_state(self):
+        """record_state persists the live laser power / attenuator position;
+        saved_state reads it back per laser line."""
+        import tempfile
+        from pathlib import Path
+
+        import monet.hwstate as hwstate
+
+        ctrl = self._build_laser_control()
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                hwstate, 'STATE_FILE', Path(tmp) / 'state.json'
+            ):
+                ctrl.laser = 488
+                ctrl.laserpower = 50
+                ctrl.attenuator.set(42.0)
+                ctrl.record_state()  # defaults to current laser
+
+                ctrl.laser = 561
+                ctrl.lasers[561].power = 80
+                ctrl.attenuator.set(17.5)
+                ctrl.record_state(561)
+
+                s488 = ctrl.saved_state(488)
+                s561 = ctrl.saved_state(561)
+                self.assertEqual(s488['laser_power'], 50.0)
+                self.assertEqual(s488['attenuator'], 42.0)
+                self.assertEqual(s561['laser_power'], 80.0)
+                self.assertEqual(s561['attenuator'], 17.5)
+                # A laser line never recorded has no saved state.
+                self.assertIsNone(ctrl.saved_state(640))
 
     # ── construction edge case ───────────────────────────────────────────
 

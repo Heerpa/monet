@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -71,6 +72,10 @@ class CalibrationWorker(QThread):
     """Runs CalibrationProtocol2D.run_protocol() in a background thread."""
 
     progress = pyqtSignal(int, int, object, object)  # step, total, laser, lpwr
+    # laser, lpwr, control values, measured powers
+    curve = pyqtSignal(object, object, object, object)
+    # laser, lpwr, index, total, control value, measured power
+    point = pyqtSignal(object, object, int, int, object, object)
     log_message = pyqtSignal(str)
     finished = pyqtSignal()
     error = pyqtSignal(str)
@@ -79,18 +84,18 @@ class CalibrationWorker(QThread):
         self,
         pc,
         laser_filter,
-        dry_run,
         wait_time=0.1,
         switch_time=10,
         powermeter_type=POWERMETER_SAMPLE,
+        manage_laser_state=True,
     ):
         super().__init__()
         self._pc = pc
         self._laser_filter = laser_filter
-        self._dry_run = dry_run
         self._wait_time = wait_time
         self._switch_time = switch_time
         self._powermeter_type = powermeter_type
+        self._manage_laser_state = manage_laser_state
         self._cancel_requested = False
 
     def request_cancel(self):
@@ -105,14 +110,21 @@ class CalibrationWorker(QThread):
                 f'Step {step}/{total}: laser {laser} nm at {lpwr} mW done.'
             )
 
+        def _curve_callback(laser, lpwr, ctrl_vals, powers):
+            self.curve.emit(laser, lpwr, ctrl_vals, powers)
+
+        def _point_callback(laser, lpwr, index, total, ctrl_val, power):
+            self.point.emit(laser, lpwr, index, total, ctrl_val, power)
+
         try:
             self._pc.run_protocol(
                 wait_time=self._wait_time,
                 switch_time=self._switch_time,
                 laser_filter=self._laser_filter,
-                dry_run=self._dry_run,
                 progress_callback=_progress_callback,
-                manage_laser_state=False,
+                curve_callback=_curve_callback,
+                point_callback=_point_callback,
+                manage_laser_state=self._manage_laser_state,
                 powermeter_type=self._powermeter_type,
             )
         except InterruptedError:
@@ -130,16 +142,30 @@ class ConnectWorker(QThread):
     warning = pyqtSignal(str)  # non-fatal warning (e.g. no powermeter)
     error = pyqtSignal(str)
 
-    def __init__(self, name, config, protocol):
+    def __init__(self, name, config, protocol, old_pc=None):
         super().__init__()
         self._name = name
         self._config = config
         self._protocol = protocol
+        self._old_pc = old_pc
 
     def run(self):
         import monet.calibrate as mca
 
         try:
+            # Release the previous connection first so its serial ports /
+            # SDK sessions are freed; otherwise re-opening the same hardware
+            # (e.g. after switching on another laser) fails with the ports
+            # still held by the old instance. Done here (worker thread) so
+            # the potentially-blocking close does not freeze the UI.
+            if self._old_pc is not None:
+                try:
+                    self._old_pc.disconnect()
+                except Exception:
+                    logging.getLogger(__name__).debug(
+                        'old connection teardown failed', exc_info=True
+                    )
+
             if self._protocol:
                 pc = mca.CalibrationProtocol2D(self._config, self._protocol)
             else:
@@ -289,6 +315,160 @@ class FeedbackPlotDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Calibration live plots
+# ---------------------------------------------------------------------------
+
+
+class CalibrationPlots(QWidget):
+    """Live plots shown alongside the calibration log.
+
+    Left axes: the attenuation curve (power vs. attenuator control value) of
+    the power step just measured. Right axes: the amplitude — the maximum
+    measured power — of every curve of the run, against the laser power
+    set-point, with one series per wavelength.
+
+    The curve grows point by point via ``add_point``; ``add_curve`` closes it
+    off at the end of a power step and records its amplitude. Both are
+    connected to ``CalibrationWorker`` signals and so run on the main thread.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # {laser: {laser power set-point: max measured power}}
+        self._amplitudes = {}
+        # (laser, lpwr) of the curve currently being acquired, or None
+        self._curve_key = None
+        self._curve_line = None
+        self._curve_x = []
+        self._curve_y = []
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+        except Exception:
+            self._has_mpl = False
+            layout.addWidget(
+                QLabel('matplotlib not available — cannot show plots.')
+            )
+            return
+
+        self._has_mpl = True
+        self._curve_fig = Figure(figsize=(3.4, 2.8), tight_layout=True)
+        self._curve_ax = self._curve_fig.add_subplot(111)
+        self._curve_canvas = FigureCanvasQTAgg(self._curve_fig)
+
+        self._amp_fig = Figure(figsize=(3.4, 2.8), tight_layout=True)
+        self._amp_ax = self._amp_fig.add_subplot(111)
+        self._amp_canvas = FigureCanvasQTAgg(self._amp_fig)
+
+        for canvas in (self._curve_canvas, self._amp_canvas):
+            canvas.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+            layout.addWidget(canvas)
+
+        self.clear()
+
+    def clear(self):
+        """Drop all accumulated data and reset both axes."""
+        self._amplitudes = {}
+        self._curve_key = None
+        self._curve_line = None
+        self._curve_x = []
+        self._curve_y = []
+        if not self._has_mpl:
+            return
+        self._curve_ax.clear()
+        self._style_curve_axes('current attenuation curve')
+        self._curve_canvas.draw_idle()
+        self._redraw_amplitudes()
+
+    def _style_curve_axes(self, title):
+        ax = self._curve_ax
+        ax.set_xlabel('attenuator control value', fontsize=8)
+        ax.set_ylabel('power [mW]', fontsize=8)
+        ax.set_title(title, fontsize=9)
+        ax.tick_params(labelsize=7)
+        ax.grid(True, alpha=0.3)
+
+    def _redraw_amplitudes(self):
+        ax = self._amp_ax
+        ax.clear()
+        for laser in sorted(self._amplitudes, key=float):
+            points = self._amplitudes[laser]
+            lpwrs = sorted(points, key=float)
+            ax.plot(
+                lpwrs,
+                [points[lp] for lp in lpwrs],
+                marker='o',
+                label='{} nm'.format(laser),
+            )
+        ax.set_xlabel('laser power set-point [mW]', fontsize=8)
+        ax.set_ylabel('max measured power [mW]', fontsize=8)
+        ax.set_title('measured power amplitudes', fontsize=9)
+        ax.tick_params(labelsize=7)
+        ax.grid(True, alpha=0.3)
+        if self._amplitudes:
+            ax.legend(fontsize=7)
+        self._amp_canvas.draw_idle()
+
+    def add_point(self, laser, lpwr, index, total, ctrl_val, power):
+        """Extend the current curve by one freshly measured point.
+
+        Starts a new curve whenever the power step changes.
+        """
+        if not self._has_mpl:
+            return
+
+        if index == 0 or self._curve_key != (laser, lpwr):
+            self._curve_key = (laser, lpwr)
+            self._curve_x = []
+            self._curve_y = []
+            self._curve_ax.clear()
+            (self._curve_line,) = self._curve_ax.plot([], [], marker='x')
+            self._style_curve_axes(
+                'current curve — {} nm, {} mW'.format(laser, lpwr)
+            )
+
+        self._curve_x.append(ctrl_val)
+        self._curve_y.append(power)
+        self._curve_line.set_data(self._curve_x, self._curve_y)
+        # The axes were built empty, so the limits have to follow the data.
+        self._curve_ax.relim()
+        self._curve_ax.autoscale_view()
+        self._curve_canvas.draw_idle()
+
+    def add_curve(self, laser, lpwr, ctrl_vals, powers):
+        """Close off a completed attenuation curve and record its amplitude.
+
+        Redraws the curve from the values the protocol actually kept, so the
+        plot is right even if no live points arrived (e.g. the 1D protocol).
+        """
+        if not self._has_mpl:
+            return
+
+        self._curve_ax.clear()
+        self._curve_ax.plot(ctrl_vals, powers, marker='x')
+        self._style_curve_axes(
+            'current curve — {} nm, {} mW'.format(laser, lpwr)
+        )
+        self._curve_canvas.draw_idle()
+        # The next point belongs to a new curve.
+        self._curve_key = None
+        self._curve_line = None
+
+        try:
+            amplitude = float(max(powers))
+        except (TypeError, ValueError):
+            return
+        self._amplitudes.setdefault(laser, {})[lpwr] = amplitude
+        self._redraw_amplitudes()
+
+
+# ---------------------------------------------------------------------------
 # Tab 1 — Calibrate
 # ---------------------------------------------------------------------------
 
@@ -306,6 +486,7 @@ class CalibrateTab(QWidget):
         super().__init__(parent)
         self._pc = None
         self._worker = None
+        self._discard_worker = None  # keep alive to prevent GC
         self._checkboxes = {}
         self._build_ui()
 
@@ -333,11 +514,17 @@ class CalibrateTab(QWidget):
 
         layout.addWidget(self._wl_group)
 
-        # Dry-run checkbox
-        self._dry_run_cb = QCheckBox(
-            'Dry run (calibrate without saving to database)'
+        # Multi-laser checkbox
+        self._multi_cb = QCheckBox(
+            'Multi-laser mode (keep other lasers on during calibration)'
         )
-        layout.addWidget(self._dry_run_cb)
+        self._multi_cb.setChecked(False)
+        self._multi_cb.setToolTip(
+            'When unchecked, all lasers are switched off before the run and '
+            'each laser is switched off again once its calibration is done, '
+            'so only the laser being calibrated is ever on.'
+        )
+        layout.addWidget(self._multi_cb)
 
         # Back focal plane (BFP) powermeter checkbox
         self._bfp_pm_cb = QCheckBox('Use back focal plane (BFP) powermeter')
@@ -356,30 +543,51 @@ class CalibrateTab(QWidget):
         self._progress.setValue(0)
         layout.addWidget(self._progress)
 
-        # Log
+        # Lower half — log on the left, live plots on the right
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setFont(QFont('Courier', 9))
-        self._log.setSizePolicy(
+        # The two side-by-side canvases have wide size hints; without a floor
+        # the splitter would squeeze the log down to an unreadable column.
+        self._log.setMinimumWidth(240)
+        self._plots = CalibrationPlots()
+
+        lower = QSplitter(Qt.Orientation.Horizontal)
+        lower.addWidget(self._log)
+        lower.addWidget(self._plots)
+        lower.setStretchFactor(0, 1)
+        lower.setStretchFactor(1, 2)
+        lower.setSizes([320, 640])
+        lower.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        layout.addWidget(self._log)
+        layout.addWidget(lower, 1)
 
-        # Start / Cancel buttons
+        # Start / Cancel / Discard buttons
         btn_row2 = QHBoxLayout()
         self._btn_start = QPushButton('Start')
         self._btn_cancel = QPushButton('Cancel')
         self._btn_cancel.setEnabled(False)
+        self._btn_discard = QPushButton('Discard')
+        self._btn_discard.setEnabled(False)
+        self._btn_discard.setToolTip(
+            'Delete the calibration records written by the last run from '
+            'the database.'
+        )
         self._btn_start.clicked.connect(self._on_start)
         self._btn_cancel.clicked.connect(self._on_cancel)
+        self._btn_discard.clicked.connect(self._on_discard)
         btn_row2.addWidget(self._btn_start)
         btn_row2.addWidget(self._btn_cancel)
+        btn_row2.addWidget(self._btn_discard)
         btn_row2.addStretch()
         layout.addLayout(btn_row2)
 
     def set_pc(self, pc):
         self._pc = pc
         self._rebuild_checkboxes()
+        self._plots.clear()
+        self._update_discard_enabled()
         has_beampath = (
             pc is not None
             and hasattr(pc, 'instrument')
@@ -444,30 +652,28 @@ class CalibrateTab(QWidget):
             )
             return
 
-        dry_run = self._dry_run_cb.isChecked()
-
         # 1D mode
         if not (hasattr(self._pc, 'protocol') and self._pc.protocol):
-            if dry_run:
-                reply = QMessageBox.question(
-                    self,
-                    'Dry run',
-                    'Dry run enabled — calibration will NOT be saved. '
-                    'Continue?',
-                    QMessageBox.StandardButton.Yes
-                    | QMessageBox.StandardButton.No,
-                )
-                if reply != QMessageBox.StandardButton.Yes:
-                    return
             self._log.append('Starting 1D calibration…')
             self._emit_status('Running 1D calibration…')
+            self._btn_discard.setEnabled(False)
+            self._plots.clear()
+            self._pc.reset_saved_calibrations()
             try:
-                self._pc.calibrate(dry_run=dry_run)
+                ctrl_vals, powers = self._pc.calibrate()
+                laser = self._pc.instrument.config['index'].get(
+                    'wavelength [nm]', ''
+                )
+                lpwr = self._pc.instrument.config['index'].get(
+                    'laser_power [mW]', ''
+                )
+                self._plots.add_curve(laser, lpwr, ctrl_vals, powers)
                 self._log.append('Done.')
                 self._emit_status('Calibration complete.', 5000)
             except Exception as exc:
                 QMessageBox.critical(self, 'Error', str(exc))
                 self._emit_status('Calibration failed.', 5000)
+            self._btn_discard.setEnabled(bool(self._pc.saved_calibrations))
             return
 
         selected = self._selected_lasers()
@@ -477,22 +683,14 @@ class CalibrateTab(QWidget):
             )
             return
 
-        if dry_run:
-            reply = QMessageBox.question(
-                self,
-                'Dry run',
-                'Dry run enabled — calibration will NOT be saved. Continue?',
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-
         self._log.clear()
+        self._plots.clear()
         self._log.append(f'Starting calibration for lasers: {selected}')
         self._progress.setValue(0)
         self._progress.setFormat('Starting…')
         self._btn_start.setEnabled(False)
         self._btn_cancel.setEnabled(True)
+        self._btn_discard.setEnabled(False)
         self._emit_status('Calibration running…')
 
         self.calibration_started.emit()
@@ -505,10 +703,12 @@ class CalibrateTab(QWidget):
         self._worker = CalibrationWorker(
             self._pc,
             laser_filter=selected,
-            dry_run=dry_run,
             powermeter_type=powermeter_type,
+            manage_laser_state=not self._multi_cb.isChecked(),
         )
         self._worker.progress.connect(self._on_progress)
+        self._worker.point.connect(self._plots.add_point)
+        self._worker.curve.connect(self._plots.add_curve)
         self._worker.log_message.connect(self._log.append)
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
@@ -533,6 +733,7 @@ class CalibrateTab(QWidget):
         self._progress.setFormat('Done')
         self._btn_start.setEnabled(True)
         self._btn_cancel.setEnabled(False)
+        self._update_discard_enabled()
         self._worker = None
         self._emit_status('Calibration complete.', 5000)
         self.calibration_finished.emit()
@@ -542,9 +743,69 @@ class CalibrateTab(QWidget):
         QMessageBox.critical(self, 'Calibration error', msg)
         self._btn_start.setEnabled(True)
         self._btn_cancel.setEnabled(False)
+        # A run that failed part-way may still have written records; let the
+        # user discard those.
+        self._update_discard_enabled()
         self._worker = None
         self._emit_status(f'Calibration error: {msg}', 5000)
         self.calibration_finished.emit()
+
+    def _update_discard_enabled(self):
+        saved = getattr(self._pc, 'saved_calibrations', None)
+        self._btn_discard.setEnabled(bool(saved))
+
+    def _on_discard(self):
+        """Delete the records written by the last calibration run."""
+        records = list(getattr(self._pc, 'saved_calibrations', None) or [])
+        if not records:
+            self._btn_discard.setEnabled(False)
+            return
+
+        reply = QMessageBox.question(
+            self,
+            'Discard calibration',
+            f'Delete the {len(records)} calibration record(s) written by the '
+            'last run from the database?\nThis cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        db_fname = self._pc.instrument.config['database']
+
+        def _do():
+            deleted = 0
+            for index in records:
+                deleted += io.delete_calibration(db_fname, index) or 0
+            return deleted
+
+        def _on_result(deleted):
+            self._pc.reset_saved_calibrations()
+            self._log.append(f'Discarded {deleted} calibration record(s).')
+            self._emit_status(
+                f'Discarded {deleted} calibration record(s).', 5000
+            )
+
+        def _on_error(msg):
+            self._log.append(f'ERROR discarding calibration: {msg}')
+            QMessageBox.critical(self, 'Discard error', msg)
+            self._emit_status(f'Discard failed: {msg}', 5000)
+
+        def _on_finished():
+            self._btn_start.setEnabled(True)
+            self._update_discard_enabled()
+            self._discard_worker = None
+
+        self._btn_start.setEnabled(False)
+        self._btn_discard.setEnabled(False)
+        self._emit_status('Discarding calibration…')
+
+        worker = GenericWorker(_do)
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_error)
+        worker.finished.connect(_on_finished)
+        self._discard_worker = worker
+        worker.start()
 
     def set_powermeter_available(self, available):
         """Enable or disable calibration controls per powermeter state."""
@@ -667,6 +928,18 @@ class AdjustTab(QWidget):
                 self._pwr_spin.setValue(float(pwr))
         except Exception:
             pass
+        # Overlay the last persisted settings for the current laser so the
+        # user can restore them after a restart with a single Set. Populate
+        # only — nothing is sent to the hardware here.
+        try:
+            saved = pc.instrument.saved_state(pc.instrument.curr_laser)
+        except Exception:
+            saved = None
+        if saved:
+            if saved.get('laser_power') is not None:
+                self._pwr_spin.setValue(float(saved['laser_power']))
+            if saved.get('attenuator') is not None:
+                self._att_spin.setValue(float(saved['attenuator']))
 
     def _on_refresh(self):
         """Read attenuator position and laser power from hardware."""
@@ -748,6 +1021,7 @@ class AdjustTab(QWidget):
 
         def _do():
             self._pc.instrument.attenuator.set(pos)
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText(f'Attenuator set to {pos}.')
@@ -761,6 +1035,7 @@ class AdjustTab(QWidget):
 
         def _do():
             self._pc.instrument.attenuator.home()
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText('Attenuator homed.')
@@ -782,6 +1057,7 @@ class AdjustTab(QWidget):
 
         def _do():
             self._pc.instrument.laserpower = pwr
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText(f'Laser power set to {pwr} mW.')
@@ -1091,6 +1367,30 @@ class SetPowerTab(QWidget):
                     self._hw_pwr_spin.setValue(float(pwr))
             except Exception:
                 pass
+            # Overlay the last persisted settings for the current laser so
+            # the user can restore them after a restart with a single Set.
+            self._apply_saved_state_to_ui(pc.instrument.curr_laser)
+
+    def _apply_saved_state_to_ui(self, laser):
+        """Populate the direct hardware spin boxes from persisted settings.
+
+        Loads the laser power set-point and attenuator position last saved for
+        ``laser`` (see :mod:`monet.hwstate`) into the direct-control spin boxes.
+        This only updates the UI — nothing is sent to the hardware until the
+        user clicks Set. Does nothing if no settings were stored.
+        """
+        if self._pc is None:
+            return
+        try:
+            saved = self._pc.instrument.saved_state(laser)
+        except Exception:
+            saved = None
+        if not saved:
+            return
+        if saved.get('laser_power') is not None:
+            self._hw_pwr_spin.setValue(float(saved['laser_power']))
+        if saved.get('attenuator') is not None:
+            self._hw_att_spin.setValue(float(saved['attenuator']))
 
     def _on_laser_changed(self, idx):
         if self._pc is None:
@@ -1122,6 +1422,9 @@ class SetPowerTab(QWidget):
             self._btn_onoff.setText('switch OFF' if enabled else 'switch ON')
         except Exception as exc:
             self._status.setText(str(exc))
+        # Show the persisted hardware settings for the newly selected laser
+        # line (populate only — not applied to hardware).
+        self._apply_saved_state_to_ui(laser)
         self._update_range_label()
 
     # --- helpers ---
@@ -1230,6 +1533,9 @@ class SetPowerTab(QWidget):
             )
             return
 
+        if not self._check_power_in_range(pwr, mode, laser):
+            return
+
         # --- Resolve feedback / beampath settings on the main thread ---
         use_feedback = self._feedback_cb.isChecked() and getattr(
             self._pc, 'powermeter_available', False
@@ -1272,6 +1578,7 @@ class SetPowerTab(QWidget):
 
                 def _do():
                     self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
+                    self._pc.instrument.record_state(laser)
 
                 done_msg = (
                     f'Laser power adjusted for {pwr} mW output '
@@ -1282,6 +1589,7 @@ class SetPowerTab(QWidget):
 
                 def _do():
                     self._pc.instrument.set_power_fixed_laser(pwr, laser)
+                    self._pc.instrument.record_state(laser)
 
                 done_msg = (
                     f'Attenuator set for {pwr} mW '
@@ -1293,6 +1601,7 @@ class SetPowerTab(QWidget):
                 def _do():
                     self._pc.instrument.laser = laser
                     self._pc.instrument.power = pwr
+                    self._pc.instrument.record_state(laser)
 
                 done_msg = f'Power set to {pwr} mW for laser {laser} nm.'
                 status_msg = f'Setting power to {pwr} mW…'
@@ -1347,6 +1656,8 @@ class SetPowerTab(QWidget):
                     self._pc.instrument.beampath.positions = bp_end_calibrate
                 if bp_end is not None:
                     self._pc.instrument.beampath.positions = bp_end
+
+                self._pc.instrument.record_state(laser)
 
                 return (
                     result['measured'],
@@ -1659,6 +1970,33 @@ class SetPowerTab(QWidget):
         except Exception:
             pass
 
+    def _check_power_in_range(self, pwr, mode, laser):
+        """Return True if pwr is reachable in this mode, else warn and
+        return False. Catches the request before it reaches the calibration
+        model, which would otherwise raise a bare out-of-range error."""
+        try:
+            lo, hi = self._pc.instrument.accessible_power_range(mode, laser)
+        except Exception as exc:
+            # cannot determine the range (e.g. not calibrated) — let the
+            # hardware call report the problem
+            logger.debug('Could not check power range: %s', exc)
+            return True
+
+        tol = 1e-6 * max(abs(hi), 1.0)
+        if lo - tol <= pwr <= hi + tol:
+            return True
+
+        QMessageBox.warning(
+            self,
+            'Power out of range',
+            f'{pwr:g} mW is not reachable for laser {laser} nm in mode\n'
+            f'"{self._mode_combo.currentText()}".\n\n'
+            f'Accessible range in this mode: {lo:.2f} – {hi:.2f} mW.\n\n'
+            'Choose a power within the range, or switch to a mode that '
+            'adjusts the other axis as well.',
+        )
+        return False
+
     def _update_range_label(self):
         """Compute and display the accessible power range for the mode."""
         if self._pc is None or not getattr(
@@ -1713,6 +2051,7 @@ class SetPowerTab(QWidget):
 
         def _do():
             self._pc.instrument.attenuator.set(pos)
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText(f'Attenuator set to {pos:.3f}.')
@@ -1726,6 +2065,7 @@ class SetPowerTab(QWidget):
 
         def _do():
             self._pc.instrument.attenuator.home()
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText('Attenuator homed.')
@@ -1746,6 +2086,7 @@ class SetPowerTab(QWidget):
 
         def _do():
             self._pc.instrument.laserpower = pwr
+            self._pc.instrument.record_state()
 
         def _done():
             self._status.setText(f'Laser power set to {pwr} mW.')
@@ -2303,7 +2644,9 @@ class MonetWidget(QWidget):
             self._scope_combo.setEnabled(False)
         self.status_changed.emit('Connecting to {}…'.format(name), 0)
 
-        self._connect_worker = ConnectWorker(name, config, protocol)
+        self._connect_worker = ConnectWorker(
+            name, config, protocol, old_pc=self._pc
+        )
         self._connect_worker.connected.connect(self._on_connected)
         self._connect_worker.warning.connect(self._on_connect_warning)
         self._connect_worker.error.connect(self._on_connect_error)
@@ -2336,9 +2679,17 @@ class MonetWidget(QWidget):
             except Exception:
                 pass
         if self._pc is not None:
+            # disconnect() disables every laser and releases all hardware
+            # (serial ports, SDK sessions); fall back to just disabling the
+            # lasers if a custom pc object has no disconnect().
             try:
-                for laser in self._pc.instrument.lasers:
-                    self._pc.instrument.lasers[laser].enabled = False
+                self._pc.disconnect()
+            except AttributeError:
+                try:
+                    for laser in self._pc.instrument.lasers:
+                        self._pc.instrument.lasers[laser].enabled = False
+                except Exception:
+                    pass
             except Exception:
                 pass
 
