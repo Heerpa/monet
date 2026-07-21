@@ -33,8 +33,8 @@ from monet import (
 )
 from monet.cache import _get_cache
 
-FACTOR_SHEET = 'factors'
-FACTOR_INDEXLEVELS = [DEVICE_TAG, LASER_TAG, 'date']
+FACTOR_SHEET = "factors"
+FACTOR_INDEXLEVELS = [DEVICE_TAG, LASER_TAG, "date"]
 
 logger = logging.getLogger(__name__)
 ic.configureOutput(outputFunction=logger.debug)
@@ -53,7 +53,7 @@ _FLUSH_COOLDOWN_SECS = 30
 
 def _is_server_url(fname):
     """Check if fname is a server URL rather than a file path."""
-    return fname.startswith('http://') or fname.startswith('https://')
+    return fname.startswith("http://") or fname.startswith("https://")
 
 
 def _flush_outbox(server_url: str) -> None:
@@ -80,38 +80,38 @@ def _flush_outbox(server_url: str) -> None:
     if not pending:
         return
 
-    logger.info('Flushing %d outbox entries to %s', len(pending), server_url)
+    logger.info("Flushing %d outbox entries to %s", len(pending), server_url)
     for entry_id, endpoint, payload, local_key in pending:
         try:
             resp = requests.post(
-                f'{server_url}{endpoint}', json=payload, timeout=10
+                f"{server_url}{endpoint}", json=payload, timeout=10
             )
             resp.raise_for_status()
 
             # On success: update the local cache to reflect the server's state
-            if endpoint == '/calibrations':
+            if endpoint == "/calibrations":
                 rec = resp.json()
                 cache.upsert_calibration(
-                    {**rec, 'parameters': payload['parameters']}
+                    {**rec, "parameters": payload["parameters"]}
                 )
                 # Remove the entry saved with a locally-generated
                 # timestamp
                 if local_key is not None:
                     cache.delete_calibrations(local_key)
-            elif endpoint == '/factors':
+            elif endpoint == "/factors":
                 cache.upsert_factor(resp.json())
             # For '/calibrations/delete' the local cache was already
             # updated offline
 
             cache.remove_outbox_entry(entry_id)
-            logger.debug('Synced outbox entry %d (%s)', entry_id, endpoint)
+            logger.debug("Synced outbox entry %d (%s)", entry_id, endpoint)
 
         except _CONNECTION_ERRORS as exc:
             # Server is still unreachable — record failure and stop
             cache.record_outbox_failure(entry_id, str(exc))
             _last_flush_failure[server_url] = _time.monotonic()
             logger.debug(
-                'Outbox flush aborted — server still unreachable: %s', exc
+                "Outbox flush aborted — server still unreachable: %s", exc
             )
             return
 
@@ -120,40 +120,40 @@ def _flush_outbox(server_url: str) -> None:
             # continue
             cache.record_outbox_failure(entry_id, str(exc))
             logger.warning(
-                'Outbox entry %d (%s) failed with server error: %s',
+                "Outbox entry %d (%s) failed with server error: %s",
                 entry_id,
                 endpoint,
                 exc,
             )
 
 
-def _records_to_pandas(records: list, time_idx) -> 'pd.Series | pd.DataFrame':
+def _records_to_pandas(records: list, time_idx) -> "pd.Series | pd.DataFrame":
     """Convert calibration record dicts to the appropriate pandas type.
 
     Mirrors the structure returned by the server so that the offline cache path
     produces the same types as the online path.
     """
-    if time_idx is None or time_idx == 'latest':
-        return pd.Series(records[0]['parameters'])
+    if time_idx is None or time_idx == "latest":
+        return pd.Series(records[0]["parameters"])
 
     rows = []
     index_tuples = []
     for rec in records:
         index_tuples.append(
             (
-                rec['device_name'],
-                rec['wavelength_nm'],
-                rec['laser_power_mw'],
-                rec['calibration_date'],
-                rec['calibration_time'],
+                rec["device_name"],
+                rec["wavelength_nm"],
+                rec["laser_power_mw"],
+                rec["calibration_date"],
+                rec["calibration_time"],
             )
         )
-        rows.append(rec['parameters'])
+        rows.append(rec["parameters"])
 
     midx = pd.MultiIndex.from_tuples(index_tuples, names=DATABASE_INDEXLEVELS)
     df = pd.DataFrame(rows, index=midx)
     for col in df.columns:
-        converted = pd.to_numeric(df[col], errors='coerce')
+        converted = pd.to_numeric(df[col], errors="coerce")
         if converted.notna().any():
             df[col] = converted
     return df
@@ -198,62 +198,62 @@ def _save_calibration_http(server_url, index, cali_pars):
     cache = _get_cache(server_url)
     try:
         resp = requests.post(
-            f'{server_url}/calibrations',
-            json={'index': index, 'parameters': cali_pars},
+            f"{server_url}/calibrations",
+            json={"index": index, "parameters": cali_pars},
             timeout=10,
         )
         resp.raise_for_status()
         record = resp.json()
         # Keep the local cache in sync with what the server stored
-        cache.upsert_calibration({**record, 'parameters': cali_pars})
+        cache.upsert_calibration({**record, "parameters": cali_pars})
     except _CONNECTION_ERRORS:
         # Server unreachable — save locally and queue for later sync
-        local_date = datetime.now().strftime('%Y-%m-%d')
-        local_time = datetime.now().strftime('%H:%M')
+        local_date = datetime.now().strftime("%Y-%m-%d")
+        local_time = datetime.now().strftime("%H:%M")
         record = {
-            'device_name': index.get('name', ''),
-            'wavelength_nm': float(index.get('wavelength [nm]', 0)),
-            'laser_power_mw': float(index.get('laser_power [mW]', 0)),
-            'calibration_date': local_date,
-            'calibration_time': local_time,
+            "device_name": index.get("name", ""),
+            "wavelength_nm": float(index.get("wavelength [nm]", 0)),
+            "laser_power_mw": float(index.get("laser_power [mW]", 0)),
+            "calibration_date": local_date,
+            "calibration_time": local_time,
         }
-        cache.upsert_calibration({**record, 'parameters': cali_pars})
+        cache.upsert_calibration({**record, "parameters": cali_pars})
         # local_key lets _flush_outbox clean up this offline entry after sync
         local_key = {
-            'name': index.get('name'),
-            'wavelength [nm]': index.get('wavelength [nm]'),
-            'laser_power [mW]': index.get('laser_power [mW]'),
-            'date': local_date,
-            'time': local_time,
+            "name": index.get("name"),
+            "wavelength [nm]": index.get("wavelength [nm]"),
+            "laser_power [mW]": index.get("laser_power [mW]"),
+            "date": local_date,
+            "time": local_time,
         }
         cache.add_to_outbox(
-            '/calibrations',
-            {'index': index, 'parameters': cali_pars},
+            "/calibrations",
+            {"index": index, "parameters": cali_pars},
             local_key=local_key,
         )
 
     indexnames = DATABASE_INDEXLEVELS
     indexvals = (
-        record['device_name'],
-        record['wavelength_nm'],
-        record['laser_power_mw'],
-        record['calibration_date'],
-        record['calibration_time'],
+        record["device_name"],
+        record["wavelength_nm"],
+        record["laser_power_mw"],
+        record["calibration_date"],
+        record["calibration_time"],
     )
     return indexnames, indexvals
 
 
 def _save_calibration_excel(fname, index, cali_pars):
     """Save calibration to Excel file (original implementation)."""
-    indexnames = list(index.keys()) + ['date', 'time']
+    indexnames = list(index.keys()) + ["date", "time"]
     indexnames = DATABASE_INDEXLEVELS + list(
         set(indexnames) - set(DATABASE_INDEXLEVELS)
     )
-    index['date'] = datetime.now().strftime('%Y-%m-%d')
-    index['time'] = datetime.now().strftime('%H:%M')
+    index["date"] = datetime.now().strftime("%Y-%m-%d")
+    index["time"] = datetime.now().strftime("%H:%M")
     indexvals = tuple([index[k] for k in indexnames])
     if not os.path.exists(fname):
-        logger.debug('Database file does not exist, creating it')
+        logger.debug("Database file does not exist, creating it")
         midx = pd.MultiIndex.from_tuples([indexvals], names=list(indexnames))
         db = pd.DataFrame(index=midx, columns=list(cali_pars.keys()))
     else:
@@ -261,7 +261,7 @@ def _save_calibration_excel(fname, index, cali_pars):
         while True:
             if time.time() - tic > 10:
                 logger.debug(
-                    'Persistent problem loading database. Creating anew'
+                    "Persistent problem loading database. Creating anew"
                 )
                 # print('error loading database: ', str(e))
                 ic(indexnames)
@@ -277,9 +277,9 @@ def _save_calibration_excel(fname, index, cali_pars):
                 )
             except Exception as e:
                 logger.debug(
-                    'Problem loading database: '
+                    "Problem loading database: "
                     + str(e)
-                    + ' Probably busy with separate read/write. Trying again.'
+                    + " Probably busy with separate read/write. Trying again."
                 )
                 time.sleep(0.05)
                 continue
@@ -292,7 +292,7 @@ def _save_calibration_excel(fname, index, cali_pars):
 
     if os.path.exists(fname):
         with pd.ExcelWriter(
-            fname, engine='openpyxl', mode='a', if_sheet_exists='replace'
+            fname, engine="openpyxl", mode="a", if_sheet_exists="replace"
         ) as writer:
             db.to_excel(writer)
     else:
@@ -306,7 +306,7 @@ def _save_calibration_excel(fname, index, cali_pars):
 # ──────────────────────────────────────────────
 
 
-def load_calibration(fname, index, time_idx='latest'):
+def load_calibration(fname, index, time_idx="latest"):
     """Load a calibration from the database.
 
     Parameters
@@ -343,7 +343,7 @@ def load_calibration(fname, index, time_idx='latest'):
 # ──────────────────────────────────────────────
 
 
-def load_database(fname, index, time_idx='last combinations'):
+def load_database(fname, index, time_idx="last combinations"):
     """Load the database.
 
     Parameters
@@ -382,23 +382,23 @@ def _load_database_http(server_url, index, time_idx):
     cache = _get_cache(server_url)
     try:
         resp = requests.post(
-            f'{server_url}/calibrations/query',
-            json={'index': json_index, 'time_idx': time_idx},
+            f"{server_url}/calibrations/query",
+            json={"index": json_index, "time_idx": time_idx},
             timeout=10,
         )
         resp.raise_for_status()
-        records = resp.json()['records']
+        records = resp.json()["records"]
         # Populate the local cache so reads work offline later
         for rec in records:
             cache.upsert_calibration(rec)
     except _CONNECTION_ERRORS:
         logger.warning(
-            'Server unreachable — loading calibrations from local cache'
+            "Server unreachable — loading calibrations from local cache"
         )
         records = cache.query_calibrations(json_index, time_idx)
 
     if not records:
-        raise KeyError(f'index {index} not found in database.')
+        raise KeyError(f"index {index} not found in database.")
 
     return _records_to_pandas(records, time_idx)
 
@@ -414,9 +414,9 @@ def _load_database_excel(fname, index, time_idx):
     if isinstance(time_idx, list) or isinstance(time_idx, tuple):
         if len(time_idx) > 2:
             pass
-        index['date'] = time_idx[0]
+        index["date"] = time_idx[0]
         if len(time_idx) > 1:
-            index['time'] = time_idx[1]
+            index["time"] = time_idx[1]
     indexvals = tuple(list(index.values()))
     ic(index)
 
@@ -424,7 +424,7 @@ def _load_database_excel(fname, index, time_idx):
         db = pd.read_excel(fname, index_col=list(range(len(indexnames))))
     except Exception as e:
         raise FileNotFoundError(
-            'Could not load database file {!r}: {}'.format(fname, e)
+            "Could not load database file {!r}: {}".format(fname, e)
         ) from e
 
     db = db.sort_index()
@@ -435,26 +435,26 @@ def _load_database_excel(fname, index, time_idx):
         db = db.loc[indexvals, :]
     except Exception as e:
         raise KeyError(
-            'Index {} not found in database {!r}. '
-            'The device name, wavelength, or laser power may not match '
-            'any existing calibration entry.'.format(indexvals, fname)
+            "Index {} not found in database {!r}. "
+            "The device name, wavelength, or laser power may not match "
+            "any existing calibration entry.".format(indexvals, fname)
         ) from e
 
     # date selection
-    if time_idx is None or time_idx == 'latest':
+    if time_idx is None or time_idx == "latest":
         # A fully-specified index (e.g. name + wavelength + power + date +
         # time, as written by save_calibration) collapses the selection to a
         # single-row Series — in that case the latest entry is already
         # selected. Only pick the last row when several remain.
-        if getattr(db, 'ndim', 1) == 2:
+        if getattr(db, "ndim", 1) == 2:
             db = db.sort_index().iloc[-1, :]
-    elif time_idx == 'last date':
-        last_date = db.index.get_level_values('date').max()
-        db = db.loc[db.index.get_level_values('date') == last_date, :]
-    elif time_idx == 'last combinations':
+    elif time_idx == "last date":
+        last_date = db.index.get_level_values("date").max()
+        db = db.loc[db.index.get_level_values("date") == last_date, :]
+    elif time_idx == "last combinations":
         # for every non-time index, only one entry should remain (time
         # index should be redundant)
-        nontimedateidx = [k for k in index.keys() if k not in ['date', 'time']]
+        nontimedateidx = [k for k in index.keys() if k not in ["date", "time"]]
         newdb = db.copy()
         for dfidx, subdf in db.groupby(nontimedateidx):
             idxlen = len(subdf.index)
@@ -462,7 +462,7 @@ def _load_database_excel(fname, index, time_idx):
                 if i < idxlen - 1:
                     newdb.drop(idx, inplace=True)
         db = newdb
-    elif time_idx == 'all':
+    elif time_idx == "all":
         pass
 
     return db
@@ -484,22 +484,22 @@ def restart_database(db_fname):
 
 def _restart_database_http(server_url):
     """Restart database via HTTP server."""
-    resp = requests.post(f'{server_url}/database/restart', timeout=30)
+    resp = requests.post(f"{server_url}/database/restart", timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    return data['backup_path']
+    return data["backup_path"]
 
 
 def _restart_database_excel(db_fname):
     """Restart database from Excel file (original implementation)."""
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now().strftime("%Y-%m-%d")
     root, ext = os.path.splitext(db_fname)
-    bkup_fname = os.path.join(root + '_' + today, ext)
+    bkup_fname = os.path.join(root + "_" + today, ext)
     if os.path.exists(bkup_fname):
-        raise ValueError('File already exists: {:s}'.format(bkup_fname))
+        raise ValueError("File already exists: {:s}".format(bkup_fname))
     shutil.copy2(db_fname, bkup_fname)
     last_entries = load_database(
-        db_fname, index={}, time_idx='last combinations'
+        db_fname, index={}, time_idx="last combinations"
     )
     last_entries.to_excel(db_fname)
 
@@ -538,29 +538,29 @@ def _delete_calibration_http(server_url, index):
     """
     _flush_outbox(server_url)
     payload = {
-        'device_name': index.get('name'),
-        'wavelength_nm': index.get('wavelength [nm]'),
-        'laser_power_mw': index.get('laser_power [mW]'),
-        'calibration_date': index.get('date'),
-        'calibration_time': index.get('time'),
+        "device_name": index.get("name"),
+        "wavelength_nm": index.get("wavelength [nm]"),
+        "laser_power_mw": index.get("laser_power [mW]"),
+        "calibration_date": index.get("date"),
+        "calibration_time": index.get("time"),
     }
     cache = _get_cache(server_url)
     try:
         resp = requests.post(
-            f'{server_url}/calibrations/delete', json=payload, timeout=10
+            f"{server_url}/calibrations/delete", json=payload, timeout=10
         )
         resp.raise_for_status()
-        count = resp.json()['deleted_count']
+        count = resp.json()["deleted_count"]
         # Mirror the deletion in the local cache
         cache.delete_calibrations(index)
         return count
     except _CONNECTION_ERRORS:
         logger.warning(
-            'Server unreachable — applying delete to local cache and '
-            'queuing outbox'
+            "Server unreachable — applying delete to local cache and "
+            "queuing outbox"
         )
         count = cache.delete_calibrations(index)
-        cache.add_to_outbox('/calibrations/delete', payload)
+        cache.add_to_outbox("/calibrations/delete", payload)
         return count
 
 
@@ -574,30 +574,30 @@ def _delete_calibration_excel(fname, index):
             fname, index_col=list(range(len(DATABASE_INDEXLEVELS)))
         )
     except Exception as e:
-        raise FileNotFoundError('Problem loading file ' + fname) from e
+        raise FileNotFoundError("Problem loading file " + fname) from e
 
     original_len = len(db)
     mask = pd.Series(True, index=db.index)
 
-    name = index.get('name')
+    name = index.get("name")
     if name is not None:
-        mask &= db.index.get_level_values('name') == name
+        mask &= db.index.get_level_values("name") == name
 
-    wavelength = index.get('wavelength [nm]')
+    wavelength = index.get("wavelength [nm]")
     if wavelength is not None:
-        mask &= db.index.get_level_values('wavelength [nm]') == wavelength
+        mask &= db.index.get_level_values("wavelength [nm]") == wavelength
 
-    laser_power = index.get('laser_power [mW]')
+    laser_power = index.get("laser_power [mW]")
     if laser_power is not None:
-        mask &= db.index.get_level_values('laser_power [mW]') == laser_power
+        mask &= db.index.get_level_values("laser_power [mW]") == laser_power
 
-    date = index.get('date')
+    date = index.get("date")
     if date is not None:
-        mask &= db.index.get_level_values('date') == date
+        mask &= db.index.get_level_values("date") == date
 
-    time_val = index.get('time')
+    time_val = index.get("time")
     if time_val is not None:
-        mask &= db.index.get_level_values('time') == time_val
+        mask &= db.index.get_level_values("time") == time_val
 
     db = db[~mask]
     db.to_excel(fname)
@@ -625,32 +625,32 @@ def plot_device_history(db_fname, device, plot_dir):
         skipped (e.g. when no 'dest_calibration_plot' is configured).
     """
     if not plot_dir:
-        logger.debug('No plot directory configured; skipping device history.')
+        logger.debug("No plot directory configured; skipping device history.")
         return
-    plt.switch_backend('agg')
+    plt.switch_backend("agg")
 
     index = {DEVICE_TAG: device}
-    db = load_database(db_fname, index, 'all')
+    db = load_database(db_fname, index, "all")
     for laser, laser_df in db.groupby(LASER_TAG):
-        params = laser_df.select_dtypes(include='number').columns
+        params = laser_df.select_dtypes(include="number").columns
         if len(params) == 0:
             continue
         fig, ax = plt.subplots(nrows=len(params), sharex=True, squeeze=False)
         ax = ax[:, 0]
         for i, param in enumerate(params):
             for power, power_df in laser_df.groupby(POWER_TAG):
-                dates = power_df.index.get_level_values('date')
-                times = power_df.index.get_level_values('time')
+                dates = power_df.index.get_level_values("date")
+                times = power_df.index.get_level_values("time")
 
                 dt = [
-                    datetime.strptime(f"{date};{time}", '%Y-%m-%d;%H:%M')
+                    datetime.strptime(f"{date};{time}", "%Y-%m-%d;%H:%M")
                     for date, time in zip(dates, times)
                 ]
                 ax[i].plot(
                     dt,
                     power_df.loc[:, param].values.flatten(),
-                    marker='x',
-                    label='power={:.1f}'.format(power),
+                    marker="x",
+                    label="power={:.1f}".format(power),
                 )
             ax[i].set_ylabel(str(param))
         ax[0].legend()
@@ -659,11 +659,11 @@ def plot_device_history(db_fname, device, plot_dir):
         ax[-1].xaxis.set_minor_locator(
             mdates.WeekdayLocator(byweekday=mdates.MO)
         )
-        ax[-1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%b'))
-        for label in ax[-1].get_xticklabels(which='major'):
-            label.set(rotation=30, horizontalalignment='right')
+        ax[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%b"))
+        for label in ax[-1].get_xticklabels(which="major"):
+            label.set(rotation=30, horizontalalignment="right")
         plot_fname = os.path.join(
-            plot_dir, 'history_{:s}.png'.format(str(laser))
+            plot_dir, "history_{:s}.png".format(str(laser))
         )
         fig.set_size_inches((8, 7))
         fig.savefig(plot_fname)
@@ -687,21 +687,21 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
     """
     if not plot_dir:
         logger.debug(
-            'No plot directory configured; skipping amplitude history.'
+            "No plot directory configured; skipping amplitude history."
         )
         return
-    plt.switch_backend('agg')
+    plt.switch_backend("agg")
 
     index = {DEVICE_TAG: device}
-    db = load_database(db_fname, index, 'all')
+    db = load_database(db_fname, index, "all")
     for laser, laser_df in db.groupby(LASER_TAG):
         fig, ax = plt.subplots(nrows=2, sharex=True)
         for power, power_df in laser_df.groupby(POWER_TAG):
-            dates = power_df.index.get_level_values('date')
-            times = power_df.index.get_level_values('time')
+            dates = power_df.index.get_level_values("date")
+            times = power_df.index.get_level_values("time")
 
             dt = [
-                datetime.strptime(f"{date};{time}", '%Y-%m-%d;%H:%M')
+                datetime.strptime(f"{date};{time}", "%Y-%m-%d;%H:%M")
                 for date, time in zip(dates, times)
             ]
             minpower = np.zeros(len(dates))
@@ -720,24 +720,24 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
                 minpower[i] = np.real(output_range[0])
                 maxpower[i] = np.real(output_range[1])
             ax[0].plot(
-                dt, minpower, marker='x', label='power={:.1f}'.format(power)
+                dt, minpower, marker="x", label="power={:.1f}".format(power)
             )
-            ax[0].set_ylabel('Background [mW]')
+            ax[0].set_ylabel("Background [mW]")
             ax[1].plot(
-                dt, maxpower, marker='x', label='power={:.1f}'.format(power)
+                dt, maxpower, marker="x", label="power={:.1f}".format(power)
             )
-            ax[1].set_ylabel('maximum power [mW]')
+            ax[1].set_ylabel("maximum power [mW]")
         ax[0].legend()
         # ax[-1].set_xlabel('datetime')
         ax[-1].xaxis.set_major_locator(mdates.MonthLocator())
         ax[-1].xaxis.set_minor_locator(
             mdates.WeekdayLocator(byweekday=mdates.MO)
         )
-        ax[-1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%b'))
-        for label in ax[-1].get_xticklabels(which='major'):
-            label.set(rotation=30, horizontalalignment='right')
+        ax[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%b"))
+        for label in ax[-1].get_xticklabels(which="major"):
+            label.set(rotation=30, horizontalalignment="right")
         plot_fname = os.path.join(
-            plot_dir, 'history_amplitude_{:s}.png'.format(str(laser))
+            plot_dir, "history_amplitude_{:s}.png".format(str(laser))
         )
         fig.set_size_inches((8, 7))
         fig.savefig(plot_fname)
@@ -773,12 +773,12 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
     if not _is_server_url(db_fname) and not os.path.exists(db_fname):
         return
 
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now().strftime("%Y-%m-%d")
 
     try:
         if _is_server_url(db_fname):
             index = {DEVICE_TAG: device, LASER_TAG: int(laser)}
-            db = load_database(db_fname, index, time_idx='all')
+            db = load_database(db_fname, index, time_idx="all")
         else:
             # Read directly to avoid _load_database_excel's fragile slice-based
             # loc selection which can silently return empty for type
@@ -799,45 +799,45 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
                 laser_mask = db.index.get_level_values(LASER_TAG) == int(laser)
             db = db.loc[device_mask & laser_mask]
     except Exception as exc:
-        logger.warning('compute_and_save_factor: could not load db: %s', exc)
+        logger.warning("compute_and_save_factor: could not load db: %s", exc)
         return
 
     if db.empty:
         logger.warning(
-            'compute_and_save_factor: no calibrations found for %s / %s nm',
+            "compute_and_save_factor: no calibrations found for %s / %s nm",
             device,
             laser,
         )
         return
-    if 'powermeter_type' not in db.columns:
+    if "powermeter_type" not in db.columns:
         logger.warning(
-            'compute_and_save_factor: powermeter_type column missing — '
-            'calibrations were likely recorded before this feature was added'
+            "compute_and_save_factor: powermeter_type column missing — "
+            "calibrations were likely recorded before this feature was added"
         )
         return
 
     # Filter to today — normalize dates to 'YYYY-MM-DD' strings regardless of
     # whether Excel stored them as strings or Timestamps.
-    if 'date' in db.index.names:
-        dates_str = [str(d)[:10] for d in db.index.get_level_values('date')]
+    if "date" in db.index.names:
+        dates_str = [str(d)[:10] for d in db.index.get_level_values("date")]
         db = db.loc[[d == today for d in dates_str]]
     if db.empty:
         logger.warning(
-            'compute_and_save_factor: no calibrations for today (%s) for '
-            '%s / %s nm — both types must be calibrated on the same day',
+            "compute_and_save_factor: no calibrations for today (%s) for "
+            "%s / %s nm — both types must be calibrated on the same day",
             today,
             device,
             laser,
         )
         return
 
-    pm_type_norm = db['powermeter_type'].map(normalize_powermeter_type)
+    pm_type_norm = db["powermeter_type"].map(normalize_powermeter_type)
     db_manual = db.loc[pm_type_norm == POWERMETER_SAMPLE]
     db_beampath = db.loc[pm_type_norm == POWERMETER_BFP]
     if db_manual.empty or db_beampath.empty:
         logger.warning(
-            'compute_and_save_factor: need both sample-plane and BFP '
-            'calibrations on the same day; found sample=%d bfp=%d',
+            "compute_and_save_factor: need both sample-plane and BFP "
+            "calibrations on the same day; found sample=%d bfp=%d",
             len(db_manual),
             len(db_beampath),
         )
@@ -850,15 +850,15 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
     common_lpwrs = manual_lpwrs & beampath_lpwrs
     if not common_lpwrs:
         logger.warning(
-            'compute_and_save_factor: no common laser power levels between '
-            'manual %s and beampath %s',
+            "compute_and_save_factor: no common laser power levels between "
+            "manual %s and beampath %s",
             manual_lpwrs,
             beampath_lpwrs,
         )
         return
 
-    att_min = ana_config['init_kwargs'].get('min', 0)
-    att_max = ana_config['init_kwargs'].get('max', 180)
+    att_min = ana_config["init_kwargs"].get("min", 0)
+    att_max = ana_config["init_kwargs"].get("max", 180)
     positions = np.linspace(att_min, att_max, 50)
 
     all_ratios = []
@@ -889,16 +889,16 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
 
         try:
             ana_m = load_class(
-                ana_config['classpath'], ana_config['init_kwargs']
+                ana_config["classpath"], ana_config["init_kwargs"]
             )
             ana_m.load_model(manual_pars)
             ana_b = load_class(
-                ana_config['classpath'], ana_config['init_kwargs']
+                ana_config["classpath"], ana_config["init_kwargs"]
             )
             ana_b.load_model(beampath_pars)
         except Exception as exc:
             logger.warning(
-                'compute_and_save_factor: analyzer error at %s mW: %s',
+                "compute_and_save_factor: analyzer error at %s mW: %s",
                 lpwr,
                 exc,
             )
@@ -915,8 +915,8 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
 
     if not all_ratios:
         logger.warning(
-            'compute_and_save_factor: no valid power ratios computed '
-            '(all powers were zero or negative at sampled positions)'
+            "compute_and_save_factor: no valid power ratios computed "
+            "(all powers were zero or negative at sampled positions)"
         )
         return
 
@@ -924,7 +924,7 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
     factor_std = float(np.std(all_ratios))
     n_points = len(all_ratios)
     logger.debug(
-        'transmission_objective %s/%s: mean=%.4f std=%.4f n=%d',
+        "transmission_objective %s/%s: mean=%.4f std=%.4f n=%d",
         device,
         laser,
         factor_mean,
@@ -946,26 +946,26 @@ def _save_factor_http(
 ):
     """Save transmission_objective factor via HTTP, offline fallback."""
     payload = {
-        'device_name': device,
-        'wavelength_nm': int(laser),
-        'calibration_date': date,
-        'transmission_objective_mean': factor_mean,
-        'transmission_objective_std': factor_std,
-        'n_points': n_points,
+        "device_name": device,
+        "wavelength_nm": int(laser),
+        "calibration_date": date,
+        "transmission_objective_mean": factor_mean,
+        "transmission_objective_std": factor_std,
+        "n_points": n_points,
     }
     cache = _get_cache(server_url)
     try:
-        resp = requests.post(f'{server_url}/factors', json=payload, timeout=10)
+        resp = requests.post(f"{server_url}/factors", json=payload, timeout=10)
         resp.raise_for_status()
         cache.upsert_factor(payload)
     except _CONNECTION_ERRORS:
         logger.warning(
-            'Server unreachable — saving factor to local cache and outbox'
+            "Server unreachable — saving factor to local cache and outbox"
         )
         cache.upsert_factor(payload)
-        cache.add_to_outbox('/factors', payload)
+        cache.add_to_outbox("/factors", payload)
     except Exception as exc:
-        logger.warning('Failed to save factor via HTTP: %s', exc)
+        logger.warning("Failed to save factor via HTTP: %s", exc)
 
 
 def _save_factor_excel(
@@ -984,9 +984,9 @@ def _save_factor_excel(
             except Exception:
                 df = pd.DataFrame(
                     columns=[
-                        'transmission_objective_mean',
-                        'transmission_objective_std',
-                        'n_points',
+                        "transmission_objective_mean",
+                        "transmission_objective_std",
+                        "n_points",
                     ],
                     index=pd.MultiIndex.from_tuples(
                         [], names=FACTOR_INDEXLEVELS
@@ -995,24 +995,24 @@ def _save_factor_excel(
         else:
             df = pd.DataFrame(
                 columns=[
-                    'transmission_objective_mean',
-                    'transmission_objective_std',
-                    'n_points',
+                    "transmission_objective_mean",
+                    "transmission_objective_std",
+                    "n_points",
                 ],
                 index=pd.MultiIndex.from_tuples([], names=FACTOR_INDEXLEVELS),
             )
 
-        df.loc[index_key, 'transmission_objective_mean'] = factor_mean
-        df.loc[index_key, 'transmission_objective_std'] = factor_std
-        df.loc[index_key, 'n_points'] = n_points
+        df.loc[index_key, "transmission_objective_mean"] = factor_mean
+        df.loc[index_key, "transmission_objective_std"] = factor_std
+        df.loc[index_key, "n_points"] = n_points
         df.index.names = FACTOR_INDEXLEVELS
 
         with pd.ExcelWriter(
-            db_fname, engine='openpyxl', mode='a', if_sheet_exists='replace'
+            db_fname, engine="openpyxl", mode="a", if_sheet_exists="replace"
         ) as writer:
             df.to_excel(writer, sheet_name=FACTOR_SHEET)
     except Exception as exc:
-        logger.warning('Failed to save factor: %s', exc)
+        logger.warning("Failed to save factor: %s", exc)
 
 
 def load_factors(db_fname, device=None, laser=None):
@@ -1038,28 +1038,28 @@ def load_factors(db_fname, device=None, laser=None):
         _flush_outbox(db_fname)
         payload: dict = {}
         if device is not None:
-            payload['device_name'] = device
+            payload["device_name"] = device
         if laser is not None:
             try:
-                payload['wavelength_nm'] = float(int(laser))
+                payload["wavelength_nm"] = float(int(laser))
             except (ValueError, TypeError):
                 pass
         cache = _get_cache(db_fname)
         try:
             resp = requests.post(
-                f'{db_fname}/factors/query', json=payload, timeout=10
+                f"{db_fname}/factors/query", json=payload, timeout=10
             )
             resp.raise_for_status()
-            records = resp.json().get('records', [])
+            records = resp.json().get("records", [])
             for r in records:
                 cache.upsert_factor(r)
         except _CONNECTION_ERRORS:
             logger.warning(
-                'Server unreachable — loading factors from local cache'
+                "Server unreachable — loading factors from local cache"
             )
             records = cache.query_factors(device, laser)
         except Exception as exc:
-            logger.debug('load_factors HTTP error: %s', exc)
+            logger.debug("load_factors HTTP error: %s", exc)
             return pd.DataFrame()
         if not records:
             return pd.DataFrame()
@@ -1067,17 +1067,17 @@ def load_factors(db_fname, device=None, laser=None):
         index_tuples = []
         for r in records:
             index_tuples.append(
-                (r['device_name'], r['wavelength_nm'], r['calibration_date'])
+                (r["device_name"], r["wavelength_nm"], r["calibration_date"])
             )
             rows.append(
                 {
-                    'transmission_objective_mean': r[
-                        'transmission_objective_mean'
+                    "transmission_objective_mean": r[
+                        "transmission_objective_mean"
                     ],
-                    'transmission_objective_std': r[
-                        'transmission_objective_std'
+                    "transmission_objective_std": r[
+                        "transmission_objective_std"
                     ],
-                    'n_points': r['n_points'],
+                    "n_points": r["n_points"],
                 }
             )
         midx = pd.MultiIndex.from_tuples(

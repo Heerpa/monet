@@ -23,36 +23,36 @@ class TestLoadClass(unittest.TestCase):
 
     def test_load_class_no_settings(self):
         # init_kwargs is passed as the single positional argument.
-        obj = util.load_class('monet.attenuation.TestAttenuator', {})
+        obj = util.load_class("monet.attenuation.TestAttenuator", {})
         self.assertIsInstance(obj, _TestAttenuator)
 
     def test_load_class_passes_init_kwargs_as_config(self):
-        config = {'min': 0, 'max': 360}
-        obj = util.load_class('monet.attenuation.TestAttenuator', config)
+        config = {"min": 0, "max": 360}
+        obj = util.load_class("monet.attenuation.TestAttenuator", config)
         self.assertEqual(obj.config, config)
 
     def test_load_class_with_settings(self):
         # When `settings` is given it is spread as keyword arguments:
         # Met(init_kwargs, **settings). Use a stdlib type that accepts both.
         obj = util.load_class(
-            'collections.OrderedDict', {'a': 1}, settings={'b': 2}
+            "collections.OrderedDict", {"a": 1}, settings={"b": 2}
         )
-        self.assertEqual(obj['a'], 1)
-        self.assertEqual(obj['b'], 2)
+        self.assertEqual(obj["a"], 1)
+        self.assertEqual(obj["b"], 2)
 
     def test_load_class_bad_path_raises(self):
         with self.assertRaises(ModuleNotFoundError):
-            util.load_class('monet.does_not_exist.Nope', {})
+            util.load_class("monet.does_not_exist.Nope", {})
 
     def test_load_class_missing_attribute_raises(self):
         with self.assertRaises(AttributeError):
-            util.load_class('monet.attenuation.NoSuchClass', {})
+            util.load_class("monet.attenuation.NoSuchClass", {})
 
 
 class _Recorder:
     """Records which teardown methods were called, optionally raising."""
 
-    def __init__(self, methods=('close',), inner=None, raise_on=()):
+    def __init__(self, methods=("close",), inner=None, raise_on=()):
         self.calls = []
         self._raise_on = set(raise_on)
         if inner is not None:
@@ -65,7 +65,7 @@ class _Recorder:
         def _fn():
             self.calls.append(name)
             if name in self._raise_on:
-                raise RuntimeError('boom in ' + name)
+                raise RuntimeError("boom in " + name)
 
         return _fn
 
@@ -76,21 +76,21 @@ class TestReleaseHardware(unittest.TestCase):
         util.release_hardware(None)  # must not raise
 
     def test_calls_close_and_disconnect(self):
-        dev = _Recorder(methods=('close', 'disconnect'))
+        dev = _Recorder(methods=("close", "disconnect"))
         util.release_hardware(dev)
-        self.assertIn('close', dev.calls)
-        self.assertIn('disconnect', dev.calls)
+        self.assertIn("close", dev.calls)
+        self.assertIn("disconnect", dev.calls)
 
     def test_recurses_into_wrapped_handle(self):
-        inner = _Recorder(methods=('close',))
+        inner = _Recorder(methods=("close",))
         wrapper = _Recorder(methods=(), inner=inner)
         util.release_hardware(wrapper)
-        self.assertEqual(inner.calls, ['close'])
+        self.assertEqual(inner.calls, ["close"])
 
     def test_swallows_errors(self):
-        dev = _Recorder(methods=('close',), raise_on=('close',))
+        dev = _Recorder(methods=("close",), raise_on=("close",))
         util.release_hardware(dev)  # error swallowed
-        self.assertEqual(dev.calls, ['close'])
+        self.assertEqual(dev.calls, ["close"])
 
     def test_no_close_methods_is_noop(self):
         # An object without any teardown methods (e.g. a Test* device).
@@ -106,7 +106,7 @@ _UNSET = object()
 
 
 class _FakeSettings:
-    def __init__(self, comment=''):
+    def __init__(self, comment=""):
         self._comment = comment
 
     def comment(self, new=_UNSET):
@@ -124,7 +124,7 @@ class _FakeSettings:
 
 class _FakeAcqMgr:
     def __init__(self):
-        self.settings = _FakeSettings('')
+        self.settings = _FakeSettings("")
 
     def get_acquisition_settings(self):
         return self.settings
@@ -145,65 +145,65 @@ class TestUpdateMMComment(unittest.TestCase):
             def acquisitions(self):
                 return mgr
 
-        fake = types.ModuleType('pycromanager')
+        fake = types.ModuleType("pycromanager")
         fake.Studio = _Studio
-        self._saved = sys.modules.get('pycromanager')
-        sys.modules['pycromanager'] = fake
+        self._saved = sys.modules.get("pycromanager")
+        sys.modules["pycromanager"] = fake
         self.addCleanup(self._restore)
 
     def _restore(self):
         if self._saved is None:
-            sys.modules.pop('pycromanager', None)
+            sys.modules.pop("pycromanager", None)
         else:
-            sys.modules['pycromanager'] = self._saved
+            sys.modules["pycromanager"] = self._saved
 
     def test_appends_line(self):
-        err = util.update_mm_acquisition_comment(488, 12.345, 'mW')
+        err = util.update_mm_acquisition_comment(488, 12.345, "mW")
         self.assertIsNone(err)
-        self.assertEqual(self.mgr.settings.comment(), 'Power 488nm: 12.345 mW')
+        self.assertEqual(self.mgr.settings.comment(), "Power 488nm: 12.345 mW")
 
     def test_replaces_existing_line_for_same_laser(self):
-        util.update_mm_acquisition_comment(488, 10.0, 'mW')
-        util.update_mm_acquisition_comment(488, 20.0, 'mW')
+        util.update_mm_acquisition_comment(488, 10.0, "mW")
+        util.update_mm_acquisition_comment(488, 20.0, "mW")
         comment = self.mgr.settings.comment()
-        self.assertEqual(comment, 'Power 488nm: 20.000 mW')
+        self.assertEqual(comment, "Power 488nm: 20.000 mW")
         # Exactly one line for this laser — no duplicate appended.
-        self.assertEqual(comment.count('Power 488nm:'), 1)
+        self.assertEqual(comment.count("Power 488nm:"), 1)
 
     def test_keeps_lines_for_other_lasers(self):
-        util.update_mm_acquisition_comment(488, 10.0, 'mW')
-        util.update_mm_acquisition_comment(561, 5.0, 'mW')
+        util.update_mm_acquisition_comment(488, 10.0, "mW")
+        util.update_mm_acquisition_comment(561, 5.0, "mW")
         comment = self.mgr.settings.comment()
-        self.assertIn('Power 488nm: 10.000 mW', comment)
-        self.assertIn('Power 561nm: 5.000 mW', comment)
+        self.assertIn("Power 488nm: 10.000 mW", comment)
+        self.assertIn("Power 561nm: 5.000 mW", comment)
 
     def test_optional_fields_in_line(self):
         util.update_mm_acquisition_comment(
-            640, 3.5, 'mW', att_pos=12.3456, laser_pwr=100.0
+            640, 3.5, "mW", att_pos=12.3456, laser_pwr=100.0
         )
         comment = self.mgr.settings.comment()
-        self.assertIn('@ att=12.3456', comment)
-        self.assertIn('lp=100.0mW', comment)
+        self.assertIn("@ att=12.3456", comment)
+        self.assertIn("lp=100.0mW", comment)
 
 
 class TestUpdateMMCommentNoPycromanager(unittest.TestCase):
 
     def setUp(self):
         # Ensure importing pycromanager fails so we hit the no-op path.
-        self._saved = sys.modules.get('pycromanager')
-        sys.modules['pycromanager'] = None  # forces ImportError on import
+        self._saved = sys.modules.get("pycromanager")
+        sys.modules["pycromanager"] = None  # forces ImportError on import
         self.addCleanup(self._restore)
 
     def _restore(self):
         if self._saved is None:
-            sys.modules.pop('pycromanager', None)
+            sys.modules.pop("pycromanager", None)
         else:
-            sys.modules['pycromanager'] = self._saved
+            sys.modules["pycromanager"] = self._saved
 
     def test_noop_returns_none(self):
         # No MicroManager / pycromanager: graceful no-op.
-        self.assertIsNone(util.update_mm_acquisition_comment(488, 1.0, 'mW'))
+        self.assertIsNone(util.update_mm_acquisition_comment(488, 1.0, "mW"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

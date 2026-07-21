@@ -20,7 +20,7 @@ class CalibrationCreate(BaseModel):
 
 class CalibrationQuery(BaseModel):
     index: dict
-    time_idx: Union[str, List, None] = 'last combinations'
+    time_idx: Union[str, List, None] = "last combinations"
 
 
 class CalibrationRecord(BaseModel):

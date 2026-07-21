@@ -57,14 +57,14 @@ def get_pycromgr(pycore_config=None):
             pycrocore = Core()
         except TimeoutError as e:
             raise TimeoutError(
-                'Timed out connecting to Micro-Manager (pycromanager). '
-                'Check that Micro-Manager is running and the Java gateway is '
-                'accessible on the expected port.'
+                "Timed out connecting to Micro-Manager (pycromanager). "
+                "Check that Micro-Manager is running and the Java gateway is "
+                "accessible on the expected port."
             ) from e
     else:
         # no need to specifically load the config
         logger.debug(
-            'Ignoring pycromanager configuration {:s}.'.format(
+            "Ignoring pycromanager configuration {:s}.".format(
                 str(pycore_config)
             )
         )
@@ -72,9 +72,9 @@ def get_pycromgr(pycore_config=None):
             pycrocore = Core()
         except TimeoutError as e:
             raise TimeoutError(
-                'Timed out connecting to Micro-Manager (pycromanager). '
-                'Check that Micro-Manager is running and the Java gateway is '
-                'accessible on the expected port.'
+                "Timed out connecting to Micro-Manager (pycromanager). "
+                "Check that Micro-Manager is running and the Java gateway is "
+                "accessible on the expected port."
             ) from e
         # pycrocore = pymmcore.CMMCore()
         # pycrocore.setDeviceAdapterSearchPaths(
@@ -135,7 +135,7 @@ class BeamPath:
         if pycore_config is not None:
             get_pycromgr(pycore_config)
         self.objects = {
-            obid: load_class(cfg['classpath'], cfg['init_kwargs'])
+            obid: load_class(cfg["classpath"], cfg["init_kwargs"])
             for obid, cfg in config.items()
         }
 
@@ -173,12 +173,12 @@ class BeamPath:
                 self.objects[obid].position = pos
             except Exception as exc:
                 logger.exception(
-                    'Could not set beam-path object %r to %r', obid, pos
+                    "Could not set beam-path object %r to %r", obid, pos
                 )
-                errors.append('{!r}->{!r}: {}'.format(obid, pos, exc))
+                errors.append("{!r}->{!r}: {}".format(obid, pos, exc))
         if errors:
             raise RuntimeError(
-                'Failed to set beam-path object(s): ' + '; '.join(errors)
+                "Failed to set beam-path object(s): " + "; ".join(errors)
             )
 
 
@@ -218,7 +218,7 @@ class TestShutter(AbstractBeamPathObject):
             number).
         """
         super().__init__(config)
-        logger.debug('initializing TestShutter')
+        logger.debug("initializing TestShutter")
         self.device = self._connect(config)
         self._autoshutter = True
 
@@ -234,21 +234,21 @@ class TestShutter(AbstractBeamPathObject):
 
     def _connect(self, config):
         device = None
-        logger.debug('connecting to TestShutter')
+        logger.debug("connecting to TestShutter")
         return device
 
     @property
     def position(self):
-        logger.debug('querying position of TestShutter.')
+        logger.debug("querying position of TestShutter.")
         return super().position
 
     @position.setter
     def position(self, pos):
         if not isinstance(pos, bool):
             raise ValueError(
-                'TestShutter position must be bool, got {!r}'.format(pos)
+                "TestShutter position must be bool, got {!r}".format(pos)
             )
-        logger.debug('setting position of TestShutter to {:b}'.format(pos))
+        logger.debug("setting position of TestShutter to {:b}".format(pos))
         super(self.__class__, self.__class__).position.__set__(self, pos)
 
 
@@ -269,19 +269,19 @@ class NikonShutter(AbstractBeamPathObject):
 
     def _connect(self, config):
         self.core = get_pycromgr()
-        self.core.set_property('Core', 'AutoShutter', '0')
+        self.core.set_property("Core", "AutoShutter", "0")
 
     @property
     def autoshutter(self):
-        return self.core.get_property('Core', 'AutoShutter')
+        return self.core.get_property("Core", "AutoShutter")
 
     @autoshutter.setter
     def autoshutter(self, val):
         if val:
-            val = '1'
+            val = "1"
         else:
-            val = '0'
-        self.core.set_property('Core', 'AutoShutter', val)
+            val = "0"
+        self.core.set_property("Core", "AutoShutter", val)
 
     @property
     def position(self):
@@ -291,7 +291,7 @@ class NikonShutter(AbstractBeamPathObject):
     def position(self, pos):
         if not isinstance(pos, bool):
             raise ValueError(
-                'NikonShutter position must be bool, got {!r}'.format(pos)
+                "NikonShutter position must be bool, got {!r}".format(pos)
             )
         # if pos:
         #     self.device.open()
@@ -321,7 +321,7 @@ class NikonFilterWheel(AbstractBeamPathObject):
     def _connect(self, config):
         self.core = get_pycromgr()
         # find the correct filter config name
-        filter_config_name = 'Filter turret'
+        filter_config_name = "Filter turret"
         cfg_groups = self.core.get_available_config_groups()
         config_names = [cfg_groups.get(i) for i in range(cfg_groups.size())]
         if filter_config_name not in config_names:
@@ -333,7 +333,7 @@ class NikonFilterWheel(AbstractBeamPathObject):
             else:
                 # try the parts
                 name_candidates = []
-                for test_cn in filter_config_name.split(' '):
+                for test_cn in filter_config_name.split(" "):
                     found = [
                         test_cn.upper() in cn for cn in config_names_upper
                     ]
@@ -343,17 +343,17 @@ class NikonFilterWheel(AbstractBeamPathObject):
                     filter_config_name = name_candidates[0]
                 elif len(name_candidates) > 1:
                     logger.debug(
-                        'Multiple configs could be the '
+                        "Multiple configs could be the "
                         + filter_config_name
-                        + ': '
-                        + ', '.join(name_candidates)
-                        + '. Choosing the first.'
+                        + ": "
+                        + ", ".join(name_candidates)
+                        + ". Choosing the first."
                     )
                     filter_config_name = name_candidates[0]
                 else:
                     raise KeyError(
-                        'Cannot find Micro-Manager configuration group for '
-                        '{!r}. Available groups: {}'.format(
+                        "Cannot find Micro-Manager configuration group for "
+                        "{!r}. Available groups: {}".format(
                             filter_config_name, config_names
                         )
                     )
@@ -374,11 +374,11 @@ class NikonFilterWheel(AbstractBeamPathObject):
     def position(self, pos):
         if not isinstance(pos, str):
             raise ValueError(
-                'MMConfigFilter position must be str, got {!r}'.format(pos)
+                "MMConfigFilter position must be str, got {!r}".format(pos)
             )
         if pos not in self.filter_options:
             raise ValueError(
-                'Position {!r} not available for {}. Options: {}'.format(
+                "Position {!r} not available for {}. Options: {}".format(
                     pos, self.filter_config_name, self.filter_options
                 )
             )
@@ -409,7 +409,7 @@ class NikonNosepiece(AbstractBeamPathObject):
     def _connect(self, config):
         self.core = get_pycromgr()
         # find the correct filter config name
-        filter_config_name = 'Nosepiece'
+        filter_config_name = "Nosepiece"
         cfg_groups = self.core.get_available_config_groups()
         config_names = [cfg_groups.get(i) for i in range(cfg_groups.size())]
         if filter_config_name not in config_names:
@@ -421,7 +421,7 @@ class NikonNosepiece(AbstractBeamPathObject):
             else:
                 # try the parts
                 name_candidates = []
-                for test_cn in filter_config_name.split(' '):
+                for test_cn in filter_config_name.split(" "):
                     found = [
                         test_cn.upper() in cn for cn in config_names_upper
                     ]
@@ -431,17 +431,17 @@ class NikonNosepiece(AbstractBeamPathObject):
                     filter_config_name = name_candidates[0]
                 elif len(name_candidates) > 1:
                     logger.debug(
-                        'Multiple configs could be the '
+                        "Multiple configs could be the "
                         + filter_config_name
-                        + ': '
-                        + ', '.join(name_candidates)
-                        + '. Choosing the first.'
+                        + ": "
+                        + ", ".join(name_candidates)
+                        + ". Choosing the first."
                     )
                     filter_config_name = name_candidates[0]
                 else:
                     raise KeyError(
-                        'Cannot find Micro-Manager configuration group for '
-                        '{!r}. Available groups: {}'.format(
+                        "Cannot find Micro-Manager configuration group for "
+                        "{!r}. Available groups: {}".format(
                             filter_config_name, config_names
                         )
                     )
@@ -462,11 +462,11 @@ class NikonNosepiece(AbstractBeamPathObject):
     def position(self, pos):
         if not isinstance(pos, str):
             raise ValueError(
-                'NikonNosepiece position must be str, got {!r}'.format(pos)
+                "NikonNosepiece position must be str, got {!r}".format(pos)
             )
         if pos not in self.filter_options:
             raise ValueError(
-                'Position {!r} not available for {}. Options: {}'.format(
+                "Position {!r} not available for {}. Options: {}".format(
                     pos, self.filter_config_name, self.filter_options
                 )
             )

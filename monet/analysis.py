@@ -95,8 +95,8 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
         """
         pars = self.curr_params
         minimax = {
-            'mini': self.analysis_parameters['min'],
-            'maxi': self.analysis_parameters['max'],
+            "mini": self.analysis_parameters["min"],
+            "maxi": self.analysis_parameters["max"],
         }
         return self._model_function_inv(y, **pars, **minimax)
 
@@ -126,7 +126,7 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
         model_parameters : dict
             The model parameters.
         """
-        if hasattr(self, 'fit_result'):
+        if hasattr(self, "fit_result"):
             return self.fit_result.params.valuesdict()
         else:
             return self.curr_params
@@ -152,7 +152,7 @@ class AbstractAttenuationCurveAnalyzer(abc.ABC):
         xlabel, ylabel, title : str, optional
             Axis labels and plot title.
         """
-        plt.switch_backend('agg')
+        plt.switch_backend("agg")
         fig = self.fit_result.plot(
             show_init=False, xlabel=xlabel, ylabel=ylabel, title=title
         )
@@ -224,14 +224,14 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         ``alpha = np.arcsin((out - bkg) / amp * 2 - 1) / 2 * 180 / np.pi
         - phi``
         """
-        logger.debug('inverting squared sinus model function')
+        logger.debug("inverting squared sinus model function")
         logger.debug(
-            f'y={str(y)}, bkg={str(bkg)}, amp={str(amp)}, phi={str(phi)}'
+            f"y={str(y)}, bkg={str(bkg)}, amp={str(amp)}, phi={str(phi)}"
         )
         if np.any(y < bkg) or np.any(y > bkg + amp):
             raise ValueError(
-                'Desired value y={:s} out of range. '.format(str(y))
-                + 'Should be between bkg={:s} and amp+bkg={:s}'.format(
+                "Desired value y={:s} out of range. ".format(str(y))
+                + "Should be between bkg={:s} and amp+bkg={:s}".format(
                     str(bkg), str(bkg + amp)
                 )
             )
@@ -265,14 +265,14 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             Keys: bkg, amp, phi.
         """
         pars = {
-            'bkg': np.min(y),
-            'amp': np.max(y) - np.min(y),
-            'phi': x[np.argmax(y)] + 90 / 4,
+            "bkg": np.min(y),
+            "amp": np.max(y) - np.min(y),
+            "phi": x[np.argmax(y)] + 90 / 4,
         }
         self.model.make_params(pars)
-        self.model.set_param_hint('bkg', min=0)
-        self.model.set_param_hint('amp', min=0)
-        self.model.set_param_hint('phi', min=0)
+        self.model.set_param_hint("bkg", min=0)
+        self.model.set_param_hint("amp", min=0)
+        self.model.set_param_hint("phi", min=0)
         return pars
 
     def output_range(self):
@@ -288,11 +288,11 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         # phi_max = 180/8  # =22,5°; period 90°
         # phi_min = 3/8*180
         phi_period = 90
-        phi_max = params['phi'] - 180 / 8
-        phi_min = params['phi'] + 180 / 8
+        phi_max = params["phi"] - 180 / 8
+        phi_min = params["phi"] + 180 / 8
         phi_range = [
-            self.analysis_parameters['min'],
-            self.analysis_parameters['max'],
+            self.analysis_parameters["min"],
+            self.analysis_parameters["max"],
         ]
         ic(phi_min)
         ic(phi_max)
@@ -308,7 +308,7 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         ic(next_maxphi_from_min)
         output_range = [0, 0]
         if next_maxphi_from_min < phi_range[1]:
-            output_range[1] = params['bkg'] + params['amp']
+            output_range[1] = params["bkg"] + params["amp"]
         else:
             output_range[1] = max(
                 [
@@ -317,7 +317,7 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
                 ]
             )
         if next_minphi_from_min < phi_range[1]:
-            output_range[0] = params['bkg']
+            output_range[0] = params["bkg"]
         else:
             output_range[0] = min(
                 [
@@ -338,7 +338,7 @@ class SinusAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             Axis labels and plot title.
         """
         if xlabel is None:
-            xlabel = 'angle [deg]'
+            xlabel = "angle [deg]"
         # print('plotting with', xlabel, ylabel, title)
         super().plot(fname, xlabel, ylabel, title)
 
@@ -390,8 +390,8 @@ class LinearCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         """Calculate the inverse."""
         if np.any(y < bkg + amp * mini) or np.any(y > bkg + amp * maxi):
             raise ValueError(
-                'Desired value y={:s} out of range. '.format(str(y))
-                + 'Should be between {:s} and {:s}'.format(
+                "Desired value y={:s} out of range. ".format(str(y))
+                + "Should be between {:s} and {:s}".format(
                     str(bkg + amp * mini), str(bkg + amp * maxi)
                 )
             )
@@ -414,18 +414,18 @@ class LinearCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             Keys: bkg, amp.
         """
         pars = {
-            'bkg': np.min(y),
-            'amp': np.max(y) - np.min(y),
+            "bkg": np.min(y),
+            "amp": np.max(y) - np.min(y),
         }
         self.model.make_params(pars)
-        self.model.set_param_hint('bkg', min=0)
-        self.model.set_param_hint('amp', min=0)
+        self.model.set_param_hint("bkg", min=0)
+        self.model.set_param_hint("amp", min=0)
         return pars
 
     def output_range(self):
         p = self.curr_params
-        v0 = p['bkg'] + p['amp'] * self.analysis_parameters['min']
-        v1 = p['bkg'] + p['amp'] * self.analysis_parameters['max']
+        v0 = p["bkg"] + p["amp"] * self.analysis_parameters["min"]
+        v1 = p["bkg"] + p["amp"] * self.analysis_parameters["max"]
         return sorted([v0, v1])
 
     def plot(self, fname, xlabel=None, ylabel=None, title=None):
@@ -439,8 +439,8 @@ class LinearCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             Axis labels and plot title.
         """
         if xlabel is None:
-            xlabel = 'x'
-        print('plotting with', xlabel, ylabel, title)
+            xlabel = "x"
+        print("plotting with", xlabel, ylabel, title)
         super().plot(fname, xlabel, ylabel, title)
 
 
@@ -452,8 +452,8 @@ class PointCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
     """
 
     def __init__(self, analysis_parameters):
-        analysis_parameters['min'] = np.nan
-        analysis_parameters['min'] = np.nan
+        analysis_parameters["min"] = np.nan
+        analysis_parameters["min"] = np.nan
         super().__init__(analysis_parameters)
 
     def fit(self, x, y):
@@ -470,10 +470,10 @@ class PointCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         """
         if isinstance(y, Iterable):
             y = np.mean(y)
-        self.curr_params = {'amp': y}
+        self.curr_params = {"amp": y}
 
     def output_range(self):
-        return [self.curr_params['amp'], self.curr_params['amp']]
+        return [self.curr_params["amp"], self.curr_params["amp"]]
 
     def estimate(self, y):
         """Estimate control parameter needed to reach a given power.
@@ -512,12 +512,12 @@ class PointCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             Estimated power output.
         """
         if isinstance(x, Iterable):
-            return self.curr_params['amp'] * np.ones_like(x)
+            return self.curr_params["amp"] * np.ones_like(x)
         else:
-            return self.curr_params['amp']
+            return self.curr_params["amp"]
 
     def plot(self, fname, xlabel=None, ylabel=None, title=None):
-        logger.debug('PointCurveAnalyzer does not plot.')
+        logger.debug("PointCurveAnalyzer does not plot.")
 
     def _model_function(self, x, bkg, amp):
         """Evaluate a constant function.
@@ -561,7 +561,7 @@ class PointCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             Keys: bkg, amp.
         """
         pars = {
-            'amp': np.mean(y),
+            "amp": np.mean(y),
         }
         return pars
 
@@ -591,8 +591,8 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         """
         self.poly = None
         self.polinv = None
-        if 'polydegree' not in analysis_parameters:
-            analysis_parameters['polydegree'] = 10
+        if "polydegree" not in analysis_parameters:
+            analysis_parameters["polydegree"] = 10
         super().__init__(analysis_parameters)
 
     def _model_function(self, x, pn):
@@ -621,7 +621,7 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             x = self.polinv(y)
         else:
             raise ValueError(
-                'At this point the inverse Polznomial should be defined.'
+                "At this point the inverse Polznomial should be defined."
             )
             x = _Polynomial(pn)(y)
         if x < mini:
@@ -661,8 +661,8 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             ``[min power, max power]``.
         """
         end_vals = [
-            np.real(self.poly(self.analysis_parameters['min'])),
-            np.real(self.poly(self.analysis_parameters['max'])),
+            np.real(self.poly(self.analysis_parameters["min"])),
+            np.real(self.poly(self.analysis_parameters["max"])),
         ]
         extremes = self.poly.deriv().roots()
         extremes = [
@@ -670,8 +670,8 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             for e in extremes
             if (
                 np.isreal(e)
-                and e > self.analysis_parameters['min']
-                and e < self.analysis_parameters['max']
+                and e > self.analysis_parameters["min"]
+                and e < self.analysis_parameters["max"]
             )
         ]
         extreme_vals = [np.real(self.poly(e)) for e in extremes]
@@ -696,17 +696,17 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             Desired power output.
         """
         inxrange = np.argwhere(
-            (x >= self.analysis_parameters['min'])
-            & (x <= self.analysis_parameters['max'])
+            (x >= self.analysis_parameters["min"])
+            & (x <= self.analysis_parameters["max"])
         )
         x = x[inxrange].flatten()
         y = y[inxrange].flatten()
-        self.fitvals_forward = {'x': x, 'y': y}
+        self.fitvals_forward = {"x": x, "y": y}
         win_x = [min(x), max(x)]
         self.poly = _Polynomial.fit(
             x,
             y,
-            self.analysis_parameters['polydegree'],
+            self.analysis_parameters["polydegree"],
             window=win_x,
             domain=win_x,
         )
@@ -718,12 +718,12 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         x = x[idx]
         y = y[idx]
 
-        self.fitvals_backward = {'x': x, 'y': y}
+        self.fitvals_backward = {"x": x, "y": y}
         win_y = [min(y), max(y)]
         self.polinv = _Polynomial.fit(
             y,
             x,
-            int(1.5 * self.analysis_parameters['polydegree']),
+            int(1.5 * self.analysis_parameters["polydegree"]),
             window=win_y,
             domain=win_y,
         )
@@ -745,8 +745,8 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         """
         coef_fw, coef_bw = self.params2coef(self.curr_params)
         minimax = {
-            'mini': self.analysis_parameters['min'],
-            'maxi': self.analysis_parameters['max'],
+            "mini": self.analysis_parameters["min"],
+            "maxi": self.analysis_parameters["max"],
         }
         return self._model_function_inv(y, coef_bw, **minimax)
 
@@ -796,9 +796,9 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         params : dict
             The coefficients as a dict, with keys p0, p1, ...
         """
-        params = {'p{:d}'.format(i): c for i, c in enumerate(coef)}
+        params = {"p{:d}".format(i): c for i, c in enumerate(coef)}
         for i, c in enumerate(coef_inv):
-            params['i{:d}'.format(i)] = c
+            params["i{:d}".format(i)] = c
         return params
 
     def params2coef(self, params):
@@ -816,11 +816,11 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
         coef_bw : np array
             The coefficients of the inverse polynomial.
         """
-        n_fw = len([1 for k in list(params.keys()) if 'p' in k])
-        n_bw = len([1 for k in list(params.keys()) if 'i' in k])
-        coef_fw = np.array([params['p{:d}'.format(i)] for i in range(n_fw)])
+        n_fw = len([1 for k in list(params.keys()) if "p" in k])
+        n_bw = len([1 for k in list(params.keys()) if "i" in k])
+        coef_fw = np.array([params["p{:d}".format(i)] for i in range(n_fw)])
         coef_fw[np.isnan(coef_fw)] = 0
-        coef_bw = np.array([params['i{:d}'.format(i)] for i in range(n_bw)])
+        coef_bw = np.array([params["i{:d}".format(i)] for i in range(n_bw)])
         coef_bw[np.isnan(coef_bw)] = 0
         return coef_fw, coef_bw
 
@@ -848,57 +848,57 @@ class PolynomAttenuationCurveAnalyzer(AbstractAttenuationCurveAnalyzer):
             Axis labels and plot title.
         """
         if xlabel is None:
-            xlabel = 'input variable (e.g. power[dBm])'
+            xlabel = "input variable (e.g. power[dBm])"
         if ylabel is None:
-            ylabel = 'Beam Power [mW]'
-        plt.switch_backend('agg')
+            ylabel = "Beam Power [mW]"
+        plt.switch_backend("agg")
         fig, ax = plt.subplots()
         xmock = np.linspace(
-            self.analysis_parameters['min'],
-            self.analysis_parameters['max'],
+            self.analysis_parameters["min"],
+            self.analysis_parameters["max"],
             num=50,
         )
-        if hasattr(self, 'fitvals_forward'):
+        if hasattr(self, "fitvals_forward"):
             ax.plot(
-                self.fitvals_forward['x'],
-                self.fitvals_forward['y'],
-                color='b',
-                linestyle='None',
-                marker='+',
-                label='data used forward',
+                self.fitvals_forward["x"],
+                self.fitvals_forward["y"],
+                color="b",
+                linestyle="None",
+                marker="+",
+                label="data used forward",
             )
             ax.plot(
-                self.fitvals_backward['x'],
-                self.fitvals_backward['y'],
-                color='r',
-                linestyle='None',
-                marker='+',
-                label='data used inv',
+                self.fitvals_backward["x"],
+                self.fitvals_backward["y"],
+                color="r",
+                linestyle="None",
+                marker="+",
+                label="data used inv",
             )
             ymock = np.linspace(
-                np.min(self.fitvals_backward['y']),
-                np.max(self.fitvals_backward['y']),
+                np.min(self.fitvals_backward["y"]),
+                np.max(self.fitvals_backward["y"]),
                 num=50,
             )
         else:
             ymock = np.linspace(
-                self.poly(np.min(self.analysis_parameters['min'])),
-                self.poly(np.max(self.analysis_parameters['min'])),
+                self.poly(np.min(self.analysis_parameters["min"])),
+                self.poly(np.max(self.analysis_parameters["min"])),
                 num=50,
             )
         ax.plot(
             xmock,
             self.poly(xmock),
-            color='b',
-            linestyle='-',
-            label='fit forward',
+            color="b",
+            linestyle="-",
+            label="fit forward",
         )
         ax.plot(
             self.polinv(ymock),
             ymock,
-            color='r',
-            linestyle='-',
-            label='fit inverse',
+            color="r",
+            linestyle="-",
+            label="fit inverse",
         )
         ax.legend()
         ax.set_xlabel(xlabel)
@@ -937,22 +937,22 @@ def test_PolynomAttenuationCurveAnalyzer():
     )
 
     pars = {
-        'min': 0.0,
-        'max': 22.5,
-        'step': 0.1,
-        'polydegree': 6,
+        "min": 0.0,
+        "max": 22.5,
+        "step": 0.1,
+        "polydegree": 6,
     }
     paca = PolynomAttenuationCurveAnalyzer(pars)
     paca.fit(x, y)
-    paca.plot('testplot.png')
-    print('estimating outcomes')
+    paca.plot("testplot.png")
+    print("estimating outcomes")
     val = 2
     print(val, paca.estimate_power(val))
     val = 4
     print(val, paca.estimate_power(val))
     val = 10
     print(val, paca.estimate_power(val))
-    print('estimating inverse')
+    print("estimating inverse")
     val = 5
     print(val, paca.estimate(val))
     val = 10
@@ -961,5 +961,5 @@ def test_PolynomAttenuationCurveAnalyzer():
     print(val, paca.estimate(val))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_PolynomAttenuationCurveAnalyzer()

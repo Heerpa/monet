@@ -56,4 +56,4 @@ def migrate_excel_to_sqlite(excel_path, db_path):
 
         session.commit()
 
-    print(f'Migrated {inserted} records from {excel_path} to {db_path}')
+    print(f"Migrated {inserted} records from {excel_path} to {db_path}")

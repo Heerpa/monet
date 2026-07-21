@@ -58,7 +58,7 @@ class TestPowerMeter(AbstractPowerMeter):
             noise.
         """
         self.config = config
-        self.pos = config['start']
+        self.pos = config["start"]
 
     def read(self, averaging=10):
         # `averaging` is accepted for interface compatibility with
@@ -66,12 +66,12 @@ class TestPowerMeter(AbstractPowerMeter):
         # the simulated meter ignores it.
         outval = self._model_function(
             self.pos,
-            self.config['bkg'],
-            self.config['amp'],
-            self.config['phi'],
+            self.config["bkg"],
+            self.config["amp"],
+            self.config["phi"],
         )
-        outval = outval + np.random.normal(loc=0, scale=self.config['noise'])
-        self.pos += self.config['step']
+        outval = outval + np.random.normal(loc=0, scale=self.config["noise"])
+        self.pos += self.config["step"]
         return outval
 
     def _model_function(self, x, bkg, amp, phi):
@@ -110,24 +110,24 @@ class TestPowerMeter(AbstractPowerMeter):
 
     @property
     def unit(self):
-        return 'mW'
+        return "mW"
 
 
 class ThorlabsPowerMeter(AbstractPowerMeter):
     def __init__(self, config):
-        self.pm = self._open_powermeter(config['address'])
+        self.pm = self._open_powermeter(config["address"])
         if self.pm is None:
             raise ValueError(
-                'Could not connect to Thorlabs power meter '
-                '(address: {!r}). '
-                'Check that the device is plugged in, drivers are installed, '
-                'and no other application has it open.'.format(
-                    config['address']
+                "Could not connect to Thorlabs power meter "
+                "(address: {!r}). "
+                "Check that the device is plugged in, drivers are installed, "
+                "and no other application has it open.".format(
+                    config["address"]
                 )
             )
         self.config = config
 
-    def _open_powermeter(self, address=''):
+    def _open_powermeter(self, address=""):
         """Open the communication with the power meter.
 
         Parameters
@@ -144,11 +144,11 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
         import pyvisa
         from ThorlabsPM100 import ThorlabsPM100
 
-        manufacturer = 'thorlabs'
+        manufacturer = "thorlabs"
         power_meter = None
         rm = pyvisa.ResourceManager()
 
-        if address == '' or address == 'find connection':
+        if address == "" or address == "find connection":
             resources = rm.list_resources()
             for res in resources:
                 try:
@@ -165,7 +165,7 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
                     pass
             if power_meter is None and resources:
                 logger.warning(
-                    'Thorlabs power meter not found among VISA resources: %s',
+                    "Thorlabs power meter not found among VISA resources: %s",
                     list(resources),
                 )
         else:
@@ -188,7 +188,7 @@ class ThorlabsPowerMeter(AbstractPowerMeter):
 
     @property
     def unit(self):
-        return 'mW'
+        return "mW"
 
 
 class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
@@ -230,8 +230,8 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
         # must outlive the DLL load (keep it for the object's lifetime).
         self._dll_dir_handle = None
         self._open_powermeter(
-            config.get('address', 'find connection'),
-            dll_path=config.get('dll_path'),
+            config.get("address", "find connection"),
+            dll_path=config.get("dll_path"),
         )
 
     def _import_tlpm_wrapper(self):
@@ -273,24 +273,24 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
         )
         if not dll_dir or not os.path.isdir(dll_dir):
             logger.warning(
-                'TLPM dll_path directory does not exist: %r', dll_path
+                "TLPM dll_path directory does not exist: %r", dll_path
             )
             return
         # Python 3.8+ on Windows: documented way to extend the DLL search path
         # for the DLL and dependencies sitting in the same folder.
-        if hasattr(os, 'add_dll_directory'):
+        if hasattr(os, "add_dll_directory"):
             try:
                 # Keep the handle: the directory is removed from the search
                 # path when the handle is garbage-collected.
                 self._dll_dir_handle = os.add_dll_directory(dll_dir)
             except OSError:
                 logger.exception(
-                    'Could not add TLPM dll directory: %s', dll_dir
+                    "Could not add TLPM dll directory: %s", dll_dir
                 )
         # Also prepend to PATH so dependent DLLs resolve under older loaders.
-        os.environ['PATH'] = dll_dir + os.pathsep + os.environ.get('PATH', '')
+        os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
 
-    def _open_powermeter(self, address='', dll_path=None):
+    def _open_powermeter(self, address="", dll_path=None):
         """Open communication with the meter through the TLPM wrapper.
 
         Parameters
@@ -307,17 +307,17 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
         TLPM = self._import_tlpm_wrapper()
         power_meter = TLPM()
 
-        if address and address not in ('', 'find connection'):
+        if address and address not in ("", "find connection"):
             resource = ctypes.create_string_buffer(address.encode())
         else:
             device_count = ctypes.c_uint32(0)
             power_meter.findRsrc(ctypes.byref(device_count))
             if device_count.value == 0:
                 raise ValueError(
-                    'No Thorlabs TLPM power meter found. Check that the '
-                    'device is plugged in, bound to the TLPM driver, and '
-                    'not held open by another application '
-                    '(e.g. Optical Power Monitor).'
+                    "No Thorlabs TLPM power meter found. Check that the "
+                    "device is plugged in, bound to the TLPM driver, and "
+                    "not held open by another application "
+                    "(e.g. Optical Power Monitor)."
                 )
             resource = ctypes.create_string_buffer(1024)
             power_meter.getRsrcName(ctypes.c_int(0), resource)
@@ -353,7 +353,7 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
 
     @property
     def unit(self):
-        return 'mW'
+        return "mW"
 
     def close(self):
         """Close the device session, if open."""
@@ -361,5 +361,5 @@ class ThorlabsTLPMPowerMeter(AbstractPowerMeter):
             try:
                 self.pm.close()
             except Exception:
-                logger.exception('Error closing Thorlabs TLPM power meter.')
+                logger.exception("Error closing Thorlabs TLPM power meter.")
             self.pm = None

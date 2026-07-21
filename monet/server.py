@@ -45,7 +45,7 @@ def _get_session():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _engine, _SessionLocal
-    db_path = os.environ.get('MONET_DB_PATH', 'calibrations.db')
+    db_path = os.environ.get("MONET_DB_PATH", "calibrations.db")
     _engine = get_engine(db_path)
     _SessionLocal = sessionmaker(bind=_engine)
     yield
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
         _engine.dispose()
 
 
-app = FastAPI(title='Monet Calibration Server', lifespan=lifespan)
+app = FastAPI(title="Monet Calibration Server", lifespan=lifespan)
 
 
 def _record_from_row(row: Calibration) -> CalibrationRecord:
@@ -67,17 +67,17 @@ def _record_from_row(row: Calibration) -> CalibrationRecord:
     )
 
 
-@app.post('/calibrations', response_model=CalibrationRecord)
+@app.post("/calibrations", response_model=CalibrationRecord)
 def save_calibration(data: CalibrationCreate):
     """Save a calibration record. Date/time are auto-generated."""
     now = datetime.now()
     index = data.index
     row = Calibration(
-        device_name=str(index.get('name', '')),
-        wavelength_nm=float(index.get('wavelength [nm]', 0)),
-        laser_power_mw=float(index.get('laser_power [mW]', 0)),
-        calibration_date=now.strftime('%Y-%m-%d'),
-        calibration_time=now.strftime('%H:%M'),
+        device_name=str(index.get("name", "")),
+        wavelength_nm=float(index.get("wavelength [nm]", 0)),
+        laser_power_mw=float(index.get("laser_power [mW]", 0)),
+        calibration_date=now.strftime("%Y-%m-%d"),
+        calibration_time=now.strftime("%H:%M"),
         parameters_json=json.dumps(data.parameters),
     )
     with _get_session() as session:
@@ -87,7 +87,7 @@ def save_calibration(data: CalibrationCreate):
         return _record_from_row(row)
 
 
-@app.post('/calibrations/query', response_model=DatabaseResponse)
+@app.post("/calibrations/query", response_model=DatabaseResponse)
 def query_calibrations(query: CalibrationQuery):
     """Query calibration records.
 
@@ -102,15 +102,15 @@ def query_calibrations(query: CalibrationQuery):
         stmt = select(Calibration)
 
         # Apply index filters (None = wildcard)
-        device = index.get('name')
+        device = index.get("name")
         if device is not None:
             stmt = stmt.where(Calibration.device_name == str(device))
 
-        wavelength = index.get('wavelength [nm]')
+        wavelength = index.get("wavelength [nm]")
         if wavelength is not None:
             stmt = stmt.where(Calibration.wavelength_nm == float(wavelength))
 
-        laser_power = index.get('laser_power [mW]')
+        laser_power = index.get("laser_power [mW]")
         if laser_power is not None:
             stmt = stmt.where(Calibration.laser_power_mw == float(laser_power))
 
@@ -138,11 +138,11 @@ def query_calibrations(query: CalibrationQuery):
             )
 
         # Apply date/time filter from index if present
-        date_val = index.get('date')
+        date_val = index.get("date")
         if date_val is not None:
             stmt = stmt.where(Calibration.calibration_date == str(date_val))
 
-        time_val = index.get('time')
+        time_val = index.get("time")
         if time_val is not None:
             stmt = stmt.where(Calibration.calibration_time == str(time_val))
 
@@ -158,14 +158,14 @@ def query_calibrations(query: CalibrationQuery):
 
         if not rows:
             raise HTTPException(
-                status_code=404, detail='No matching calibrations found.'
+                status_code=404, detail="No matching calibrations found."
             )
 
-        if time_idx is None or time_idx == 'latest':
+        if time_idx is None or time_idx == "latest":
             # Return only the last record overall
             return DatabaseResponse(records=[_record_from_row(rows[-1])])
 
-        elif time_idx == 'last date':
+        elif time_idx == "last date":
             # Find the latest date, return all records from that date
             last_date = max(r.calibration_date for r in rows)
             filtered = [r for r in rows if r.calibration_date == last_date]
@@ -173,7 +173,7 @@ def query_calibrations(query: CalibrationQuery):
                 records=[_record_from_row(r) for r in filtered]
             )
 
-        elif time_idx == 'last combinations':
+        elif time_idx == "last combinations":
             # For each (device, wavelength, power) combo, keep only the
             # last entry
             seen = {}
@@ -185,7 +185,7 @@ def query_calibrations(query: CalibrationQuery):
                 records=[_record_from_row(r) for r in result]
             )
 
-        elif time_idx == 'all':
+        elif time_idx == "all":
             return DatabaseResponse(
                 records=[_record_from_row(r) for r in rows]
             )
@@ -193,11 +193,11 @@ def query_calibrations(query: CalibrationQuery):
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f'Unknown time_idx mode: {time_idx}',
+                detail=f"Unknown time_idx mode: {time_idx}",
             )
 
 
-@app.post('/calibrations/delete', response_model=CalibrationDeleteResponse)
+@app.post("/calibrations/delete", response_model=CalibrationDeleteResponse)
 def delete_calibrations(query: CalibrationDeleteQuery):
     """Delete calibration records matching the query.
 
@@ -228,18 +228,18 @@ def delete_calibrations(query: CalibrationDeleteQuery):
     return CalibrationDeleteResponse(deleted_count=len(rows))
 
 
-@app.post('/database/restart', response_model=RestartResponse)
+@app.post("/database/restart", response_model=RestartResponse)
 def restart_database():
     """Backup the current database and prune to only the latest entries."""
-    db_path = os.environ.get('MONET_DB_PATH', 'calibrations.db')
-    today = datetime.now().strftime('%Y-%m-%d')
+    db_path = os.environ.get("MONET_DB_PATH", "calibrations.db")
+    today = datetime.now().strftime("%Y-%m-%d")
     root, ext = os.path.splitext(db_path)
-    backup_path = f'{root}_{today}{ext}'
+    backup_path = f"{root}_{today}{ext}"
 
     if os.path.exists(backup_path):
         raise HTTPException(
             status_code=409,
-            detail=f'Backup file already exists: {backup_path}',
+            detail=f"Backup file already exists: {backup_path}",
         )
 
     # Copy current DB as backup
@@ -282,7 +282,7 @@ def restart_database():
         )
 
 
-@app.post('/factors', response_model=FactorRecord)
+@app.post("/factors", response_model=FactorRecord)
 def save_factor(data: FactorCreate):
     """Save or update a transmission_objective factor record."""
     with _get_session() as session:
@@ -326,7 +326,7 @@ def save_factor(data: FactorCreate):
         )
 
 
-@app.post('/factors/query', response_model=FactorListResponse)
+@app.post("/factors/query", response_model=FactorListResponse)
 def query_factors(query: FactorQuery):
     """Query transmission_objective factor records."""
     with _get_session() as session:
@@ -357,10 +357,10 @@ def query_factors(query: FactorQuery):
     )
 
 
-@app.get('/health')
+@app.get("/health")
 def health():
     """Health check endpoint."""
-    return {'status': 'ok'}
+    return {"status": "ok"}
 
 
 # Dashboard UI — imported last to avoid circular-import issues

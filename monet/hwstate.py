@@ -35,8 +35,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 #: Directory and file the persistent hardware state is stored in.
-STATE_DIR = Path.home() / '.monet'
-STATE_FILE = STATE_DIR / 'hardware_state.json'
+STATE_DIR = Path.home() / ".monet"
+STATE_FILE = STATE_DIR / "hardware_state.json"
 
 
 def _state_path():
@@ -48,15 +48,15 @@ def load_state():
     """Return the full persisted state as a dict, or ``{}`` if missing/unreadable."""
     path = _state_path()
     try:
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             data = json.load(f)
         if isinstance(data, dict):
             return data
-        logger.warning('Hardware state file %s is not a dict; ignoring.', path)
+        logger.warning("Hardware state file %s is not a dict; ignoring.", path)
     except FileNotFoundError:
         pass
     except Exception as exc:
-        logger.warning('Could not read hardware state %s: %s', path, exc)
+        logger.warning("Could not read hardware state %s: %s", path, exc)
     return {}
 
 
@@ -67,12 +67,12 @@ def _write_state(data):
         path.parent.mkdir(parents=True, exist_ok=True)
         # Write to a temp file and replace, so an interrupted write never
         # leaves a half-written (corrupt) state file behind.
-        tmp = path.with_name(path.name + '.tmp')
-        with open(tmp, 'w') as f:
+        tmp = path.with_name(path.name + ".tmp")
+        with open(tmp, "w") as f:
             json.dump(data, f, indent=2, sort_keys=True)
         os.replace(tmp, path)
     except Exception as exc:
-        logger.warning('Could not write hardware state %s: %s', path, exc)
+        logger.warning("Could not write hardware state %s: %s", path, exc)
 
 
 def get_laser_state(microscope, laser):
@@ -122,7 +122,7 @@ def save_laser_state(microscope, laser, laser_power=None, attenuator=None):
         entry = {}
         scope[str(laser)] = entry
     if laser_power is not None:
-        entry['laser_power'] = float(laser_power)
+        entry["laser_power"] = float(laser_power)
     if attenuator is not None:
-        entry['attenuator'] = float(attenuator)
+        entry["attenuator"] = float(attenuator)
     _write_state(data)

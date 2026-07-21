@@ -38,7 +38,7 @@ def sweep_freq(aotf, powermeter, channel, freqs, t_wait=0.05):
     """
     aotf.frequency(channel, freqs[0])
     time.sleep(0.5)
-    start_progress('Frequency sweep', len(freqs))
+    start_progress("Frequency sweep", len(freqs))
     powers = np.nan * np.ones_like(freqs)
     for i, freq in enumerate(freqs):
         progress(i / len(freqs))
@@ -65,7 +65,7 @@ def sweep_pdb(aotf, powermeter, channel, pdbs, t_wait=0.05):
     """
     aotf.powerdb(channel, pdbs[0])
     time.sleep(0.5)
-    start_progress('Power sweep', len(pdbs))
+    start_progress("Power sweep", len(pdbs))
     powers = np.nan * np.ones_like(pdbs)
     for i, pdb in enumerate(pdbs):
         progress(i / len(pdbs))
@@ -85,7 +85,7 @@ def start_progress(ltitle, n_frames):
     # sys.stdout.write(title + ": [" + "-"*40 + "]" + chr(8)*41)
     # sys.stdout.flush()
     charwidth = 40
-    print(title + ": [" + "-" * charwidth + "]", end='\r')
+    print(title + ": [" + "-" * charwidth + "]", end="\r")
     progress_x = 0
 
 
@@ -107,12 +107,12 @@ def progress(x):
     print(
         title
         + ": ["
-        + '#' * charfull
+        + "#" * charfull
         + str(chardeci)
         + "-" * charrest
         + "]"
         + "  {:d}/{:d}".format(1 + int(x * nimgs_total), nimgs_total),
-        end='\r',
+        end="\r",
     )
     # print(x, y, deci, x+y+1)
 
@@ -121,7 +121,7 @@ def end_progress():
     # sys.stdout.write("#" * (40 - progress_x) + "]\n")
     # sys.stdout.flush()
     charwidth = 40
-    print(title + ": [" + "#" * charwidth + "]", end='\n')
+    print(title + ": [" + "#" * charwidth + "]", end="\n")
 
 
 def calibrate_all(instrument, protocol, powermeter):
@@ -137,27 +137,27 @@ def calibrate_all(instrument, protocol, powermeter):
         The power meter used for the measurements.
     """
     aotf = instrument.attenuator
-    aotf.lowlvl.blanking(True, 'internal')
-    freqstep = aotf.config['freqstep']
-    freqwindow = aotf.config['freqwindow']
+    aotf.lowlvl.blanking(True, "internal")
+    freqstep = aotf.config["freqstep"]
+    freqwindow = aotf.config["freqwindow"]
 
     channeldef = aotf.channeldef
-    wavelengths = channeldef['wavelength'].unique()
+    wavelengths = channeldef["wavelength"].unique()
     channels = {
         int(wvl): int(
-            channeldef.loc[channeldef['wavelength'] == wvl, 'channel'].values[
+            channeldef.loc[channeldef["wavelength"] == wvl, "channel"].values[
                 0
             ]
         )
-        for wvl in channeldef['wavelength'].unique()
+        for wvl in channeldef["wavelength"].unique()
         if wvl > 0
     }
     indexes = {
-        int(wvl): list(channeldef[channeldef['wavelength'] == wvl].index)[0]
-        for wvl in channeldef['wavelength'].unique()
+        int(wvl): list(channeldef[channeldef["wavelength"] == wvl].index)[0]
+        for wvl in channeldef["wavelength"].unique()
         if wvl > 0
     }
-    filedir, _ = os.path.split(aotf.config['channeldef_loc'])
+    filedir, _ = os.path.split(aotf.config["channeldef_loc"])
 
     lasers = instrument.laser
 
@@ -171,29 +171,29 @@ def calibrate_all(instrument, protocol, powermeter):
             missing_defs.append(las)
 
     if len(missing_defs) > 0:
-        print('channel for laser {:s} not defined.'.format(str(missing_defs)))
-    print('Calibrating lasers {:s}.'.format(str(calibrate_lasers)))
+        print("channel for laser {:s} not defined.".format(str(missing_defs)))
+    print("Calibrating lasers {:s}.".format(str(calibrate_lasers)))
 
     # go through lasers
     for laser in calibrate_lasers:
-        print('Calibrating laser ', laser)
+        print("Calibrating laser ", laser)
         powermeter.wavelength = laser
         instrument.laser = laser
         # instrument.lasers[laser].enabled = True
         instrument.laser_enabled = True
         time.sleep(0.1)
-        laserpower = min(protocol['laser_powers'][laser])
+        laserpower = min(protocol["laser_powers"][laser])
         instrument.laserpower = laserpower
         time.sleep(10)
         try:
-            instrument.beampath.positions = protocol['beampath'][laser]
+            instrument.beampath.positions = protocol["beampath"][laser]
         except Exception as e:
             print(str(e))
             return
 
         # previously set approximate frequency and aotf power
-        prev_freq = channeldef.loc[indexes[laser], 'frequency']
-        prev_pwr = channeldef.loc[indexes[laser], 'power']
+        prev_freq = channeldef.loc[indexes[laser], "frequency"]
+        prev_pwr = channeldef.loc[indexes[laser], "power"]
         aotf.lowlvl.enable(channels[laser], True)
         aotf.lowlvl.frequency(channels[laser], prev_freq)
         aotf.lowlvl.powerdb(channels[laser], prev_pwr)
@@ -220,8 +220,8 @@ def calibrate_all(instrument, protocol, powermeter):
 
         best_pdb = pdbs[np.argmax(powers_p)]
 
-        channeldef.loc[indexes[laser], 'frequency'] = best_freq
-        channeldef.loc[indexes[laser], 'power'] = best_pdb
+        channeldef.loc[indexes[laser], "frequency"] = best_freq
+        channeldef.loc[indexes[laser], "power"] = best_pdb
 
         instrument.laser_enabled = False
 
@@ -238,16 +238,16 @@ def calibrate_all(instrument, protocol, powermeter):
             laserpower,
         )
     aotf.lowlvl.store()
-    filename = aotf.config['channeldef_loc']
-    channeldef.to_csv(filename, float_format='%.3f')
-    database = instrument.config['database']
-    if database.startswith('http://') or database.startswith('https://'):
-        srvdir = instrument.config.get('dest_calibration_plot', '.')
+    filename = aotf.config["channeldef_loc"]
+    channeldef.to_csv(filename, float_format="%.3f")
+    database = instrument.config["database"]
+    if database.startswith("http://") or database.startswith("https://"):
+        srvdir = instrument.config.get("dest_calibration_plot", ".")
     else:
         srvdir, _ = os.path.split(database)
-    datestr = datetime.now().strftime('%y%m%d-%H%M_')
+    datestr = datetime.now().strftime("%y%m%d-%H%M_")
     srvdir = os.path.join(
-        srvdir, 'AOTFcali', datestr + instrument.config['index']['name']
+        srvdir, "AOTFcali", datestr + instrument.config["index"]["name"]
     )
     try:
         os.mkdirs(srvdir)
@@ -272,25 +272,25 @@ def plot_results(
     ax[0].plot(
         freqs,
         powers_f,
-        label='AOTF power {:.1f} db\nmax {:.2f} mW\nopt {:.3f} MHz'.format(
+        label="AOTF power {:.1f} db\nmax {:.2f} mW\nopt {:.3f} MHz".format(
             prev_pwr, max(powers_f), best_freq
         ),
     )
-    ax[0].set_xlabel('Frequency [MHz]')
-    ax[0].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
+    ax[0].set_xlabel("Frequency [MHz]")
+    ax[0].set_ylabel("beam power at {:.0f}nm [mW]".format(wavelength))
     # ax[0].set_title('optimum frequency: {:.3f} MHz'.format(laserpower))
     ax[0].legend()
 
     ax[1].plot(
         pdbs,
         powers_p,
-        label='Frequency {:.3f} MHz\nmax {:.2f} mW\nopt {:.1f} dB'.format(
+        label="Frequency {:.3f} MHz\nmax {:.2f} mW\nopt {:.1f} dB".format(
             best_freq, max(powers_p), best_pdb
         ),
     )
-    ax[1].set_xlabel('AOTF power [db]')
-    ax[1].set_ylabel('beam power at {:.0f}nm [mW]'.format(wavelength))
-    fig.suptitle('{:d}nm at {:d} mW'.format(int(wavelength), int(laserpower)))
+    ax[1].set_xlabel("AOTF power [db]")
+    ax[1].set_ylabel("beam power at {:.0f}nm [mW]".format(wavelength))
+    fig.suptitle("{:d}nm at {:d} mW".format(int(wavelength), int(laserpower)))
     ax[1].legend()
 
     fig.set_size_inches((8, 6))
@@ -298,12 +298,12 @@ def plot_results(
     samewvlfiles = [f for f in os.listdir(filedir) if str(wavelength) in f]
     nfiles = len(samewvlfiles)
     filename = os.path.join(
-        filedir, 'aotfpower{:d}nm_{:02d}.png'.format(wavelength, nfiles)
+        filedir, "aotfpower{:d}nm_{:02d}.png".format(wavelength, nfiles)
     )
     fig.savefig(filename)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # # Main parser
     # parser = argparse.ArgumentParser("aotfcali")
     # parser.add_argument(
@@ -329,20 +329,20 @@ if __name__ == '__main__':
     # freqstep = args.freqstep
 
     arguments = {
-        'channel': 2,
-        'ctrfreq': 113.522,
-        'freqwindow': 0.5,
-        'freqstep': 0.002,
-        'wavelength': 488,
-        'AOTF_port': 'COM5',
-        'output': 'C:\\Users\\admin\\Desktop\\AOTFcalibration',
-        't_sweepstep': 0.001,
+        "channel": 2,
+        "ctrfreq": 113.522,
+        "freqwindow": 0.5,
+        "freqstep": 0.002,
+        "wavelength": 488,
+        "AOTF_port": "COM5",
+        "output": "C:\\Users\\admin\\Desktop\\AOTFcalibration",
+        "t_sweepstep": 0.001,
     }
-    channel = arguments['channel']
-    ctrfreq = arguments['ctrfreq']
-    freqwindow = arguments['freqwindow']
-    freqstep = arguments['freqstep']
-    t_sweepstep = arguments['t_sweepstep']
+    channel = arguments["channel"]
+    ctrfreq = arguments["ctrfreq"]
+    freqwindow = arguments["freqwindow"]
+    freqstep = arguments["freqstep"]
+    t_sweepstep = arguments["t_sweepstep"]
 
     freqs = np.arange(
         ctrfreq - freqwindow / 2, ctrfreq + freqwindow / 2, step=freqstep
@@ -350,16 +350,16 @@ if __name__ == '__main__':
     pdbs = np.arange(15, 22.6, step=0.1)
 
     aotf = AAAOTF_lowlevel(
-        port=arguments['AOTF_port'],
+        port=arguments["AOTF_port"],
         baudrate=57600,
         bytesize=8,
-        parity='N',
+        parity="N",
         stopbits=1,
         timeout=1,
     )
-    powermeter = ThorlabsPowerMeter(config={'address': ''})
+    powermeter = ThorlabsPowerMeter(config={"address": ""})
 
-    powermeter.wavelength = arguments['wavelength']
+    powermeter.wavelength = arguments["wavelength"]
 
     aotf.enable(channel, True)
     aotf.powerdb(channel, 22.5)
@@ -375,31 +375,31 @@ if __name__ == '__main__':
     aotf.powerdb(channel, best_pdb)
     # aotf.enable(channel, False)
 
-    filename = os.path.join(arguments['output'], 'aotf_settings.csv')
+    filename = os.path.join(arguments["output"], "aotf_settings.csv")
     if os.path.exists(filename):
         settgs = pd.read_csv(filename, index_col=0)
     else:
         settgs = pd.DataFrame(
-            index=np.arange(1, 9), columns=['wavelength', 'frequency', 'power']
+            index=np.arange(1, 9), columns=["wavelength", "frequency", "power"]
         )
-        settgs.index.name = 'channel'
-    settgs.loc[channel, 'wavelength'] = arguments['wavelength']
-    settgs.loc[channel, 'Frequency'] = best_freq
-    settgs.loc[channel, 'Power'] = best_pdb
-    settgs.to_csv(filename, float_format='%.3f')
+        settgs.index.name = "channel"
+    settgs.loc[channel, "wavelength"] = arguments["wavelength"]
+    settgs.loc[channel, "Frequency"] = best_freq
+    settgs.loc[channel, "Power"] = best_pdb
+    settgs.to_csv(filename, float_format="%.3f")
 
-    filedir = arguments['output']
+    filedir = arguments["output"]
     samewvlfiles = [
-        f for f in os.listdir(filedir) if str(arguments['wavelength']) in f
+        f for f in os.listdir(filedir) if str(arguments["wavelength"]) in f
     ]
     nfiles = len(samewvlfiles)
     filename = os.path.join(
-        arguments['output'],
-        'aotfpower{:d}nm_{:02d}.png'.format(arguments['wavelength'], nfiles),
+        arguments["output"],
+        "aotfpower{:d}nm_{:02d}.png".format(arguments["wavelength"], nfiles),
     )
     plot_results(
         filedir,
-        arguments['wavelength'],
+        arguments["wavelength"],
         freqs,
         powers_f,
         best_freq,
