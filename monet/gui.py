@@ -1264,6 +1264,12 @@ class SetPowerTab(QWidget):
         self._btn_bp_close.clicked.connect(self._on_bp_close)
         bp_row.addWidget(self._btn_bp_open)
         bp_row.addWidget(self._btn_bp_close)
+        self._bp_state_label = QLabel('Beampath: unknown')
+        self._bp_state_label.setToolTip(
+            'Current position of each beam-path element (shutter, filter '
+            'turret, ...) as read from the hardware.'
+        )
+        bp_row.addWidget(self._bp_state_label)
         bp_row.addStretch()
         layout.addLayout(bp_row)
 
@@ -1370,6 +1376,9 @@ class SetPowerTab(QWidget):
             # Overlay the last persisted settings for the current laser so
             # the user can restore them after a restart with a single Set.
             self._apply_saved_state_to_ui(pc.instrument.curr_laser)
+            self._set_bp_label(self._read_bp_positions())
+        else:
+            self._set_bp_label(None)
 
     def _apply_saved_state_to_ui(self, laser):
         """Populate the direct hardware spin boxes from persisted settings.
@@ -1428,6 +1437,49 @@ class SetPowerTab(QWidget):
         self._update_range_label()
 
     # --- helpers ---
+
+    def _read_bp_positions(self):
+        """Read the current beam-path positions from hardware.
+
+        Safe to call from a worker thread. Returns None if no beam path is
+        configured or it cannot be queried.
+        """
+        try:
+            if not getattr(self._pc.instrument, 'use_beampath', False):
+                return None
+            return dict(self._pc.instrument.beampath.positions)
+        except Exception:
+            return None
+
+    def _set_bp_label(self, positions):
+        """Show the beam-path element positions next to the buttons."""
+        if not positions:
+            self._bp_state_label.setText('Beampath: unknown')
+            return
+
+        def _fmt(val):
+            if isinstance(val, bool):
+                return 'open' if val else 'closed'
+            return str(val)
+
+        self._bp_state_label.setText(
+            'Beampath: '
+            + ', '.join(
+                '{}: {}'.format(obid, _fmt(pos))
+                for obid, pos in positions.items()
+            )
+        )
+
+    def _refresh_bp_label(self):
+        """Re-read the beam-path state and update the label."""
+        if self._pc is None:
+            return
+        self._run_hw(
+            self._read_bp_positions,
+            'Reading beampath state…',
+            on_result=self._set_bp_label,
+            on_done=lambda: self._emit_status('Ready', 2000),
+        )
 
     def _beampath_matches(self, target_positions):
         """Return True if every key in target_positions already matches the
@@ -1666,6 +1718,8 @@ class SetPowerTab(QWidget):
                     result['out_of_range'],
                     result['att_pos'],
                     result['laser_pwr'],
+                    result.get('measured_raw'),
+                    result.get('transmission'),
                 )
 
             def _on_result(res):
@@ -1676,6 +1730,8 @@ class SetPowerTab(QWidget):
                     out_of_range_warned,
                     att_pos,
                     laser_pwr,
+                    raw,
+                    factor,
                 ) = res
                 dev_pct = abs(measured - pwr) / pwr * 100.0 if pwr > 0 else 0.0
                 parts = [
@@ -1686,13 +1742,27 @@ class SetPowerTab(QWidget):
                     parts.append(f'(did not converge within {MAX_ITER} steps)')
                 if out_of_range_warned:
                     parts.append('(attenuator range limit reached)')
-                self._status.setText('  '.join(parts))
                 try:
                     unit = self._pc.powermeter.unit
                 except Exception:
                     unit = 'mW'
+                # Annotate whether an objective transmission factor was used.
+                if factor is not None and factor != 1.0:
+                    parts.append(
+                        f'(sample plane; measured {raw:.3f} {unit} in BFP'
+                        f' × T_obj={factor:.4f})'
+                    )
+                else:
+                    parts.append('(no objective transmission factor applied)')
+                self._status.setText('  '.join(parts))
                 mm_err = self._update_mm_comment(
-                    laser, measured, unit, att_pos, laser_pwr
+                    laser,
+                    measured,
+                    unit,
+                    att_pos,
+                    laser_pwr,
+                    raw_power=raw,
+                    transmission=factor,
                 )
                 if mm_err is not None:
                     self._status.setText(
@@ -1758,12 +1828,18 @@ class SetPowerTab(QWidget):
 
         def _do():
             self._pc.instrument.beampath.positions = bp_positions
+            return self._read_bp_positions()
 
         def _done():
             self._status.setText('Beampath opened.')
             self._emit_status('Ready', 2000)
 
-        self._run_hw(_do, 'Opening beampath…', on_done=_done)
+        self._run_hw(
+            _do,
+            'Opening beampath…',
+            on_done=_done,
+            on_result=self._set_bp_label,
+        )
 
     def _on_bp_close(self):
         if self._pc is None:
@@ -1776,22 +1852,41 @@ class SetPowerTab(QWidget):
 
         def _do():
             self._pc.instrument.beampath.positions = end_pos
+            return self._read_bp_positions()
 
         def _done():
             self._status.setText('Beampath closed.')
             self._emit_status('Ready', 2000)
 
-        self._run_hw(_do, 'Closing beampath…', on_done=_done)
+        self._run_hw(
+            _do,
+            'Closing beampath…',
+            on_done=_done,
+            on_result=self._set_bp_label,
+        )
 
     def _update_mm_comment(
-        self, laser, measured, unit, att_pos=None, laser_pwr=None
+        self,
+        laser,
+        measured,
+        unit,
+        att_pos=None,
+        laser_pwr=None,
+        raw_power=None,
+        transmission=None,
     ):
         """Write measured power into the MicroManager acquisition comment.
 
         Thin wrapper around util.update_mm_acquisition_comment.
         """
         return update_mm_acquisition_comment(
-            laser, measured, unit, att_pos, laser_pwr
+            laser,
+            measured,
+            unit,
+            att_pos,
+            laser_pwr,
+            raw_power=raw_power,
+            transmission=transmission,
         )
 
     def _on_measure(self):
@@ -1845,9 +1940,12 @@ class SetPowerTab(QWidget):
                 time.sleep(2)
             # Project the raw reading to the sample plane (no-op unless the
             # active calibration used the BFP meter).
-            measured = self._pc.instrument.to_sample_plane(
-                self._pc.powermeter.read(), laser
-            )
+            raw = self._pc.powermeter.read()
+            measured = self._pc.instrument.to_sample_plane(raw, laser)
+            try:
+                factor = self._pc.instrument._bfp_factor(laser)
+            except Exception:
+                factor = None
             try:
                 if mode == 'fixed_attenuator' and hasattr(
                     self._pc.instrument, 'predict_power_fixed_attenuator'
@@ -1870,18 +1968,46 @@ class SetPowerTab(QWidget):
                 laser_pwr = self._pc.instrument.lasers[laser].power
             except Exception:
                 laser_pwr = None
-            return measured, cali_pred, att_pos, laser_pwr
+            return measured, cali_pred, att_pos, laser_pwr, (
+                self._read_bp_positions()
+            ), raw, factor
 
         def _on_val(res):
-            measured, cali_pred, att_pos, laser_pwr = res
+            (
+                measured,
+                cali_pred,
+                att_pos,
+                laser_pwr,
+                bp_positions,
+                raw,
+                factor,
+            ) = res
+            self._set_bp_label(bp_positions)
             try:
                 unit = self._pc.powermeter.unit
             except Exception:
                 unit = 'a.u.'
-            self._status.setText(f'Measured power: {measured:.3f} {unit}')
+
+            # Annotate whether an objective transmission factor was applied.
+            if factor is not None and factor != 1.0:
+                trans_note = (
+                    f' (sample plane; measured {raw:.3f} {unit} in BFP'
+                    f' × T_obj={factor:.4f})'
+                )
+            else:
+                trans_note = ' (no objective transmission factor applied)'
+            self._status.setText(
+                f'Measured power: {measured:.3f} {unit}{trans_note}'
+            )
 
             mm_err = self._update_mm_comment(
-                laser, measured, unit, att_pos, laser_pwr
+                laser,
+                measured,
+                unit,
+                att_pos,
+                laser_pwr,
+                raw_power=raw,
+                transmission=factor,
             )
 
             if cali_pred is not None and cali_pred > 0:
@@ -1896,7 +2022,7 @@ class SetPowerTab(QWidget):
 
             if mm_err is not None:
                 self._status.setText(
-                    f'Measured: {measured:.3f} {unit}'
+                    f'Measured: {measured:.3f} {unit}{trans_note}'
                     f' — MM comment error: {mm_err}'
                 )
 
@@ -2032,6 +2158,7 @@ class SetPowerTab(QWidget):
                     result['laser_pwr'] = float(pwr)
             except Exception:
                 pass
+            result['beampath'] = self._read_bp_positions()
             return result
 
         def _on_result(result):
@@ -2039,6 +2166,7 @@ class SetPowerTab(QWidget):
                 self._hw_att_spin.setValue(result['att_pos'])
             if 'laser_pwr' in result:
                 self._hw_pwr_spin.setValue(result['laser_pwr'])
+            self._set_bp_label(result.get('beampath'))
             self._status.setText('Hardware state refreshed.')
             self._emit_status('Ready', 2000)
 
@@ -2151,9 +2279,6 @@ class DatabaseTab(QWidget):
         # btn_delete = QPushButton('Delete selected')
         # btn_delete.clicked.connect(self._on_delete)
         # ctrl_row.addWidget(btn_delete)
-        btn_restart = QPushButton('Restart DB')
-        btn_restart.clicked.connect(self._on_restart)
-        ctrl_row.addWidget(btn_restart)
         layout.addLayout(ctrl_row)
 
         # Database link (shown when database is an HTTP server URL)
@@ -2395,28 +2520,6 @@ class DatabaseTab(QWidget):
 
         if errors:
             QMessageBox.critical(self, 'Errors', '\n'.join(errors))
-        self._on_refresh()
-
-    def _on_restart(self):
-        reply = QMessageBox.question(
-            self,
-            'Restart database',
-            'This will backup the database and keep only the latest '
-            'entries.\nContinue?',
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        if self._db_fname is None:
-            QMessageBox.warning(self, 'No database', 'No database configured.')
-            return
-        try:
-            backup_path = io.restart_database(self._db_fname)
-            QMessageBox.information(
-                self, 'Done', f'Backup saved to: {backup_path}'
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
         self._on_refresh()
 
     def _on_compute_transmission(self):

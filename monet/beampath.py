@@ -16,7 +16,7 @@ import logging
 
 from icecream import ic
 
-from monet.util import load_class
+from monet.util import load_class, refresh_mm_gui
 
 # pycromanager is imported lazily inside get_pycromgr() so the rest of the
 # package can be used (and tested) on machines without Micro-Manager.
@@ -176,6 +176,9 @@ class BeamPath:
                     'Could not set beam-path object %r to %r', obid, pos
                 )
                 errors.append('{!r}->{!r}: {}'.format(obid, pos, exc))
+        # Changes issued through the Core are invisible in the MicroManager
+        # main window until its GUI is refreshed.
+        refresh_mm_gui()
         if errors:
             raise RuntimeError(
                 'Failed to set beam-path object(s): ' + '; '.join(errors)
@@ -285,7 +288,13 @@ class NikonShutter(AbstractBeamPathObject):
 
     @property
     def position(self):
-        return super().position
+        # Query the hardware rather than returning the cached value, so the
+        # state is correct also when the shutter was operated elsewhere
+        # (e.g. in the MicroManager GUI).
+        try:
+            return bool(self.core.get_shutter_open())
+        except Exception:
+            return super().position
 
     @position.setter
     def position(self, pos):

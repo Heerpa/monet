@@ -964,7 +964,10 @@ def run_power_feedback(
     dict
         Dictionary with keys: ``measured`` (float, last measured power
         projected to the sample plane, i.e. raw beampath reading times
-        objective transmission factor), ``converged`` (bool, whether the
+        objective transmission factor), ``measured_raw`` (float, the same
+        reading before that projection), ``transmission`` (float, the
+        objective transmission factor applied; 1.0 if none was used),
+        ``converged`` (bool, whether the
         tolerance was reached), ``cali_pred`` (float or None, power the
         calibration predicts), ``out_of_range`` (bool, whether the
         attenuator range limit was hit), ``att_pos`` (float or None, final
@@ -1089,6 +1092,8 @@ def run_power_feedback(
 
     return {
         'measured': measured,
+        'measured_raw': measured_bp,
+        'transmission': factor,
         'converged': converged,
         'cali_pred': cali_pred,
         'out_of_range': out_of_range,

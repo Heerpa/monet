@@ -81,7 +81,13 @@ def load_class(classpath, init_kwargs={}, settings=None):
 
 
 def update_mm_acquisition_comment(
-    laser, measured, unit, att_pos=None, laser_pwr=None
+    laser,
+    measured,
+    unit,
+    att_pos=None,
+    laser_pwr=None,
+    raw_power=None,
+    transmission=None,
 ):
     """Write a measured-power line into the MicroManager acquisition comment.
 
@@ -101,6 +107,13 @@ def update_mm_acquisition_comment(
         Attenuator position to record alongside the power.
     laser_pwr : float, optional
         Laser power set-point to record alongside the power.
+    raw_power : float, optional
+        Raw power-meter reading before the objective transmission factor was
+        applied. Only recorded if `transmission` differs from 1.
+    transmission : float, optional
+        Objective transmission factor (P_sample / P_bfp) applied to
+        `raw_power` to obtain `measured`. A value of 1 or None means no
+        factor was used, which is stated explicitly in the comment.
 
     Returns
     -------
@@ -130,6 +143,14 @@ def update_mm_acquisition_comment(
         pwr_str += ' @ att={:.4f}'.format(att_pos)
     if laser_pwr is not None:
         pwr_str += ' lp={:.1f}mW'.format(laser_pwr)
+    if transmission is not None and transmission != 1:
+        pwr_str += ' [BFP reading {:.3f} {} x T_obj={:.4f}]'.format(
+            raw_power if raw_power is not None else measured / transmission,
+            unit,
+            transmission,
+        )
+    else:
+        pwr_str += ' [no objective transmission factor]'
     pattern = 'Power {}nm:'.format(laser)
 
     try:
@@ -148,4 +169,30 @@ def update_mm_acquisition_comment(
     except ImportError:
         return None  # pycromanager not installed
     except Exception as exc:
+        return str(exc)
+
+
+def refresh_mm_gui():
+    """Make MicroManager re-read the hardware state into its GUI.
+
+    Device changes issued through the pycromanager Core (shutter, filter
+    turret, nosepiece, ...) are not reflected in the MicroManager main
+    window until its GUI is refreshed. No-op if pycromanager is not
+    installed or MicroManager is not running.
+
+    Returns
+    -------
+    str or None
+        None on success or if pycromanager is not installed; an error
+        string if the refresh failed.
+    """
+    try:
+        from pycromanager import Studio
+
+        Studio().app().refresh_gui()
+        return None
+    except ImportError:
+        return None  # pycromanager not installed
+    except Exception as exc:
+        logger.debug('Could not refresh MicroManager GUI: %s', exc)
         return str(exc)
