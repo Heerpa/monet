@@ -48,6 +48,7 @@ from monet import (
     PROTOCOLS,
 )
 from monet import __version__ as _monet_version
+from monet.beampath import NikonNosepiece
 from monet.control import run_power_feedback
 from monet.util import update_mm_acquisition_comment
 
@@ -1256,22 +1257,74 @@ class SetPowerTab(QWidget):
         layout.addWidget(adj_group)
         # ─────────────────────────────────────────────────────────────────
 
-        # Beampath controls
+        # ── Powermeter position ───────────────────────────────────────────
+        # Where the meter is physically placed. Drives whether raw readings are
+        # projected to the sample plane via the objective transmission factor.
+        pm_row = QHBoxLayout()
+        pm_row.addWidget(QLabel('Powermeter position:'))
+        self._pm_pos_combo = QComboBox()
+        self._pm_pos_combo.addItem('Back focal plane (BFP)', POWERMETER_BFP)
+        self._pm_pos_combo.addItem('Sample plane', POWERMETER_SAMPLE)
+        self._pm_pos_combo.setToolTip(
+            'Where the power meter is physically positioned. In the back focal '
+            'plane (BFP), raw readings are multiplied by the objective '
+            'transmission factor (T_obj = P_sample / P_bfp) to report '
+            'sample-plane power; in the sample plane the reading is used '
+            'as-is. The power setpoint is always a sample-plane power.'
+        )
+        self._pm_pos_combo.currentIndexChanged.connect(
+            self._on_pm_position_changed
+        )
+        pm_row.addWidget(self._pm_pos_combo)
+        pm_row.addStretch()
+        layout.addLayout(pm_row)
+
+        # ── Beam-path controls ────────────────────────────────────────────
         bp_row = QHBoxLayout()
-        self._btn_bp_open = QPushButton('Open beampath')
-        self._btn_bp_close = QPushButton('Close beampath')
-        self._btn_bp_open.clicked.connect(self._on_bp_open)
+        self._btn_open_sf = QPushButton('Open shutters && set filter')
+        self._btn_open_sf.setToolTip(
+            'Open the shutter and set the dichroic/filter for the selected '
+            'laser. Does not move the objective turret.'
+        )
+        self._btn_open_sf.clicked.connect(self._on_open_shutters_filter)
+        bp_row.addWidget(self._btn_open_sf)
+        self._btn_bp_close = QPushButton('Close beampath (park)')
+        self._btn_bp_close.setToolTip(
+            'Move the beam path to its configured "end" position (shutter '
+            'closed, turret to the objective).'
+        )
         self._btn_bp_close.clicked.connect(self._on_bp_close)
-        bp_row.addWidget(self._btn_bp_open)
         bp_row.addWidget(self._btn_bp_close)
+        bp_row.addStretch()
+        layout.addLayout(bp_row)
+
+        # ── Objective turret ──────────────────────────────────────────────
+        turret_row = QHBoxLayout()
+        turret_row.addWidget(QLabel('Objective turret:'))
+        self._btn_turret_obj = QPushButton('→ Objective')
+        self._btn_turret_obj.setToolTip(
+            'Move the objective turret (nosepiece) to the imaging objective '
+            'position, taken from the beam-path "end" entry.'
+        )
+        self._btn_turret_obj.clicked.connect(self._on_turret_objective)
+        self._btn_turret_pm = QPushButton('→ Powermeter')
+        self._btn_turret_pm.setToolTip(
+            'Move the objective turret (nosepiece) to the BFP powermeter '
+            'position, taken from the beam-path "start_calibrate" entry.'
+        )
+        self._btn_turret_pm.clicked.connect(self._on_turret_powermeter)
+        turret_row.addWidget(self._btn_turret_obj)
+        turret_row.addWidget(self._btn_turret_pm)
+        turret_row.addStretch()
+        layout.addLayout(turret_row)
+
+        # Beam-path state label
         self._bp_state_label = QLabel('Beampath: unknown')
         self._bp_state_label.setToolTip(
             'Current position of each beam-path element (shutter, filter '
             'turret, ...) as read from the hardware.'
         )
-        bp_row.addWidget(self._bp_state_label)
-        bp_row.addStretch()
-        layout.addLayout(bp_row)
+        layout.addWidget(self._bp_state_label)
 
         # Measure + All off
         misc_row = QHBoxLayout()
@@ -1377,8 +1430,32 @@ class SetPowerTab(QWidget):
             # the user can restore them after a restart with a single Set.
             self._apply_saved_state_to_ui(pc.instrument.curr_laser)
             self._set_bp_label(self._read_bp_positions())
+            # Sync the instrument's physical powermeter position to the toggle
+            # (the toggle default and the instrument default are both BFP).
+            self._sync_powermeter_position_to_instrument()
         else:
             self._set_bp_label(None)
+        self._update_turret_buttons_enabled()
+
+    def _sync_powermeter_position_to_instrument(self):
+        """Reflect the toggle onto the instrument, defaulting from it if set."""
+        if self._pc is None:
+            return
+        try:
+            current = getattr(
+                self._pc.instrument, 'powermeter_position', None
+            )
+            if current is not None:
+                idx = self._pm_pos_combo.findData(current)
+                if idx >= 0:
+                    self._pm_pos_combo.blockSignals(True)
+                    self._pm_pos_combo.setCurrentIndex(idx)
+                    self._pm_pos_combo.blockSignals(False)
+            self._pc.instrument.powermeter_position = (
+                self._pm_pos_combo.currentData()
+            )
+        except Exception:
+            pass
 
     def _apply_saved_state_to_ui(self, laser):
         """Populate the direct hardware spin boxes from persisted settings.
@@ -1502,8 +1579,10 @@ class SetPowerTab(QWidget):
         for btn in (
             self._btn_onoff,
             self._btn_set,
-            self._btn_bp_open,
+            self._btn_open_sf,
             self._btn_bp_close,
+            self._btn_turret_obj,
+            self._btn_turret_pm,
             self._btn_measure,
             self._btn_alloff,
             self._btn_hw_refresh,
@@ -1512,6 +1591,10 @@ class SetPowerTab(QWidget):
             self._btn_hw_pwr_set,
         ):
             btn.setEnabled(enabled)
+        # The turret buttons additionally require a configured nosepiece;
+        # re-apply that constraint whenever buttons are being re-enabled.
+        if enabled:
+            self._update_turret_buttons_enabled()
 
     def _run_hw(self, func, status_msg, on_done=None, on_result=None):
         """Run a hardware callable in a GenericWorker."""
@@ -1594,32 +1677,29 @@ class SetPowerTab(QWidget):
         )
         protocol = getattr(self._pc, 'protocol', None) or {}
         bp_dict = protocol.get('beampath') or {}
-        bp_for_laser = bp_dict.get(laser)  # (1) open for wavelength
-        bp_start_cal = bp_dict.get('start_calibrate')
+        # Shutter/filter for the wavelength, with the turret stripped out (it is
+        # positioned separately to follow the powermeter toggle).
+        bp_for_laser = bp_dict.get(laser)
+        nid = self._nosepiece_id()
+        if nid is not None and isinstance(bp_for_laser, dict):
+            bp_for_laser = {
+                k: v for k, v in bp_for_laser.items() if k != nid
+            }
         bp_end_calibrate = bp_dict.get('end_calibrate')
         bp_end = bp_dict.get('end')
 
-        do_start_cal = False
-        if use_feedback and bp_start_cal is not None:
-            # (2) skip question if beampath is already at start_calibrate
-            if self._beampath_matches(bp_start_cal):
-                do_start_cal = True
-            else:
-                reply = QMessageBox.question(
-                    self,
-                    'Feedback — beampath',
-                    'Move beampath to "start_calibrate" position before '
-                    'feedback measurement?\n\n'
-                    'Click Cancel to perform the initial set without '
-                    'feedback.',
-                    QMessageBox.StandardButton.Yes
-                    | QMessageBox.StandardButton.No
-                    | QMessageBox.StandardButton.Cancel,
-                )
-                if reply == QMessageBox.StandardButton.Cancel:
-                    use_feedback = False
-                elif reply == QMessageBox.StandardButton.Yes:
-                    do_start_cal = True
+        # Position the objective turret to match where the meter physically is:
+        # BFP → powermeter position, sample plane → imaging objective.
+        pm_pos = self._pm_pos_combo.currentData()
+        pm_is_bfp = pm_pos == POWERMETER_BFP
+        turret_kind = 'powermeter' if pm_is_bfp else 'objective'
+        turret_target = self._turret_value(turret_kind)  # (id, val) or None
+        try:
+            factor_available = self._pc.instrument._has_transmission_factor(
+                laser
+            )
+        except Exception:
+            factor_available = False
 
         max_dev_pct = self._feedback_tol_spin.value()
         MAX_ITER = 20
@@ -1680,13 +1760,14 @@ class SetPowerTab(QWidget):
                     if progress_relay[0] is not None:
                         progress_relay[0]((iteration, setpoint, meas))
 
-                # Open beampath for the selected wavelength, then move to the
-                # measurement position (start_calibrate). run_power_feedback
-                # performs the initial power set and settles before measuring.
-                if bp_for_laser is not None:
+                # Open shutter/filter for the wavelength and position the turret
+                # to match the powermeter toggle. run_power_feedback performs
+                # the initial power set and settles before measuring.
+                if bp_for_laser:
                     self._pc.instrument.beampath.positions = bp_for_laser
-                if do_start_cal and bp_start_cal is not None:
-                    self._pc.instrument.beampath.positions = bp_start_cal
+                if turret_target is not None:
+                    tnid, tval = turret_target
+                    self._pc.instrument.beampath.positions = {tnid: tval}
 
                 # Closed-loop power setting (initial set, settle, PI feedback).
                 result = run_power_feedback(
@@ -1752,6 +1833,12 @@ class SetPowerTab(QWidget):
                         f'(sample plane; measured {raw:.3f} {unit} in BFP'
                         f' × T_obj={factor:.4f})'
                     )
+                elif pm_is_bfp and not factor_available:
+                    parts.append(
+                        f'(⚠ BFP selected but no objective transmission factor '
+                        f'for {laser} nm — reporting raw BFP reading as '
+                        f'sample-plane power, uncorrected)'
+                    )
                 else:
                     parts.append('(no objective transmission factor applied)')
                 self._status.setText('  '.join(parts))
@@ -1816,7 +1903,115 @@ class SetPowerTab(QWidget):
             self._active_worker = worker
             worker.start()
 
-    def _on_bp_open(self):
+    def _on_pm_position_changed(self, _idx=None):
+        """Push the selected physical power-meter position to the instrument.
+
+        This drives whether raw meter readings are projected to the sample
+        plane via the objective transmission factor (see
+        :meth:`IlluminationLaserControl._measurement_factor`).
+        """
+        if self._pc is None:
+            return
+        pos = self._pm_pos_combo.currentData()
+        try:
+            self._pc.instrument.powermeter_position = pos
+        except Exception as exc:
+            self._status.setText(str(exc))
+            return
+        self._update_range_label()
+
+    def _nosepiece_id(self):
+        """Return the beam-path object id of the objective turret, or None.
+
+        Detected by scanning the configured beam-path objects for a
+        ``NikonNosepiece`` instance.
+        """
+        try:
+            objects = self._pc.instrument.beampath.objects
+        except Exception:
+            return None
+        for obid, obj in objects.items():
+            if isinstance(obj, NikonNosepiece):
+                return obid
+        return None
+
+    def _turret_value(self, kind):
+        """Nosepiece target for the turret, read from the beam-path config.
+
+        ``kind='powermeter'`` reads the nosepiece value from the
+        ``start_calibrate`` beam-path entry; ``kind='objective'`` reads it from
+        the ``end`` entry (falling back to ``end_calibrate``). Returns
+        ``(nosepiece_id, value)`` or ``None`` if no nosepiece is configured or
+        the relevant entry has no nosepiece position.
+        """
+        nid = self._nosepiece_id()
+        if nid is None:
+            return None
+        protocol = getattr(self._pc, 'protocol', None) or {}
+        bp_dict = protocol.get('beampath') or {}
+        if kind == 'powermeter':
+            entries = [bp_dict.get('start_calibrate')]
+        else:  # objective
+            entries = [bp_dict.get('end'), bp_dict.get('end_calibrate')]
+        for entry in entries:
+            if isinstance(entry, dict) and nid in entry:
+                return nid, entry[nid]
+        return None
+
+    def _update_turret_buttons_enabled(self):
+        """Enable the turret buttons only when a nosepiece target is defined."""
+        has_obj = self._pc is not None and self._turret_value('objective')
+        has_pm = self._pc is not None and self._turret_value('powermeter')
+        self._btn_turret_obj.setEnabled(bool(has_obj))
+        self._btn_turret_pm.setEnabled(bool(has_pm))
+        if self._pc is not None and self._nosepiece_id() is None:
+            tip = 'No objective turret (nosepiece) is configured.'
+            self._btn_turret_obj.setToolTip(tip)
+            self._btn_turret_pm.setToolTip(tip)
+
+    def _move_turret(self, kind, status_verb):
+        """Move the objective turret (nosepiece only) to a named position."""
+        if self._pc is None:
+            return
+        target = self._turret_value(kind)
+        if target is None:
+            self._status.setText(
+                'No {} turret position configured.'.format(kind)
+            )
+            return
+        nid, value = target
+        positions = {nid: value}
+
+        def _do():
+            self._pc.instrument.beampath.positions = positions
+            return self._read_bp_positions()
+
+        def _done():
+            self._status.setText(
+                'Objective turret moved to {} position.'.format(kind)
+            )
+            self._emit_status('Ready', 2000)
+
+        self._run_hw(
+            _do,
+            status_verb,
+            on_done=_done,
+            on_result=self._set_bp_label,
+        )
+
+    def _on_turret_objective(self):
+        self._move_turret('objective', 'Moving turret to objective…')
+
+    def _on_turret_powermeter(self):
+        self._move_turret('powermeter', 'Moving turret to powermeter…')
+
+    def _on_open_shutters_filter(self):
+        """Open the shutter and set the dichroic/filter for the laser.
+
+        Applies the per-laser beam-path entry but strips any nosepiece key so
+        the objective turret is never moved by this action (that is handled by
+        the dedicated turret buttons).
+        """
         if self._pc is None:
             return
         laser = self._laser_combo.currentData()
@@ -1825,18 +2020,26 @@ class SetPowerTab(QWidget):
         if bp_positions is None:
             self._status.setText('No beampath config for this laser.')
             return
+        nid = self._nosepiece_id()
+        if nid is not None and isinstance(bp_positions, dict):
+            bp_positions = {k: v for k, v in bp_positions.items() if k != nid}
+        if not bp_positions:
+            self._status.setText(
+                'No shutter/filter beampath config for this laser.'
+            )
+            return
 
         def _do():
             self._pc.instrument.beampath.positions = bp_positions
             return self._read_bp_positions()
 
         def _done():
-            self._status.setText('Beampath opened.')
+            self._status.setText('Shutter opened and filter set.')
             self._emit_status('Ready', 2000)
 
         self._run_hw(
             _do,
-            'Opening beampath…',
+            'Opening shutter and setting filter…',
             on_done=_done,
             on_result=self._set_bp_label,
         )
@@ -1896,54 +2099,61 @@ class SetPowerTab(QWidget):
         protocol = getattr(self._pc, 'protocol', None) or {}
         bp_dict = protocol.get('beampath') or {}
 
+        # Shutter/filter for this laser, with the turret stripped out (the
+        # turret is positioned separately, following the powermeter toggle).
         bp_for_laser = bp_dict.get(laser)
-        bp_start_cal = bp_dict.get('start_calibrate')
+        nid = self._nosepiece_id()
+        if nid is not None and isinstance(bp_for_laser, dict):
+            bp_for_laser = {
+                k: v for k, v in bp_for_laser.items() if k != nid
+            }
 
-        # Ask about start_calibrate only when beampath is not already there
-        do_start_cal = False
-        if bp_start_cal is not None:
-            if self._beampath_matches(bp_start_cal):
-                do_start_cal = True  # already in position, no need to ask
-            else:
-                reply = QMessageBox.question(
-                    self,
-                    'Measurement beampath',
-                    'Set beampath to "start_calibrate" position before '
-                    'measuring?',
-                    QMessageBox.StandardButton.Yes
-                    | QMessageBox.StandardButton.No,
-                )
-                do_start_cal = reply == QMessageBox.StandardButton.Yes
+        # Position the objective turret to match where the meter physically is:
+        # BFP → powermeter position, sample plane → imaging objective.
+        pm_pos = self._pm_pos_combo.currentData()
+        turret_kind = (
+            'powermeter' if pm_pos == POWERMETER_BFP else 'objective'
+        )
+        turret_target = self._turret_value(turret_kind)  # (id, val) or None
 
         mode = self._mode_combo.currentData()
+        pm_is_bfp = pm_pos == POWERMETER_BFP
+        try:
+            factor_available = self._pc.instrument._has_transmission_factor(
+                laser
+            )
+        except Exception:
+            factor_available = False
 
         def _do():
             import time
 
             moved = False
-            # Open beampath for this laser
-            if bp_for_laser is not None:
+            # Open shutter and set filter for this laser
+            if bp_for_laser:
                 try:
                     self._pc.instrument.beampath.positions = bp_for_laser
                     moved = True
                 except Exception:
                     pass
-            # Optionally move to start_calibrate position
-            if do_start_cal and bp_start_cal is not None:
+            # Move the turret to match the powermeter position
+            if turret_target is not None:
+                tnid, tval = turret_target
                 try:
-                    self._pc.instrument.beampath.positions = bp_start_cal
+                    self._pc.instrument.beampath.positions = {tnid: tval}
                     moved = True
                 except Exception:
                     pass
             # Wait for beampath hardware to settle (no polling API available)
             if moved:
                 time.sleep(2)
-            # Project the raw reading to the sample plane (no-op unless the
-            # active calibration used the BFP meter).
+            # Project the raw reading to the sample plane. The factor depends on
+            # where the meter physically is (the powermeter toggle), not on the
+            # stored calibration.
             raw = self._pc.powermeter.read()
             measured = self._pc.instrument.to_sample_plane(raw, laser)
             try:
-                factor = self._pc.instrument._bfp_factor(laser)
+                factor = self._pc.instrument._measurement_factor(laser)
             except Exception:
                 factor = None
             try:
@@ -1993,6 +2203,12 @@ class SetPowerTab(QWidget):
                 trans_note = (
                     f' (sample plane; measured {raw:.3f} {unit} in BFP'
                     f' × T_obj={factor:.4f})'
+                )
+            elif pm_is_bfp and not factor_available:
+                trans_note = (
+                    f' (⚠ BFP selected but no objective transmission factor '
+                    f'for {laser} nm — reporting raw BFP reading as '
+                    f'sample-plane power, uncorrected)'
                 )
             else:
                 trans_note = ' (no objective transmission factor applied)'
