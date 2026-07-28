@@ -3,31 +3,31 @@
   "build": { "dockerfile": "Dockerfile" },
 
   // runArgs:
-  //  - NET_ADMIN / NET_RAW: the firewall needs these to manage iptables/ipset.
-  //  Both security-opts below exist solely so Claude Code's per-command
-  //  bubblewrap (bwrap) sandbox can build itself; bwrap *adds* an isolation
-  //  layer around each command Claude runs. Neither touches the container's
-  //  real safety boundaries: the default-deny egress firewall
-  //  (init-firewall.sh), the non-root `vscode` user, the absence of
-  //  --privileged, and OrbStack's VM boundary all stay in place.
-  //  - seccomp=unconfined: Docker's DEFAULT seccomp profile blocks
-  //    clone(CLONE_NEWUSER), so bwrap can't create its user namespace.
-  //  - systempaths=unconfined: Docker masks/read-only-mounts parts of /proc
-  //    (/proc/kcore, /proc/sys, ...) as *locked* mounts; the kernel then
-  //    refuses bwrap's fresh `mount proc`. Unmasking lets bwrap remount proc.
-  //    (Residual exposure — e.g. /proc/kcore — is gated behind root+CAP_SYS_RAWIO,
-  //    which the non-root vscode user does not have.)
+  //  - NET_ADMIN / NET_RAW: the firewall (init-firewall.sh) needs these to
+  //    manage iptables/ipset. Nothing else about the container is relaxed:
+  //    Docker's DEFAULT seccomp filter and /proc masking stay ON, and the
+  //    container is non-root (`vscode`), non-privileged, behind the
+  //    default-deny egress firewall, and inside OrbStack's VM.
+  //
+  //  We do NOT relax seccomp/systempaths here. Those were only ever needed so
+  //  Claude Code's per-command bubblewrap (bwrap) sandbox could build itself
+  //  (create a user namespace + mount a fresh /proc). That nested sandbox is
+  //  turned OFF for this container instead — see the managed-settings file
+  //  written in the Dockerfile (/etc/claude-code/managed-settings.json). The
+  //  container itself is the security boundary, so the inner sandbox is
+  //  redundant, and disabling it lets us keep Docker's default hardening
+  //  (which is strictly safer than seccomp=unconfined) while `bash` just runs.
   "runArgs": [
     "--cap-add=NET_ADMIN",
-    "--cap-add=NET_RAW",
-    "--security-opt", "seccomp=unconfined",
-    "--security-opt", "systempaths=unconfined"
+    "--cap-add=NET_RAW"
   ],
 
   "remoteUser": "vscode",
 
   // Reuse your host Claude auth + settings inside the container.
-  // (settings.json with the shared allowlist/sandbox lives in ~/.claude)
+  // (the shared permission allowlist lives in ~/.claude; the bwrap sandbox is
+  //  force-disabled by the managed-settings file baked into the image, which
+  //  outranks ~/.claude and is NOT shared back to the host.)
   "mounts": [
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
   ],
