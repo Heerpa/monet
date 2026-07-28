@@ -1,0 +1,25 @@
+{
+  "name": "picasso-workflow",
+  "build": { "dockerfile": "Dockerfile" },
+
+  // The firewall needs these to manage iptables/ipset inside the container.
+  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"],
+
+  "remoteUser": "vscode",
+
+  // Reuse your host Claude auth + settings inside the container.
+  // (settings.json with the shared allowlist/sandbox lives in ~/.claude)
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+  ],
+
+  // Bring up the default-deny egress firewall every time the container starts.
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+
+  "customizations": {
+    "vscode": {
+      "settings": { "task.allowAutomaticTasks": "on"},
+      "extensions": ["anthropic.claude-code", "ms-python.python", "github.vscode-pull-request-github"]
+    }
+  }
+}

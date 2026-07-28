@@ -1,0 +1,21 @@
+{
+  // Opens a dedicated Claude tab when the folder opens, next to the default bash
+  // terminal -> two full-width tabs, switchable in the terminal tab list. No tmux.
+  // Requires automatic tasks to be allowed AND the workspace to be Trusted
+  // (Restricted Mode silently disables folderOpen tasks -- see the note from Claude).
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "claude",
+      "type": "shell",
+      "command": "claude --dangerously-skip-permissions",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "focus": true
+      },
+      "runOptions": { "runOn": "folderOpen" },
+      "problemMatcher": []
+    }
+  ]
+}
