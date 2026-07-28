@@ -34,11 +34,19 @@ add_domain() {
   done
 }
 
-# GitHub's published IP ranges (git, api, web, codeload, raw, objects)
-curl -fsSL https://api.github.com/meta \
- | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(c) for k in ("web","api","git") if k in d for c in d[k]]' \
- | grep -E '^[0-9.]+/[0-9]+$' \
- | while read -r cidr; do ipset add allowed-domains "$cidr" 2>/dev/null || true; done
+# GitHub's published IP ranges (git, api, web, codeload, raw, objects).
+# Best-effort: a transient failure (e.g. a 504 from api.github.com) must not
+# abort the whole firewall init and brick container startup. --retry rides out
+# blips; on total failure we fall back to the add_domain resolution below.
+if meta=$(curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --max-time 30 \
+            https://api.github.com/meta); then
+  printf '%s' "$meta" \
+   | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(c) for k in ("web","api","git") if k in d for c in d[k]]' \
+   | grep -E '^[0-9.]+/[0-9]+$' \
+   | while read -r cidr; do ipset add allowed-domains "$cidr" 2>/dev/null || true; done
+else
+  echo "[firewall] WARN: could not fetch api.github.com/meta; falling back to DNS resolution of GitHub hosts." >&2
+fi
 
 # Package indexes + the Anthropic API
 for d in \

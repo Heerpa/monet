@@ -41,6 +41,10 @@ dependencies = [
     # (the local SQLite cache/outbox that backs the HTTP database mode), so it is
     # required to import the core workflow even when only the Excel DB is used.
     "sqlalchemy>=2.0",
+    # pyserial is imported eagerly by monet.attenuation (top-level `import
+    # serial`), which is loaded whenever a control is built — including with the
+    # test attenuator — so it is a core dependency, not hardware-only.
+    "pyserial>=3.5",
 ]
 
 [project.optional-dependencies]
@@ -64,7 +68,6 @@ server = [
 hardware = [
     "pyvisa>=1.15",
     "ThorlabsPM100>=1.2.2",
-    "pyserial>=3.5",
     "microscope>=0.7",
     "nidaqmx>=1.2",
     "pycromanager",

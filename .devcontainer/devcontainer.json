@@ -2,8 +2,27 @@
   "name": "picasso-workflow",
   "build": { "dockerfile": "Dockerfile" },
 
-  // The firewall needs these to manage iptables/ipset inside the container.
-  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"],
+  // runArgs:
+  //  - NET_ADMIN / NET_RAW: the firewall needs these to manage iptables/ipset.
+  //  Both security-opts below exist solely so Claude Code's per-command
+  //  bubblewrap (bwrap) sandbox can build itself; bwrap *adds* an isolation
+  //  layer around each command Claude runs. Neither touches the container's
+  //  real safety boundaries: the default-deny egress firewall
+  //  (init-firewall.sh), the non-root `vscode` user, the absence of
+  //  --privileged, and OrbStack's VM boundary all stay in place.
+  //  - seccomp=unconfined: Docker's DEFAULT seccomp profile blocks
+  //    clone(CLONE_NEWUSER), so bwrap can't create its user namespace.
+  //  - systempaths=unconfined: Docker masks/read-only-mounts parts of /proc
+  //    (/proc/kcore, /proc/sys, ...) as *locked* mounts; the kernel then
+  //    refuses bwrap's fresh `mount proc`. Unmasking lets bwrap remount proc.
+  //    (Residual exposure — e.g. /proc/kcore — is gated behind root+CAP_SYS_RAWIO,
+  //    which the non-root vscode user does not have.)
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW",
+    "--security-opt", "seccomp=unconfined",
+    "--security-opt", "systempaths=unconfined"
+  ],
 
   "remoteUser": "vscode",
 
@@ -15,6 +34,14 @@
 
   // Bring up the default-deny egress firewall every time the container starts.
   "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+
+  // dev + server extras only. The `hardware` extra pulls real-instrument SDKs
+  // from VCS/GitHub-release URLs the egress firewall intentionally blocks (and
+  // that are only needed on machines driving the instruments), so it is left
+  // out here. All hardware SDKs are imported lazily; pyserial — the one imported
+  // eagerly — is a core dependency in pyproject.toml, so the tests work without
+  // this extra.
+  "postCreateCommand": "pip install --user -e '.[dev,server]'",
 
   "customizations": {
     "vscode": {
