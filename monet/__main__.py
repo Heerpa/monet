@@ -1087,9 +1087,23 @@ class MonetSetInteractive(cmd.Cmd):
         try:
             unit = self.powermeter.unit
         except Exception:
-            unit = "mW"
+            unit = 'mW'
+        factor = result.get('transmission')
+        if factor is not None and factor != 1.0:
+            print(
+                '  (sample plane; measured {:.3f} {} in BFP x T_obj={:.4f})'
+                .format(result.get('measured_raw'), unit, factor)
+            )
+        else:
+            print('  (no objective transmission factor applied)')
         mm_err = update_mm_acquisition_comment(
-            laser, measured, unit, result["att_pos"], result["laser_pwr"]
+            laser,
+            measured,
+            unit,
+            result['att_pos'],
+            result['laser_pwr'],
+            raw_power=result.get('measured_raw'),
+            transmission=factor,
         )
         if mm_err is not None:
             print("  MicroManager comment update failed:", mm_err)
@@ -1253,14 +1267,24 @@ class MonetSetInteractive(cmd.Cmd):
         laser = self.instrument.curr_laser
         # Project the raw reading to the sample plane (no-op unless the active
         # calibration used the BFP meter and a transmission factor exists).
-        measured = self.instrument.to_sample_plane(
-            self.powermeter.read(averaging), laser
-        )
-        print(POWER_TAG + ": " + str(measured))
+        raw = self.powermeter.read(averaging)
+        measured = self.instrument.to_sample_plane(raw, laser)
+        try:
+            factor = self.instrument._bfp_factor(laser)
+        except Exception:
+            factor = None
+        print(POWER_TAG + ': ' + str(measured))
         try:
             unit = self.powermeter.unit
         except Exception:
-            unit = "mW"
+            unit = 'mW'
+        if factor is not None and factor != 1.0:
+            print(
+                '  (sample plane; measured {:.3f} {} in BFP x T_obj={:.4f})'
+                .format(raw, unit, factor)
+            )
+        else:
+            print('  (no objective transmission factor applied)')
 
         # Calibration deviation: what the calibration predicts vs. measured
         cali_pred = None
@@ -1291,7 +1315,13 @@ class MonetSetInteractive(cmd.Cmd):
         except Exception:
             laser_pwr = None
         mm_err = update_mm_acquisition_comment(
-            laser, measured, unit, att_pos, laser_pwr
+            laser,
+            measured,
+            unit,
+            att_pos,
+            laser_pwr,
+            raw_power=raw,
+            transmission=factor,
         )
         if mm_err is not None:
             print("MicroManager comment update failed:", mm_err)

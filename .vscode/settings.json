@@ -1,0 +1,21 @@
+{
+  // Automatic tasks (the folderOpen "claude" task in tasks.json) run without the
+  // one-time "Allow Automatic Tasks" prompt.
+  "task.allowAutomaticTasks": "on",
+
+  // Terminal profiles. New/split terminals are a plain bash shell by default; pick
+  // "claude" from the terminal dropdown (the v next to the + button) to open a
+  // Claude session in a new tab. The folderOpen "claude" task opens one for you on
+  // startup, so you normally get a bash tab + a claude tab side by side in the tab list.
+  "terminal.integrated.profiles.linux": {
+    "bash": { "path": "bash" },
+    "claude": { "path": "bash", "args": ["-lc", "exec claude --dangerously-skip-permissions"] }
+  },
+  "terminal.integrated.defaultProfile.linux": "bash",
+
+  "python.testing.pytestArgs": [
+    "monet"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
+}

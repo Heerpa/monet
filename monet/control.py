@@ -226,8 +226,15 @@ class IlluminationLaserControl(IlluminationControl):
         self._factors = {}  # {laser: transmission_objective}; = P_sample/P_bfp
         self._powermeter_type = {}  # {laser: 'sample'/'bfp'}
 
-        if "beampath" in config.keys():
-            self.beampath = BeamPath(config["beampath"])
+        # Where the power meter is *physically* positioned right now. This is
+        # independent of the stored calibration's powermeter type: it drives
+        # whether a raw reading is projected to the sample plane (BFP) or taken
+        # as-is (sample plane) for live measurement and feedback. Defaults to
+        # the back focal plane, matching the calibration tab's default.
+        self.powermeter_position = POWERMETER_BFP
+
+        if 'beampath' in config.keys():
+            self.beampath = BeamPath(config['beampath'])
             self.use_beampath = True
         else:
             self.use_beampath = False
@@ -364,7 +371,13 @@ class IlluminationLaserControl(IlluminationControl):
 
     def _bfp_factor(self, laser=None):
         """Return transmission_objective = P_sample / P_bfp if the latest
-        calibration used the back focal plane (BFP) powermeter, else 1.0."""
+        calibration used the back focal plane (BFP) powermeter, else 1.0.
+
+        This is keyed on the *stored calibration* and is used to project the
+        calibration model (analyzer output, power ranges) to the sample plane.
+        For live power-meter readings use :meth:`_measurement_factor`, which is
+        keyed on where the meter is physically positioned now.
+        """
         if laser is None:
             laser = self.curr_laser
         pm_type = normalize_powermeter_type(
@@ -373,6 +386,33 @@ class IlluminationLaserControl(IlluminationControl):
         if pm_type == POWERMETER_BFP:
             return self._factors.get(laser, 1.0)
         return 1.0
+
+    def _measurement_factor(self, laser=None):
+        """Objective transmission factor to apply to a *live* meter reading.
+
+        Unlike :meth:`_bfp_factor` (which depends on the stored calibration),
+        this depends on where the power meter is *physically* positioned now
+        (:attr:`powermeter_position`). A raw reading taken in the back focal
+        plane is multiplied by transmission_objective = P_sample / P_bfp to
+        project it to the sample plane; a reading taken in the sample plane is
+        already a sample-plane power, so the factor is 1.0.
+
+        Returns 1.0 when no transmission factor is known for ``laser`` even
+        though the meter is in the BFP — the caller should warn that the
+        reported power is the uncorrected raw reading.
+        """
+        if laser is None:
+            laser = self.curr_laser
+        pos = normalize_powermeter_type(self.powermeter_position)
+        if pos == POWERMETER_BFP:
+            return self._factors.get(laser, 1.0)
+        return 1.0
+
+    def _has_transmission_factor(self, laser=None):
+        """True if an objective transmission factor is loaded for ``laser``."""
+        if laser is None:
+            laser = self.curr_laser
+        return laser in self._factors
 
     def _sample_power_ranges(self, laser=None, power_ranges=None):
         """Return calibrated output power ranges in sample-plane units.
@@ -403,20 +443,22 @@ class IlluminationLaserControl(IlluminationControl):
     def to_sample_plane(self, raw, laser=None):
         """Project a raw power-meter reading to the sample plane.
 
-        The power meter measures in the back focal plane (BFP) when the active
-        calibration was taken with the BFP meter; everything we report to the
-        user, write into the MicroManager comment, and compare against
-        calibration predictions is in the sample plane. This applies the
-        objective transmission factor (P_sample / P_bfp) so a raw reading
-        becomes a sample-plane power.
+        Whether a projection is needed depends on where the meter is
+        *physically* positioned now (:attr:`powermeter_position`): a reading
+        taken in the back focal plane (BFP) is multiplied by the objective
+        transmission factor (P_sample / P_bfp) to become a sample-plane power,
+        while a reading taken in the sample plane is returned unchanged.
+        Everything we report to the user, write into the MicroManager comment,
+        and compare against calibration predictions is in the sample plane.
 
-        Returns `raw` unchanged unless a BFP transmission factor is available
-        for `laser` (i.e. the calibration used the BFP meter).
+        Returns `raw` unchanged unless the meter is in the BFP and a
+        transmission factor is available for `laser`.
 
         Parameters
         ----------
         raw : float
-            Power-meter reading in its native (BFP) units.
+            Power-meter reading in its native units (BFP when the meter is in
+            the back focal plane).
         laser : int or str, optional
             Laser wavelength; defaults to curr_laser.
 
@@ -425,7 +467,7 @@ class IlluminationLaserControl(IlluminationControl):
         float
             Power projected to the sample plane.
         """
-        return raw * self._bfp_factor(laser)
+        return raw * self._measurement_factor(laser)
 
     @property
     def power(self):
@@ -960,7 +1002,10 @@ def run_power_feedback(
     dict
         Dictionary with keys: ``measured`` (float, last measured power
         projected to the sample plane, i.e. raw beampath reading times
-        objective transmission factor), ``converged`` (bool, whether the
+        objective transmission factor), ``measured_raw`` (float, the same
+        reading before that projection), ``transmission`` (float, the
+        objective transmission factor applied; 1.0 if none was used),
+        ``converged`` (bool, whether the
         tolerance was reached), ``cali_pred`` (float or None, power the
         calibration predicts), ``out_of_range`` (bool, whether the
         attenuator range limit was hit), ``att_pos`` (float or None, final
@@ -976,19 +1021,32 @@ def run_power_feedback(
             "'fixed_attenuator' modes, not '{}'.".format(mode)
         )
 
-    # The power meter and the analyzer work in back focal plane (BFP) units;
     # `target_pwr`, the progress callbacks and the returned `measured` are in
-    # the sample plane. Run the loop internally in BFP units (so analyzer calls
-    # and meter readings stay native) and project to the sample plane only at
-    # the reporting boundary. `factor` is 1.0 unless the active calibration was
-    # taken with the BFP meter.
+    # the sample plane. The loop runs internally in the *physical* meter plane
+    # (so meter readings stay native) and projects to the sample plane only at
+    # the reporting boundary. `factor` (physical) relates the meter reading to
+    # the sample plane and depends on where the meter is positioned now; it is
+    # 1.0 unless the meter is in the BFP with a known transmission factor.
     try:
-        factor = instrument._bfp_factor(laser)
+        factor = instrument._measurement_factor(laser)
     except Exception:
         factor = 1.0
     if not factor:
         factor = 1.0
-    target_bp = target_pwr / factor  # sample-plane target in BFP units
+    # `factor_cal` (calibration) relates the *analyzer* output to the sample
+    # plane and depends on the stored calibration's powermeter plane. It equals
+    # `factor` in the normal case where the meter is where the calibration was
+    # taken; the two differ only when the toggle disagrees with the calibration.
+    try:
+        factor_cal = instrument._bfp_factor(laser)
+    except Exception:
+        factor_cal = 1.0
+    if not factor_cal:
+        factor_cal = 1.0
+    # Convert a physical-meter-plane value to a calibration-plane value so it
+    # can be fed to the analyzer (fitted to calibration-meter readings).
+    phys_to_cal = factor / factor_cal
+    target_bp = target_pwr / factor  # sample-plane target in meter units
 
     # Initial open-loop power setting (these take a sample-plane target)
     if mode == "fixed_attenuator":
@@ -1034,20 +1092,25 @@ def run_power_feedback(
             # Anti-windup: bound the integral contribution
             integral_e = float(np.clip(integral_e, -5.0, 5.0))
             corrected_target = target_bp * (1.0 + kp * e + ki * integral_e)
+            # Convert to calibration-plane units for the analyzer, which is
+            # fitted to calibration-meter readings and whose output_range() is
+            # likewise in calibration-plane units.
+            corrected_cal = corrected_target * phys_to_cal
             try:
                 out_rng = instrument.analyzer.output_range()
                 lo = float(out_rng[0])
                 hi = float(out_rng[1])
-                clamped = float(np.clip(corrected_target, lo, hi))
-                if abs(clamped - corrected_target) > 1e-9:
+                clamped = float(np.clip(corrected_cal, lo, hi))
+                if abs(clamped - corrected_cal) > 1e-9:
                     out_of_range = True
                     integral_e = 0.0  # reset on clamp (anti-windup)
-                corrected_target = clamped
+                corrected_cal = clamped
             except Exception:
-                corrected_target = max(0.0, corrected_target)
-            att_pos = instrument.analyzer.estimate(corrected_target)
+                corrected_cal = max(0.0, corrected_cal)
+            att_pos = instrument.analyzer.estimate(corrected_cal)
             instrument.attenuator.set(att_pos)
-            last_setpoint = corrected_target * factor  # report sample plane
+            # report sample plane (corrected_cal is in calibration-meter units)
+            last_setpoint = corrected_cal * factor_cal
             time.sleep(3)
         time.sleep(0.5)
         measured_bp = powermeter.read(5)
@@ -1084,11 +1147,13 @@ def run_power_feedback(
         laser_pwr = None
 
     return {
-        "measured": measured,
-        "converged": converged,
-        "cali_pred": cali_pred,
-        "out_of_range": out_of_range,
-        "att_pos": att_pos,
-        "laser_pwr": laser_pwr,
-        "iterations": iterations,
+        'measured': measured,
+        'measured_raw': measured_bp,
+        'transmission': factor,
+        'converged': converged,
+        'cali_pred': cali_pred,
+        'out_of_range': out_of_range,
+        'att_pos': att_pos,
+        'laser_pwr': laser_pwr,
+        'iterations': iterations,
     }

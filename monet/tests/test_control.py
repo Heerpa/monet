@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 import monet.control as mco
-from monet import DATABASE_INDEXLEVELS
+from monet import DATABASE_INDEXLEVELS, normalize_powermeter_type
 
 
 class _TrackingAttenuator:
@@ -305,27 +305,61 @@ class TestControl(unittest.TestCase):
             self.assertTrue(np.isfinite(lo) and np.isfinite(hi))
 
     def test_to_sample_plane(self):
-        """to_sample_plane is a no-op for sample-plane calibrations and applies
-        the objective transmission factor for back focal plane calibrations."""
+        """to_sample_plane applies the objective transmission factor based on
+        where the meter is *physically* positioned (powermeter_position), not
+        on the stored calibration's powermeter type."""
         ctrl = self._build_laser_control()
-        # No factor loaded → sample plane → unchanged.
-        self.assertEqual(ctrl.to_sample_plane(10.0, 488), 10.0)
-        # BFP calibration with a transmission factor → projected.
-        ctrl._powermeter_type[488] = "bfp"
         ctrl._factors[488] = 2.5
+        # Meter in the BFP → raw reading projected by the transmission factor.
+        ctrl.powermeter_position = 'bfp'
         self.assertAlmostEqual(ctrl.to_sample_plane(10.0, 488), 25.0)
-        # A sample-plane laser is unaffected even when another has a factor.
-        ctrl._powermeter_type[561] = "sample"
+        # Meter in the sample plane → reading used as-is, even with a factor.
+        ctrl.powermeter_position = 'sample'
+        self.assertEqual(ctrl.to_sample_plane(10.0, 488), 10.0)
+        # BFP but no factor for this laser → unchanged (uncorrected).
+        ctrl.powermeter_position = 'bfp'
         self.assertEqual(ctrl.to_sample_plane(10.0, 561), 10.0)
 
     def test_to_sample_plane_legacy_values(self):
-        """Legacy stored values 'beampath'/'manual' are still honoured."""
+        """Legacy powermeter-position values 'beampath'/'manual' are honoured
+        by to_sample_plane via normalize_powermeter_type."""
         ctrl = self._build_laser_control()
-        ctrl._powermeter_type[488] = "beampath"  # legacy → bfp
         ctrl._factors[488] = 2.0
+        ctrl.powermeter_position = 'beampath'  # legacy → bfp
         self.assertAlmostEqual(ctrl.to_sample_plane(10.0, 488), 20.0)
-        ctrl._powermeter_type[561] = "manual"  # legacy → sample
-        self.assertEqual(ctrl.to_sample_plane(10.0, 561), 10.0)
+        ctrl.powermeter_position = 'manual'  # legacy → sample
+        self.assertEqual(ctrl.to_sample_plane(10.0, 488), 10.0)
+
+    def test_powermeter_position_defaults_to_bfp(self):
+        """A fresh control defaults to the BFP powermeter position."""
+        ctrl = self._build_laser_control()
+        self.assertEqual(
+            normalize_powermeter_type(ctrl.powermeter_position), 'bfp'
+        )
+
+    def test_measurement_factor_decoupled_from_calibration(self):
+        """The live-measurement factor follows powermeter_position, decoupled
+        from the stored calibration's powermeter type (which _bfp_factor uses).
+        """
+        ctrl = self._build_laser_control()
+        ctrl._factors[488] = 2.0
+        # Calibration was sample-plane, but the meter is now in the BFP.
+        ctrl._powermeter_type[488] = 'sample'
+        ctrl.powermeter_position = 'bfp'
+        self.assertEqual(ctrl._bfp_factor(488), 1.0)  # calibration-keyed
+        self.assertEqual(ctrl._measurement_factor(488), 2.0)  # physical-keyed
+        # Calibration was BFP, but the meter is now in the sample plane.
+        ctrl._powermeter_type[488] = 'bfp'
+        ctrl.powermeter_position = 'sample'
+        self.assertEqual(ctrl._bfp_factor(488), 2.0)
+        self.assertEqual(ctrl._measurement_factor(488), 1.0)
+
+    def test_has_transmission_factor(self):
+        """_has_transmission_factor reflects whether a factor is loaded."""
+        ctrl = self._build_laser_control()
+        self.assertFalse(ctrl._has_transmission_factor(488))
+        ctrl._factors[488] = 1.7
+        self.assertTrue(ctrl._has_transmission_factor(488))
 
     @mock.patch("time.sleep")
     def test_run_power_feedback_projects_to_sample_plane(self, _sleep):

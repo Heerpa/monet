@@ -160,13 +160,16 @@ class TestUpdateMMComment(unittest.TestCase):
     def test_appends_line(self):
         err = util.update_mm_acquisition_comment(488, 12.345, "mW")
         self.assertIsNone(err)
-        self.assertEqual(self.mgr.settings.comment(), "Power 488nm: 12.345 mW")
+        self.assertEqual(
+            self.mgr.settings.comment(),
+            'Power 488nm: 12.345 mW [no objective transmission factor]',
+        )
 
     def test_replaces_existing_line_for_same_laser(self):
         util.update_mm_acquisition_comment(488, 10.0, "mW")
         util.update_mm_acquisition_comment(488, 20.0, "mW")
         comment = self.mgr.settings.comment()
-        self.assertEqual(comment, "Power 488nm: 20.000 mW")
+        self.assertIn('Power 488nm: 20.000 mW', comment)
         # Exactly one line for this laser — no duplicate appended.
         self.assertEqual(comment.count("Power 488nm:"), 1)
 
@@ -179,11 +182,27 @@ class TestUpdateMMComment(unittest.TestCase):
 
     def test_optional_fields_in_line(self):
         util.update_mm_acquisition_comment(
-            640, 3.5, "mW", att_pos=12.3456, laser_pwr=100.0
+            640, 3.5, 'mW', att_pos=12.3456, laser_pwr=100.0
         )
         comment = self.mgr.settings.comment()
-        self.assertIn("@ att=12.3456", comment)
-        self.assertIn("lp=100.0mW", comment)
+        self.assertIn('@ att=12.3456', comment)
+        self.assertIn('lp=100.0mW', comment)
+
+    def test_transmission_factor_annotated(self):
+        util.update_mm_acquisition_comment(
+            640, 3.5, 'mW', raw_power=7.0, transmission=0.5
+        )
+        comment = self.mgr.settings.comment()
+        self.assertIn('Power 640nm: 3.500 mW', comment)
+        self.assertIn('[BFP reading 7.000 mW x T_obj=0.5000]', comment)
+
+    def test_unity_transmission_states_no_factor(self):
+        util.update_mm_acquisition_comment(
+            640, 3.5, 'mW', raw_power=3.5, transmission=1.0
+        )
+        self.assertIn(
+            '[no objective transmission factor]', self.mgr.settings.comment()
+        )
 
 
 class TestUpdateMMCommentNoPycromanager(unittest.TestCase):
