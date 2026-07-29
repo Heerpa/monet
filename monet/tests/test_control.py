@@ -311,13 +311,13 @@ class TestControl(unittest.TestCase):
         ctrl = self._build_laser_control()
         ctrl._factors[488] = 2.5
         # Meter in the BFP → raw reading projected by the transmission factor.
-        ctrl.powermeter_position = 'bfp'
+        ctrl.powermeter_position = "bfp"
         self.assertAlmostEqual(ctrl.to_sample_plane(10.0, 488), 25.0)
         # Meter in the sample plane → reading used as-is, even with a factor.
-        ctrl.powermeter_position = 'sample'
+        ctrl.powermeter_position = "sample"
         self.assertEqual(ctrl.to_sample_plane(10.0, 488), 10.0)
         # BFP but no factor for this laser → unchanged (uncorrected).
-        ctrl.powermeter_position = 'bfp'
+        ctrl.powermeter_position = "bfp"
         self.assertEqual(ctrl.to_sample_plane(10.0, 561), 10.0)
 
     def test_to_sample_plane_legacy_values(self):
@@ -325,16 +325,16 @@ class TestControl(unittest.TestCase):
         by to_sample_plane via normalize_powermeter_type."""
         ctrl = self._build_laser_control()
         ctrl._factors[488] = 2.0
-        ctrl.powermeter_position = 'beampath'  # legacy → bfp
+        ctrl.powermeter_position = "beampath"  # legacy → bfp
         self.assertAlmostEqual(ctrl.to_sample_plane(10.0, 488), 20.0)
-        ctrl.powermeter_position = 'manual'  # legacy → sample
+        ctrl.powermeter_position = "manual"  # legacy → sample
         self.assertEqual(ctrl.to_sample_plane(10.0, 488), 10.0)
 
     def test_powermeter_position_defaults_to_bfp(self):
         """A fresh control defaults to the BFP powermeter position."""
         ctrl = self._build_laser_control()
         self.assertEqual(
-            normalize_powermeter_type(ctrl.powermeter_position), 'bfp'
+            normalize_powermeter_type(ctrl.powermeter_position), "bfp"
         )
 
     def test_measurement_factor_decoupled_from_calibration(self):
@@ -344,13 +344,13 @@ class TestControl(unittest.TestCase):
         ctrl = self._build_laser_control()
         ctrl._factors[488] = 2.0
         # Calibration was sample-plane, but the meter is now in the BFP.
-        ctrl._powermeter_type[488] = 'sample'
-        ctrl.powermeter_position = 'bfp'
+        ctrl._powermeter_type[488] = "sample"
+        ctrl.powermeter_position = "bfp"
         self.assertEqual(ctrl._bfp_factor(488), 1.0)  # calibration-keyed
         self.assertEqual(ctrl._measurement_factor(488), 2.0)  # physical-keyed
         # Calibration was BFP, but the meter is now in the sample plane.
-        ctrl._powermeter_type[488] = 'bfp'
-        ctrl.powermeter_position = 'sample'
+        ctrl._powermeter_type[488] = "bfp"
+        ctrl.powermeter_position = "sample"
         self.assertEqual(ctrl._bfp_factor(488), 2.0)
         self.assertEqual(ctrl._measurement_factor(488), 1.0)
 

@@ -142,16 +142,16 @@ def update_mm_acquisition_comment(
     if att_pos is not None:
         pwr_str += " @ att={:.4f}".format(att_pos)
     if laser_pwr is not None:
-        pwr_str += ' lp={:.1f}mW'.format(laser_pwr)
+        pwr_str += " lp={:.1f}mW".format(laser_pwr)
     if transmission is not None and transmission != 1:
-        pwr_str += ' [BFP reading {:.3f} {} x T_obj={:.4f}]'.format(
+        pwr_str += " [BFP reading {:.3f} {} x T_obj={:.4f}]".format(
             raw_power if raw_power is not None else measured / transmission,
             unit,
             transmission,
         )
     else:
-        pwr_str += ' [no objective transmission factor]'
-    pattern = 'Power {}nm:'.format(laser)
+        pwr_str += " [no objective transmission factor]"
+    pattern = "Power {}nm:".format(laser)
 
     try:
         from pycromanager import Studio
@@ -194,5 +194,5 @@ def refresh_mm_gui():
     except ImportError:
         return None  # pycromanager not installed
     except Exception as exc:
-        logger.debug('Could not refresh MicroManager GUI: %s', exc)
+        logger.debug("Could not refresh MicroManager GUI: %s", exc)
         return str(exc)

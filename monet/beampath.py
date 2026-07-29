@@ -175,7 +175,7 @@ class BeamPath:
                 logger.exception(
                     "Could not set beam-path object %r to %r", obid, pos
                 )
-                errors.append('{!r}->{!r}: {}'.format(obid, pos, exc))
+                errors.append("{!r}->{!r}: {}".format(obid, pos, exc))
         # Changes issued through the Core are invisible in the MicroManager
         # main window until its GUI is refreshed.
         refresh_mm_gui()

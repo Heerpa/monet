@@ -1087,22 +1087,23 @@ class MonetSetInteractive(cmd.Cmd):
         try:
             unit = self.powermeter.unit
         except Exception:
-            unit = 'mW'
-        factor = result.get('transmission')
+            unit = "mW"
+        factor = result.get("transmission")
         if factor is not None and factor != 1.0:
             print(
-                '  (sample plane; measured {:.3f} {} in BFP x T_obj={:.4f})'
-                .format(result.get('measured_raw'), unit, factor)
+                "  (sample plane; measured {:.3f} {} in BFP x T_obj={:.4f})".format(
+                    result.get("measured_raw"), unit, factor
+                )
             )
         else:
-            print('  (no objective transmission factor applied)')
+            print("  (no objective transmission factor applied)")
         mm_err = update_mm_acquisition_comment(
             laser,
             measured,
             unit,
-            result['att_pos'],
-            result['laser_pwr'],
-            raw_power=result.get('measured_raw'),
+            result["att_pos"],
+            result["laser_pwr"],
+            raw_power=result.get("measured_raw"),
             transmission=factor,
         )
         if mm_err is not None:
@@ -1273,18 +1274,19 @@ class MonetSetInteractive(cmd.Cmd):
             factor = self.instrument._bfp_factor(laser)
         except Exception:
             factor = None
-        print(POWER_TAG + ': ' + str(measured))
+        print(POWER_TAG + ": " + str(measured))
         try:
             unit = self.powermeter.unit
         except Exception:
-            unit = 'mW'
+            unit = "mW"
         if factor is not None and factor != 1.0:
             print(
-                '  (sample plane; measured {:.3f} {} in BFP x T_obj={:.4f})'
-                .format(raw, unit, factor)
+                "  (sample plane; measured {:.3f} {} in BFP x T_obj={:.4f})".format(
+                    raw, unit, factor
+                )
             )
         else:
-            print('  (no objective transmission factor applied)')
+            print("  (no objective transmission factor applied)")
 
         # Calibration deviation: what the calibration predicts vs. measured
         cali_pred = None

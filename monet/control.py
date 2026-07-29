@@ -233,8 +233,8 @@ class IlluminationLaserControl(IlluminationControl):
         # the back focal plane, matching the calibration tab's default.
         self.powermeter_position = POWERMETER_BFP
 
-        if 'beampath' in config.keys():
-            self.beampath = BeamPath(config['beampath'])
+        if "beampath" in config.keys():
+            self.beampath = BeamPath(config["beampath"])
             self.use_beampath = True
         else:
             self.use_beampath = False
@@ -1147,13 +1147,13 @@ def run_power_feedback(
         laser_pwr = None
 
     return {
-        'measured': measured,
-        'measured_raw': measured_bp,
-        'transmission': factor,
-        'converged': converged,
-        'cali_pred': cali_pred,
-        'out_of_range': out_of_range,
-        'att_pos': att_pos,
-        'laser_pwr': laser_pwr,
-        'iterations': iterations,
+        "measured": measured,
+        "measured_raw": measured_bp,
+        "transmission": factor,
+        "converged": converged,
+        "cali_pred": cali_pred,
+        "out_of_range": out_of_range,
+        "att_pos": att_pos,
+        "laser_pwr": laser_pwr,
+        "iterations": iterations,
     }
