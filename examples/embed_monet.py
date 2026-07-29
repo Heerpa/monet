@@ -11,10 +11,17 @@ Run with::
 
 (omit the argument to skip auto-connection).
 """
+
 import sys
 
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel)
+    QApplication,
+    QMainWindow,
+    QTabWidget,
+    QWidget,
+    QVBoxLayout,
+    QLabel,
+)
 
 from monet.qt import MonetWidget, SetPowerTab
 
@@ -26,7 +33,7 @@ class HostApplication(QMainWindow):
 
     def __init__(self, initial_microscope=None):
         super().__init__()
-        self.setWindowTitle('Example host — embedding Monet')
+        self.setWindowTitle("Example host — embedding Monet")
         self.resize(1000, 700)
 
         tabs = QTabWidget()
@@ -41,19 +48,20 @@ class HostApplication(QMainWindow):
             initial_microscope=initial_microscope,
         )
         self.monet.status_changed.connect(self.statusBar().showMessage)
-        tabs.addTab(self.monet, 'Monet (full)')
+        tabs.addTab(self.monet, "Monet (full)")
 
         # --- Pattern 2: just Set Power, alongside host widgets --------
         page = QWidget()
         page_layout = QVBoxLayout(page)
-        page_layout.addWidget(QLabel(
-            'Host widgets above; just the Monet Set Power tab below.'))
+        page_layout.addWidget(
+            QLabel("Host widgets above; just the Monet Set Power tab below.")
+        )
         self.set_power = SetPowerTab()
         # Pipe its status into the host's status bar — note that the
         # individual tab exposes ``status`` (not ``status_changed``).
         self.set_power.status.connect(self.statusBar().showMessage)
         page_layout.addWidget(self.set_power)
-        tabs.addTab(page, 'Just Set Power')
+        tabs.addTab(page, "Just Set Power")
 
         # Pattern 2 needs an explicitly-supplied calibration-protocol object.
         # When using the toolbar (Pattern 1) Monet builds one itself via
@@ -62,7 +70,7 @@ class HostApplication(QMainWindow):
         # object so the same hardware drives both tabs.
         self.monet.connected.connect(self.set_power.set_pc)
 
-        self.statusBar().showMessage('Ready')
+        self.statusBar().showMessage("Ready")
 
     def closeEvent(self, event):
         # MonetWidget owns hardware workers — let it clean up.
@@ -78,5 +86,5 @@ def main():
     sys.exit(app.exec())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -23,7 +23,7 @@ class TestLaser(unittest.TestCase):
 
     def test_01_TestLaser(self):
 
-        laserpars = {'port': 'COM4'}
+        laserpars = {"port": "COM4"}
         warmup_delay = 5
 
         ls = mlas.TestLaser(laserpars, warmup_delay)

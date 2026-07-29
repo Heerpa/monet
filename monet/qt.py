@@ -37,10 +37,10 @@ from monet.gui import (
 )
 
 __all__ = [
-    'MonetWidget',
-    'MonetMainWindow',
-    'CalibrateTab',
-    'SetPowerTab',
-    'AdjustTab',
-    'DatabaseTab',
+    "MonetWidget",
+    "MonetMainWindow",
+    "CalibrateTab",
+    "SetPowerTab",
+    "AdjustTab",
+    "DatabaseTab",
 ]

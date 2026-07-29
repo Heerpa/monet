@@ -1,4 +1,4 @@
-"""
+r"""
 INSTALLATION
 
 install pwoermeter software
@@ -36,4 +36,3 @@ ValueError: 'term_chars' is not a valid attribute for type USBInstrument
 9.13788778e-09
 >>>
 """
-

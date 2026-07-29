@@ -131,7 +131,9 @@ dmypy.json
 *.DS_Store
 env.yaml
 
+# setuptools-scm writes the version here at build/install time
+monet/_version.py
+
 # Claude Code
 .claude/
-CLAUDE.md
 CLAUDE.local.md

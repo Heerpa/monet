@@ -25,16 +25,16 @@ def _make_excel(path):
     """Write a small calibration database matching DATABASE_INDEXLEVELS."""
     index = pd.MultiIndex.from_tuples(
         [
-            ('TestScope', 488.0, 100.0, '2024-01-01', '12:00:00'),
-            ('TestScope', 561.0, 50.0, '2024-01-02', '09:30:00'),
+            ("TestScope", 488.0, 100.0, "2024-01-01", "12:00:00"),
+            ("TestScope", 561.0, 50.0, "2024-01-02", "09:30:00"),
         ],
         names=DATABASE_INDEXLEVELS,
     )
     df = pd.DataFrame(
         {
-            'bkg': [0.1, 0.2],
-            'amp': [10.0, 5.0],
-            'phi': [30.0, float('nan')],  # NaN should be dropped per-row
+            "bkg": [0.1, 0.2],
+            "amp": [10.0, 5.0],
+            "phi": [30.0, float("nan")],  # NaN should be dropped per-row
         },
         index=index,
     )
@@ -45,8 +45,8 @@ class TestMigrate(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.excel_path = os.path.join(self.tmpdir, 'power_database.xlsx')
-        self.db_path = os.path.join(self.tmpdir, 'calibrations.db')
+        self.excel_path = os.path.join(self.tmpdir, "power_database.xlsx")
+        self.db_path = os.path.join(self.tmpdir, "calibrations.db")
         _make_excel(self.excel_path)
 
     def tearDown(self):
@@ -76,10 +76,10 @@ class TestMigrate(unittest.TestCase):
                 session.query(Calibration).filter_by(wavelength_nm=488.0).one()
             )
 
-        self.assertEqual(row.device_name, 'TestScope')
+        self.assertEqual(row.device_name, "TestScope")
         self.assertEqual(row.laser_power_mw, 100.0)
-        self.assertEqual(row.calibration_date, '2024-01-01')
-        self.assertEqual(row.calibration_time, '12:00:00')
+        self.assertEqual(row.calibration_date, "2024-01-01")
+        self.assertEqual(row.calibration_time, "12:00:00")
 
     def test_migrate_stores_parameters_json(self):
         migrate_excel_to_sqlite(self.excel_path, self.db_path)
@@ -94,15 +94,15 @@ class TestMigrate(unittest.TestCase):
             )
 
         params_488 = json.loads(row_488.parameters_json)
-        self.assertEqual(params_488['bkg'], 0.1)
-        self.assertEqual(params_488['amp'], 10.0)
-        self.assertEqual(params_488['phi'], 30.0)
+        self.assertEqual(params_488["bkg"], 0.1)
+        self.assertEqual(params_488["amp"], 10.0)
+        self.assertEqual(params_488["phi"], 30.0)
 
         # The NaN 'phi' for the 561 row must be dropped, not serialized.
         params_561 = json.loads(row_561.parameters_json)
-        self.assertNotIn('phi', params_561)
-        self.assertEqual(params_561['amp'], 5.0)
+        self.assertNotIn("phi", params_561)
+        self.assertEqual(params_561["amp"], 5.0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

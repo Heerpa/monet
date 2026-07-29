@@ -33,7 +33,7 @@ class _FakeTLPM:
         count_ref._obj.value = self._device_count
 
     def getRsrcName(self, index, resource_buffer):
-        resource_buffer.value = b'FAKE::TLPM::INSTR'
+        resource_buffer.value = b"FAKE::TLPM::INSTR"
 
     def open(self, resource, id_query, reset):
         pass
@@ -59,7 +59,7 @@ def _patch_wrapper(wrapper_cls):
     """Patch _import_tlpm_wrapper to return the given fake wrapper class."""
     return mock.patch.object(
         mpm.ThorlabsTLPMPowerMeter,
-        '_import_tlpm_wrapper',
+        "_import_tlpm_wrapper",
         return_value=wrapper_cls,
     )
 
@@ -74,12 +74,12 @@ class TestPowerMeter(unittest.TestCase):
 
     def test_basics_01_TestPowerMeter(self):
         config = {
-            'bkg': 0,
-            'amp': 50,
-            'phi': 30,
-            'start': 10,
-            'step': 5,
-            'noise': 3,
+            "bkg": 0,
+            "amp": 50,
+            "phi": 30,
+            "start": 10,
+            "step": 5,
+            "noise": 3,
         }
         att = mpm.TestPowerMeter(config)
 
@@ -90,11 +90,11 @@ class TestPowerMeter(unittest.TestCase):
 
     def test_basics_02_ThorlabsTLPMPowerMeter(self):
         with _patch_wrapper(_FakeTLPM):
-            pm = mpm.ThorlabsTLPMPowerMeter({'address': 'find connection'})
+            pm = mpm.ThorlabsTLPMPowerMeter({"address": "find connection"})
 
             # measPower returns watts; the class reports mW.
             self.assertAlmostEqual(pm.read(averaging=5), 12.3, places=6)
-            self.assertEqual(pm.unit, 'mW')
+            self.assertEqual(pm.unit, "mW")
 
             self.assertAlmostEqual(pm.wavelength, 488.0)
             pm.wavelength = 561
@@ -103,7 +103,7 @@ class TestPowerMeter(unittest.TestCase):
     def test_basics_03_ThorlabsTLPM_no_device_raises(self):
         with _patch_wrapper(_FakeTLPMNoDevice):
             with self.assertRaises(ValueError):
-                mpm.ThorlabsTLPMPowerMeter({'address': 'find connection'})
+                mpm.ThorlabsTLPMPowerMeter({"address": "find connection"})
 
     def test_basics_04_ThorlabsTLPM_dll_path(self):
         # A dll_path directory should be accepted and added to the DLL search
@@ -115,7 +115,7 @@ class TestPowerMeter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dll_dir:
             with _patch_wrapper(_FakeTLPM):
                 pm = mpm.ThorlabsTLPMPowerMeter(
-                    {'address': 'find connection', 'dll_path': dll_dir}
+                    {"address": "find connection", "dll_path": dll_dir}
                 )
                 self.assertAlmostEqual(pm.read(averaging=1), 12.3, places=6)
-            self.assertIn(dll_dir, os.environ.get('PATH', ''))
+            self.assertIn(dll_dir, os.environ.get("PATH", ""))

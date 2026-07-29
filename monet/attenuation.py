@@ -75,16 +75,16 @@ class TestAttenuator(AbstractAttenuator):
 
     def _connect(self):
         """Simulate connecting to the device."""
-        logger.debug('Simulate connecting.')
+        logger.debug("Simulate connecting.")
         return None
 
     def _wait(self):
         """Wait for the Kinesis to have moved."""
-        logger.debug('simulate waiting.')
+        logger.debug("simulate waiting.")
 
     def home(self):
         """Home the device."""
-        logger.debug('Simulate homing...')
+        logger.debug("Simulate homing...")
 
     def _log_pos(self):
         """Log the current position."""
@@ -101,7 +101,7 @@ class TestAttenuator(AbstractAttenuator):
         pos : int
             The position to move to in internal steps.
         """
-        logger.debug('Simulate moving to {:d}...'.format(pos))
+        logger.debug("Simulate moving to {:d}...".format(pos))
         self._log_pos()
 
     def _move_relative(self, step):
@@ -112,7 +112,7 @@ class TestAttenuator(AbstractAttenuator):
         step : int
             The step in internal units.
         """
-        logger.debug('Simulate moving by {:d}...'.format(step))
+        logger.debug("Simulate moving by {:d}...".format(step))
 
     def set(self, val):
         """Set a value. Called from outside, calls a specific function.
@@ -122,7 +122,7 @@ class TestAttenuator(AbstractAttenuator):
         val : float
             The value to set to.
         """
-        logger.debug('simulate setting value {:f}'.format(val))
+        logger.debug("simulate setting value {:f}".format(val))
 
     def __del__(self):
         pass
@@ -156,20 +156,20 @@ class KinesisAttenuator(AbstractAttenuator):
         communication and analysis parameters.
         """
         # ensure that the Kinesis folder is available on PATH
-        kinesis_path = 'C:/Program Files/Thorlabs/Kinesis'
-        if kinesis_path not in os.environ['PATH']:
-            os.environ['PATH'] += os.pathsep + kinesis_path
+        kinesis_path = "C:/Program Files/Thorlabs/Kinesis"
+        if kinesis_path not in os.environ["PATH"]:
+            os.environ["PATH"] += os.pathsep + kinesis_path
 
         from msl.equipment import Backend, ConnectionRecord, EquipmentRecord
         from msl.equipment.resources.thorlabs import MotionControl
 
         record = EquipmentRecord(
-            manufacturer='Thorlabs',
-            model='KDC101',
-            serial=self.config['serial'],
+            manufacturer="Thorlabs",
+            model="KDC101",
+            serial=self.config["serial"],
             connection=ConnectionRecord(
                 backend=Backend.MSL,
-                address='SDK::Thorlabs.MotionControl.KCube.DCServo.dll',
+                address="SDK::Thorlabs.MotionControl.KCube.DCServo.dll",
             ),
         )
 
@@ -178,7 +178,7 @@ class KinesisAttenuator(AbstractAttenuator):
 
         # connect to the KCube Stepper Motor
         motor = record.connect()
-        logger.debug('Connected to {}'.format(motor))
+        logger.debug("Connected to {}".format(motor))
 
         # load the configuration settings (so that we can use the
         # get_real_value_from_device_unit() method)
@@ -196,18 +196,18 @@ class KinesisAttenuator(AbstractAttenuator):
         while True:
             status = self.device.convert_message(
                 *self.device.wait_for_message()
-            )['id']
-            if status == 'Homed' or status == 'Moved':
+            )["id"]
+            if status == "Homed" or status == "Moved":
                 break
             # time.sleep(.2)
 
     def home(self):
         """Home the device."""
-        logger.debug('Homing...')
+        logger.debug("Homing...")
         self.device.home()
         self._wait()
         logger.debug(
-            'Homing done. At position {} [device units]'.format(
+            "Homing done. At position {} [device units]".format(
                 self.device.get_position()
             )
         )
@@ -215,16 +215,16 @@ class KinesisAttenuator(AbstractAttenuator):
     def _log_pos(self):
         """Log the current position."""
         pos = self.device.get_position()
-        pdevu = 'At position {} [device units]'.format(pos)
-        pnatu = 'At position {} [natural units]'.format(
-            self.device.get_real_value_from_device_unit(pos, 'DISTANCE')
+        pdevu = "At position {} [device units]".format(pos)
+        pnatu = "At position {} [natural units]".format(
+            self.device.get_real_value_from_device_unit(pos, "DISTANCE")
         )
         logger.debug(pdevu + pnatu)
 
     def curr_pos(self):
         """Return the current position."""
         pos = self.device.get_position()
-        return self.device.get_real_value_from_device_unit(pos, 'DISTANCE')
+        return self.device.get_real_value_from_device_unit(pos, "DISTANCE")
 
     def _move_absolute(self, pos):
         """Move to an absolute position.
@@ -236,7 +236,7 @@ class KinesisAttenuator(AbstractAttenuator):
             ``get_device_unit_from_real_value`` converts this to encoder
             steps.
         """
-        pos_devu = self.device.get_device_unit_from_real_value(pos, 'DISTANCE')
+        pos_devu = self.device.get_device_unit_from_real_value(pos, "DISTANCE")
         self.device.move_to_position(pos_devu)
         self._wait()
         time.sleep(self.wait_after_move)
@@ -253,7 +253,7 @@ class KinesisAttenuator(AbstractAttenuator):
         """
         # logger.debug('Moving by {:d}...'.format(step))
         step_devu = self.device.get_device_unit_from_real_value(
-            step, 'DISTANCE'
+            step, "DISTANCE"
         )
         self.device.move_relative(step_devu)
         self._wait()
@@ -274,7 +274,7 @@ class KinesisAttenuator(AbstractAttenuator):
     def __del__(self):
         # __init__ may have failed before self.device was assigned
         # (e.g. _connect() raised FT_DeviceNotFound); guard against it.
-        device = getattr(self, 'device', None)
+        device = getattr(self, "device", None)
         if device is not None:
             device.stop_polling()
             device.disconnect()
@@ -306,19 +306,19 @@ class AAAOTF_lowlevel(serial.Serial):
 
     def __init__(
         self,
-        port='COM10',
+        port="COM10",
         baudrate=57600,
         bytesize=8,
-        parity='N',
+        parity="N",
         stopbits=1,
         timeout=1,
     ):
         paritydict = {
-            'N': serial.PARITY_NONE,
-            'E': serial.PARITY_EVEN,
-            'O': serial.PARITY_ODD,
-            'M': serial.PARITY_MARK,
-            'S': serial.PARITY_SPACE,
+            "N": serial.PARITY_NONE,
+            "E": serial.PARITY_EVEN,
+            "O": serial.PARITY_ODD,
+            "M": serial.PARITY_MARK,
+            "S": serial.PARITY_SPACE,
         }
         bytesizedict = {
             5: serial.FIVEBITS,
@@ -380,18 +380,18 @@ class AAAOTF_lowlevel(serial.Serial):
             'external' or 'internal'. 'external' is used to follow TTL
             external modulation.
         """
-        if mode == 'internal':
+        if mode == "internal":
             if state:
                 self.query("L0I1O1")
             else:
                 self.query("L0I1O0")
-        elif mode == 'external':
+        elif mode == "external":
             if state:
                 self.query("L0I0O1")
             else:
                 self.query("L0I0O0")
         else:
-            raise Warning('Blanking type not known.')
+            raise Warning("Blanking type not known.")
 
     def get_states(self):
         """Get the status of all the channels.
@@ -401,7 +401,7 @@ class AAAOTF_lowlevel(serial.Serial):
         states : str
             Message from the driver describing all channel states.
         """
-        return self.query('S')
+        return self.query("S")
 
     def frequency(self, channel, value):
         """Set the RF frequency for a given channel.
@@ -436,7 +436,7 @@ class AAAOTF_lowlevel(serial.Serial):
     #     self.query("L{}P{:04d}".format(channel, value), expectanswer=False)
 
     def query(self, cmd, values=None, expectanswer=True):
-        '''Send a command and receive the answer.
+        """Send a command and receive the answer.
 
         Parameters
         ----------
@@ -449,15 +449,15 @@ class AAAOTF_lowlevel(serial.Serial):
             answers.
         expectanswer : bool
             Whether to wait for an answer.
-        '''
+        """
         if self.in_waiting:
             self.reset_input_buffer()
-        self.write(cmd.encode() + b'\r')
+        self.write(cmd.encode() + b"\r")
         time.sleep(0.1)
 
         if expectanswer:
             answer = self.read_until()
-            answer = answer.decode().split('\rD')[0]
+            answer = answer.decode().split("\rD")[0]
 
             if values is not None:
                 valrev = {v: k for k, v in values.items()}
@@ -492,7 +492,7 @@ class AAAOTFAttenuator(AbstractAttenuator):
         self.wavelength = None
 
         self.channeldef = pd.read_csv(
-            attenuation_config['channeldef_loc'], index_col=0
+            attenuation_config["channeldef_loc"], index_col=0
         )
 
     def _connect(self):
@@ -504,12 +504,12 @@ class AAAOTFAttenuator(AbstractAttenuator):
         ``baudrate``, ``bytesize``, ``parity``, ``stopbits``, ``timeout``.
         """
         pot_pars = [
-            'port',
-            'baudrate',
-            'bytesize',
-            'parity',
-            'stopbits',
-            'timeout',
+            "port",
+            "baudrate",
+            "bytesize",
+            "parity",
+            "stopbits",
+            "timeout",
         ]
         connection_pars = {
             k: v for k, v in self.config.items() if k in pot_pars
@@ -534,18 +534,18 @@ class AAAOTFAttenuator(AbstractAttenuator):
         wvl = int(wvl)
         self.wavelength = wvl
 
-        matches = self.channeldef.loc[self.channeldef['wavelength'] == wvl]
+        matches = self.channeldef.loc[self.channeldef["wavelength"] == wvl]
         if matches.empty:
-            available = sorted(self.channeldef['wavelength'].tolist())
+            available = sorted(self.channeldef["wavelength"].tolist())
             raise ValueError(
-                'Wavelength {} nm not found in AOTF channel definitions. '
-                'Available wavelengths: {}. '
-                'Check the channel definition file.'.format(wvl, available)
+                "Wavelength {} nm not found in AOTF channel definitions. "
+                "Available wavelengths: {}. "
+                "Check the channel definition file.".format(wvl, available)
             )
-        self.channel = int(matches['channel'].values[0])
+        self.channel = int(matches["channel"].values[0])
         self.lowlvl.enable(self.channel, True)
         # time.sleep(0.05)
-        freq = matches['frequency'].values[0]
+        freq = matches["frequency"].values[0]
         self.lowlvl.frequency(self.channel, freq)
         # time.sleep(0.05)
 
@@ -582,7 +582,7 @@ class NIdaqmxAOAttenuator(AbstractAttenuator):
         import nidaqmx
 
         self.tasks = {}
-        for wavelength, line in self.config['lines'].items():
+        for wavelength, line in self.config["lines"].items():
             self.tasks[wavelength] = nidaqmx.Task()
             self.tasks[wavelength].ao_channels.add_ao_voltage_chan(line)
 
@@ -603,7 +603,7 @@ class NIdaqmxAOAttenuator(AbstractAttenuator):
         self.wavelength = wvl
 
     def __del__(self):
-        if hasattr(self, 'tasks'):
+        if hasattr(self, "tasks"):
             for t in self.tasks.values():
                 try:
                     t.close()

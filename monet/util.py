@@ -39,19 +39,19 @@ def release_hardware(obj, _seen=None):
         return
     _seen.add(id(obj))
 
-    for name in ('stop_polling', 'close', 'disconnect'):
+    for name in ("stop_polling", "close", "disconnect"):
         fn = getattr(obj, name, None)
         if callable(fn):
             try:
                 fn()
             except Exception:
                 logger.debug(
-                    'release_hardware: %s.%s() failed',
+                    "release_hardware: %s.%s() failed",
                     type(obj).__name__,
                     name,
                     exc_info=True,
                 )
-    for attr in ('las', 'laser', 'lowlvl', 'device', 'pm'):
+    for attr in ("las", "laser", "lowlvl", "device", "pm"):
         inner = getattr(obj, attr, None)
         if inner is not None and inner is not obj:
             release_hardware(inner, _seen)
@@ -70,7 +70,7 @@ def load_class(classpath, init_kwargs={}, settings=None):
     settings : dict
         Keyword arguments to __init__ of the class.
     """
-    p, m = classpath.rsplit('.', 1)
+    p, m = classpath.rsplit(".", 1)
     mod = import_module(p)
     Met = getattr(mod, m)
     if settings:
@@ -125,7 +125,7 @@ def update_mm_acquisition_comment(
 
     def _replace_or_append(text, pattern, new_str):
         result, count = re.subn(
-            r'^' + re.escape(pattern) + r'.*$',
+            r"^" + re.escape(pattern) + r".*$",
             new_str,
             text,
             flags=re.MULTILINE,
@@ -133,25 +133,25 @@ def update_mm_acquisition_comment(
         if count == 0:
             result = (
                 text
-                + ('\n' if text and not text.endswith('\n') else '')
+                + ("\n" if text and not text.endswith("\n") else "")
                 + new_str
             )
         return result
 
-    pwr_str = 'Power {}nm: {:.3f} {}'.format(laser, measured, unit)
+    pwr_str = "Power {}nm: {:.3f} {}".format(laser, measured, unit)
     if att_pos is not None:
-        pwr_str += ' @ att={:.4f}'.format(att_pos)
+        pwr_str += " @ att={:.4f}".format(att_pos)
     if laser_pwr is not None:
-        pwr_str += ' lp={:.1f}mW'.format(laser_pwr)
+        pwr_str += " lp={:.1f}mW".format(laser_pwr)
     if transmission is not None and transmission != 1:
-        pwr_str += ' [BFP reading {:.3f} {} x T_obj={:.4f}]'.format(
+        pwr_str += " [BFP reading {:.3f} {} x T_obj={:.4f}]".format(
             raw_power if raw_power is not None else measured / transmission,
             unit,
             transmission,
         )
     else:
-        pwr_str += ' [no objective transmission factor]'
-    pattern = 'Power {}nm:'.format(laser)
+        pwr_str += " [no objective transmission factor]"
+    pattern = "Power {}nm:".format(laser)
 
     try:
         from pycromanager import Studio
@@ -159,7 +159,7 @@ def update_mm_acquisition_comment(
         studio = Studio()
         acqmgr = studio.acquisitions()
         curr_settings = acqmgr.get_acquisition_settings()
-        curr_comment = str(curr_settings.comment() or '')
+        curr_comment = str(curr_settings.comment() or "")
         new_comment = _replace_or_append(curr_comment, pattern, pwr_str)
         new_settings = (
             curr_settings.copy_builder().comment(new_comment).build()
@@ -194,5 +194,5 @@ def refresh_mm_gui():
     except ImportError:
         return None  # pycromanager not installed
     except Exception as exc:
-        logger.debug('Could not refresh MicroManager GUI: %s', exc)
+        logger.debug("Could not refresh MicroManager GUI: %s", exc)
         return str(exc)

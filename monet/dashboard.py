@@ -23,7 +23,7 @@ from sqlalchemy import select
 import monet.server as _server  # noqa: E402
 from monet.models import Calibration, Factor
 
-router = APIRouter(prefix='/dashboard', tags=['dashboard'])
+router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 # ── Pydantic schema ────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ class TimeseriesRequest(BaseModel):
 # ── API endpoints ──────────────────────────────────────────────────────────────
 
 
-@router.get('/api/filters')
+@router.get("/api/filters")
 def get_filters():
     """Return unique filter values and date range for sidebar population."""
     with _server._get_session() as session:
@@ -48,11 +48,11 @@ def get_filters():
 
     if not rows:
         return {
-            'devices': [],
-            'wavelengths': [],
-            'laser_powers': [],
-            'date_min': None,
-            'date_max': None,
+            "devices": [],
+            "wavelengths": [],
+            "laser_powers": [],
+            "date_min": None,
+            "date_max": None,
         }
 
     devices = sorted(set(r.device_name for r in rows))
@@ -60,15 +60,15 @@ def get_filters():
     laser_powers = sorted(set(r.laser_power_mw for r in rows))
     dates = [r.calibration_date for r in rows]
     return {
-        'devices': devices,
-        'wavelengths': wavelengths,
-        'laser_powers': laser_powers,
-        'date_min': min(dates),
-        'date_max': max(dates),
+        "devices": devices,
+        "wavelengths": wavelengths,
+        "laser_powers": laser_powers,
+        "date_min": min(dates),
+        "date_max": max(dates),
     }
 
 
-@router.get('/api/transmission_objectives')
+@router.get("/api/transmission_objectives")
 def get_transmission_objectives(device: str = None):
     """Return all transmission_objective factor records, optionally filtered by device."""
     with _server._get_session() as session:
@@ -80,18 +80,18 @@ def get_transmission_objectives(device: str = None):
         rows = session.execute(stmt).scalars().all()
     return [
         {
-            'device': r.device_name,
-            'wavelength': r.wavelength_nm,
-            'date': r.calibration_date,
-            'transmission_objective_mean': r.transmission_objective_mean,
-            'transmission_objective_std': r.transmission_objective_std,
-            'n_points': r.n_points,
+            "device": r.device_name,
+            "wavelength": r.wavelength_nm,
+            "date": r.calibration_date,
+            "transmission_objective_mean": r.transmission_objective_mean,
+            "transmission_objective_std": r.transmission_objective_std,
+            "n_points": r.n_points,
         }
         for r in rows
     ]
 
 
-@router.post('/api/timeseries')
+@router.post("/api/timeseries")
 def get_timeseries(req: TimeseriesRequest):
     """Return filtered calibration records for the dashboard charts."""
     with _server._get_session() as session:
@@ -117,19 +117,19 @@ def get_timeseries(req: TimeseriesRequest):
 
     records = []
     for r in rows:
-        dt = f'{r.calibration_date}T{r.calibration_time}:00'
+        dt = f"{r.calibration_date}T{r.calibration_time}:00"
         records.append(
             {
-                'device': r.device_name,
-                'wavelength': r.wavelength_nm,
-                'laser_power': r.laser_power_mw,
-                'date': r.calibration_date,
-                'time': r.calibration_time,
-                'dt': dt,
-                'parameters': json.loads(r.parameters_json),
+                "device": r.device_name,
+                "wavelength": r.wavelength_nm,
+                "laser_power": r.laser_power_mw,
+                "date": r.calibration_date,
+                "time": r.calibration_time,
+                "dt": dt,
+                "parameters": json.loads(r.parameters_json),
             }
         )
-    return {'records': records}
+    return {"records": records}
 
 
 # ── HTML page ──────────────────────────────────────────────────────────────────
@@ -987,7 +987,7 @@ window.addEventListener('DOMContentLoaded', init);
 </html>"""
 
 
-@router.get('/', response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
 def get_dashboard():
     """Serve the interactive dashboard HTML page."""
     return HTMLResponse(content=_DASHBOARD_HTML)

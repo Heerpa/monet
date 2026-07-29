@@ -56,9 +56,9 @@ from monet.util import update_mm_acquisition_comment
 # the package metadata is unavailable (running from an uninstalled source
 # tree).
 _TITLE_BASE = (
-    'Monet'
-    if _monet_version == 'unknown'
-    else 'Monet v{}'.format(_monet_version)
+    "Monet"
+    if _monet_version == "unknown"
+    else "Monet v{}".format(_monet_version)
 )
 
 logger = logging.getLogger(__name__)
@@ -105,10 +105,10 @@ class CalibrationWorker(QThread):
     def run(self):
         def _progress_callback(step, total, laser, lpwr):
             if self._cancel_requested:
-                raise InterruptedError('Calibration cancelled by user.')
+                raise InterruptedError("Calibration cancelled by user.")
             self.progress.emit(step, total, laser, lpwr)
             self.log_message.emit(
-                f'Step {step}/{total}: laser {laser} nm at {lpwr} mW done.'
+                f"Step {step}/{total}: laser {laser} nm at {lpwr} mW done."
             )
 
         def _curve_callback(laser, lpwr, ctrl_vals, powers):
@@ -129,7 +129,7 @@ class CalibrationWorker(QThread):
                 powermeter_type=self._powermeter_type,
             )
         except InterruptedError:
-            self.log_message.emit('Calibration cancelled.')
+            self.log_message.emit("Calibration cancelled.")
         except Exception as exc:
             self.error.emit(str(exc))
             return
@@ -164,21 +164,21 @@ class ConnectWorker(QThread):
                     self._old_pc.disconnect()
                 except Exception:
                     logging.getLogger(__name__).debug(
-                        'old connection teardown failed', exc_info=True
+                        "old connection teardown failed", exc_info=True
                     )
 
             if self._protocol:
                 pc = mca.CalibrationProtocol2D(self._config, self._protocol)
             else:
                 pc = mca.CalibrationProtocol1D(self._config)
-            if not getattr(pc, 'powermeter_available', True):
+            if not getattr(pc, "powermeter_available", True):
                 msg = (
-                    'PowerMeter not available — calibration and power '
-                    'measurement disabled.'
+                    "PowerMeter not available — calibration and power "
+                    "measurement disabled."
                 )
-                detail = getattr(pc, 'powermeter_error', None)
+                detail = getattr(pc, "powermeter_error", None)
                 if detail:
-                    msg += '\n\nReason: ' + detail
+                    msg += "\n\nReason: " + detail
                 self.warning.emit(msg)
             self.connected.emit(pc)
         except Exception as exc:
@@ -223,7 +223,7 @@ class FeedbackPlotDialog(QDialog):
 
     def __init__(self, target_pwr, max_dev_pct, mode, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('Feedback — live progress')
+        self.setWindowTitle("Feedback — live progress")
         self.setModal(False)
         self.resize(540, 380)
 
@@ -249,10 +249,10 @@ class FeedbackPlotDialog(QDialog):
         except Exception:
             self._has_mpl = False
             layout.addWidget(
-                QLabel('matplotlib not available — cannot show live plot.')
+                QLabel("matplotlib not available — cannot show live plot.")
             )
 
-        btn = QPushButton('Close')
+        btn = QPushButton("Close")
         btn.clicked.connect(self.close)
         layout.addWidget(btn)
 
@@ -263,35 +263,35 @@ class FeedbackPlotDialog(QDialog):
 
         ax.axhline(
             self._target,
-            color='green',
-            linestyle='--',
+            color="green",
+            linestyle="--",
             linewidth=1.5,
-            label=f'Target ({self._target:.2f} mW)',
+            label=f"Target ({self._target:.2f} mW)",
             zorder=2,
         )
         ax.axhspan(
-            lo, hi, alpha=0.15, color='green', label=f'±{self._tol:.1f}% band'
+            lo, hi, alpha=0.15, color="green", label=f"±{self._tol:.1f}% band"
         )
 
         (self._line_meas,) = ax.plot(
-            [], [], 'o-', color='royalblue', label='Measured', zorder=3
+            [], [], "o-", color="royalblue", label="Measured", zorder=3
         )
         # Setpoint line only meaningful for attenuator mode (PI corrects
         # target)
         (self._line_set,) = ax.plot(
             [],
             [],
-            's--',
-            color='darkorange',
+            "s--",
+            color="darkorange",
             alpha=0.7,
-            label='PI setpoint',
-            visible=(self._mode == 'fixed_laser'),
+            label="PI setpoint",
+            visible=(self._mode == "fixed_laser"),
         )
 
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('Power (mW)')
-        ax.set_title('Feedback convergence')
-        ax.legend(loc='best', fontsize=8)
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("Power (mW)")
+        ax.set_title("Feedback convergence")
+        ax.legend(loc="best", fontsize=8)
         self._canvas.draw()
 
     def add_point(self, data):
@@ -352,7 +352,7 @@ class CalibrationPlots(QWidget):
         except Exception:
             self._has_mpl = False
             layout.addWidget(
-                QLabel('matplotlib not available — cannot show plots.')
+                QLabel("matplotlib not available — cannot show plots.")
             )
             return
 
@@ -383,14 +383,14 @@ class CalibrationPlots(QWidget):
         if not self._has_mpl:
             return
         self._curve_ax.clear()
-        self._style_curve_axes('current attenuation curve')
+        self._style_curve_axes("current attenuation curve")
         self._curve_canvas.draw_idle()
         self._redraw_amplitudes()
 
     def _style_curve_axes(self, title):
         ax = self._curve_ax
-        ax.set_xlabel('attenuator control value', fontsize=8)
-        ax.set_ylabel('power [mW]', fontsize=8)
+        ax.set_xlabel("attenuator control value", fontsize=8)
+        ax.set_ylabel("power [mW]", fontsize=8)
         ax.set_title(title, fontsize=9)
         ax.tick_params(labelsize=7)
         ax.grid(True, alpha=0.3)
@@ -404,12 +404,12 @@ class CalibrationPlots(QWidget):
             ax.plot(
                 lpwrs,
                 [points[lp] for lp in lpwrs],
-                marker='o',
-                label='{} nm'.format(laser),
+                marker="o",
+                label="{} nm".format(laser),
             )
-        ax.set_xlabel('laser power set-point [mW]', fontsize=8)
-        ax.set_ylabel('max measured power [mW]', fontsize=8)
-        ax.set_title('measured power amplitudes', fontsize=9)
+        ax.set_xlabel("laser power set-point [mW]", fontsize=8)
+        ax.set_ylabel("max measured power [mW]", fontsize=8)
+        ax.set_title("measured power amplitudes", fontsize=9)
         ax.tick_params(labelsize=7)
         ax.grid(True, alpha=0.3)
         if self._amplitudes:
@@ -429,9 +429,9 @@ class CalibrationPlots(QWidget):
             self._curve_x = []
             self._curve_y = []
             self._curve_ax.clear()
-            (self._curve_line,) = self._curve_ax.plot([], [], marker='x')
+            (self._curve_line,) = self._curve_ax.plot([], [], marker="x")
             self._style_curve_axes(
-                'current curve — {} nm, {} mW'.format(laser, lpwr)
+                "current curve — {} nm, {} mW".format(laser, lpwr)
             )
 
         self._curve_x.append(ctrl_val)
@@ -452,9 +452,9 @@ class CalibrationPlots(QWidget):
             return
 
         self._curve_ax.clear()
-        self._curve_ax.plot(ctrl_vals, powers, marker='x')
+        self._curve_ax.plot(ctrl_vals, powers, marker="x")
         self._style_curve_axes(
-            'current curve — {} nm, {} mW'.format(laser, lpwr)
+            "current curve — {} nm, {} mW".format(laser, lpwr)
         )
         self._curve_canvas.draw_idle()
         # The next point belongs to a new curve.
@@ -499,13 +499,13 @@ class CalibrateTab(QWidget):
         layout = QVBoxLayout(self)
 
         # Wavelength selection group
-        self._wl_group = QGroupBox('Wavelengths to calibrate')
+        self._wl_group = QGroupBox("Wavelengths to calibrate")
         self._wl_layout = QVBoxLayout()
         self._wl_group.setLayout(self._wl_layout)
 
         btn_row = QHBoxLayout()
-        btn_select_all = QPushButton('Select all')
-        btn_deselect_all = QPushButton('Deselect all')
+        btn_select_all = QPushButton("Select all")
+        btn_deselect_all = QPushButton("Deselect all")
         btn_select_all.clicked.connect(self._select_all)
         btn_deselect_all.clicked.connect(self._deselect_all)
         btn_row.addWidget(btn_select_all)
@@ -517,37 +517,37 @@ class CalibrateTab(QWidget):
 
         # Multi-laser checkbox
         self._multi_cb = QCheckBox(
-            'Multi-laser mode (keep other lasers on during calibration)'
+            "Multi-laser mode (keep other lasers on during calibration)"
         )
         self._multi_cb.setChecked(False)
         self._multi_cb.setToolTip(
-            'When unchecked, all lasers are switched off before the run and '
-            'each laser is switched off again once its calibration is done, '
-            'so only the laser being calibrated is ever on.'
+            "When unchecked, all lasers are switched off before the run and "
+            "each laser is switched off again once its calibration is done, "
+            "so only the laser being calibrated is ever on."
         )
         layout.addWidget(self._multi_cb)
 
         # Back focal plane (BFP) powermeter checkbox
-        self._bfp_pm_cb = QCheckBox('Use back focal plane (BFP) powermeter')
+        self._bfp_pm_cb = QCheckBox("Use back focal plane (BFP) powermeter")
         self._bfp_pm_cb.setEnabled(True)
         self._bfp_pm_cb.setToolTip(
-            'When checked, the beampath is moved to the BFP powermeter '
-            'position during calibration. A correction factor is '
-            'computed if both sample-plane and BFP calibrations exist '
-            'for the same day.'
+            "When checked, the beampath is moved to the BFP powermeter "
+            "position during calibration. A correction factor is "
+            "computed if both sample-plane and BFP calibrations exist "
+            "for the same day."
         )
         layout.addWidget(self._bfp_pm_cb)
 
         # Progress bar
         self._progress = QProgressBar()
-        self._progress.setFormat('Waiting…')
+        self._progress.setFormat("Waiting…")
         self._progress.setValue(0)
         layout.addWidget(self._progress)
 
         # Lower half — log on the left, live plots on the right
         self._log = QTextEdit()
         self._log.setReadOnly(True)
-        self._log.setFont(QFont('Courier', 9))
+        self._log.setFont(QFont("Courier", 9))
         # The two side-by-side canvases have wide size hints; without a floor
         # the splitter would squeeze the log down to an unreadable column.
         self._log.setMinimumWidth(240)
@@ -566,14 +566,14 @@ class CalibrateTab(QWidget):
 
         # Start / Cancel / Discard buttons
         btn_row2 = QHBoxLayout()
-        self._btn_start = QPushButton('Start')
-        self._btn_cancel = QPushButton('Cancel')
+        self._btn_start = QPushButton("Start")
+        self._btn_cancel = QPushButton("Cancel")
         self._btn_cancel.setEnabled(False)
-        self._btn_discard = QPushButton('Discard')
+        self._btn_discard = QPushButton("Discard")
         self._btn_discard.setEnabled(False)
         self._btn_discard.setToolTip(
-            'Delete the calibration records written by the last run from '
-            'the database.'
+            "Delete the calibration records written by the last run from "
+            "the database."
         )
         self._btn_start.clicked.connect(self._on_start)
         self._btn_cancel.clicked.connect(self._on_cancel)
@@ -591,8 +591,8 @@ class CalibrateTab(QWidget):
         self._update_discard_enabled()
         has_beampath = (
             pc is not None
-            and hasattr(pc, 'instrument')
-            and hasattr(pc.instrument, 'use_beampath')
+            and hasattr(pc, "instrument")
+            and hasattr(pc.instrument, "use_beampath")
             and pc.instrument.use_beampath
         )
         self._bfp_pm_cb.setEnabled(has_beampath)
@@ -609,26 +609,26 @@ class CalibrateTab(QWidget):
         if self._pc is None:
             return
 
-        if hasattr(self._pc, 'protocol') and self._pc.protocol:
-            for laser in self._pc.protocol['laser_sequence']:
+        if hasattr(self._pc, "protocol") and self._pc.protocol:
+            for laser in self._pc.protocol["laser_sequence"]:
                 try:
                     enabled = self._pc.instrument.lasers[laser].enabled
-                    state_str = 'ON' if enabled else 'off'
+                    state_str = "ON" if enabled else "off"
                 except Exception:
-                    state_str = '?'
-                cb = QCheckBox(f'{laser} nm  [{state_str}]')
+                    state_str = "?"
+                cb = QCheckBox(f"{laser} nm  [{state_str}]")
                 cb.setChecked(True)
                 self._checkboxes[laser] = cb
                 self._wl_layout.addWidget(cb)
         else:
             # 1D microscope — single disabled placeholder
             try:
-                wl = self._pc.instrument.config['index'].get(
-                    'wavelength [nm]', '?'
+                wl = self._pc.instrument.config["index"].get(
+                    "wavelength [nm]", "?"
                 )
             except Exception:
-                wl = '?'
-            cb = QCheckBox(f'{wl} nm  (single-wavelength mode)')
+                wl = "?"
+            cb = QCheckBox(f"{wl} nm  (single-wavelength mode)")
             cb.setChecked(True)
             cb.setEnabled(False)
             self._wl_layout.addWidget(cb)
@@ -649,50 +649,50 @@ class CalibrateTab(QWidget):
     def _on_start(self):
         if self._pc is None:
             QMessageBox.warning(
-                self, 'Not connected', 'Connect to a microscope first.'
+                self, "Not connected", "Connect to a microscope first."
             )
             return
 
         # 1D mode
-        if not (hasattr(self._pc, 'protocol') and self._pc.protocol):
-            self._log.append('Starting 1D calibration…')
-            self._emit_status('Running 1D calibration…')
+        if not (hasattr(self._pc, "protocol") and self._pc.protocol):
+            self._log.append("Starting 1D calibration…")
+            self._emit_status("Running 1D calibration…")
             self._btn_discard.setEnabled(False)
             self._plots.clear()
             self._pc.reset_saved_calibrations()
             try:
                 ctrl_vals, powers = self._pc.calibrate()
-                laser = self._pc.instrument.config['index'].get(
-                    'wavelength [nm]', ''
+                laser = self._pc.instrument.config["index"].get(
+                    "wavelength [nm]", ""
                 )
-                lpwr = self._pc.instrument.config['index'].get(
-                    'laser_power [mW]', ''
+                lpwr = self._pc.instrument.config["index"].get(
+                    "laser_power [mW]", ""
                 )
                 self._plots.add_curve(laser, lpwr, ctrl_vals, powers)
-                self._log.append('Done.')
-                self._emit_status('Calibration complete.', 5000)
+                self._log.append("Done.")
+                self._emit_status("Calibration complete.", 5000)
             except Exception as exc:
-                QMessageBox.critical(self, 'Error', str(exc))
-                self._emit_status('Calibration failed.', 5000)
+                QMessageBox.critical(self, "Error", str(exc))
+                self._emit_status("Calibration failed.", 5000)
             self._btn_discard.setEnabled(bool(self._pc.saved_calibrations))
             return
 
         selected = self._selected_lasers()
         if not selected:
             QMessageBox.warning(
-                self, 'No wavelengths', 'Select at least one wavelength.'
+                self, "No wavelengths", "Select at least one wavelength."
             )
             return
 
         self._log.clear()
         self._plots.clear()
-        self._log.append(f'Starting calibration for lasers: {selected}')
+        self._log.append(f"Starting calibration for lasers: {selected}")
         self._progress.setValue(0)
-        self._progress.setFormat('Starting…')
+        self._progress.setFormat("Starting…")
         self._btn_start.setEnabled(False)
         self._btn_cancel.setEnabled(True)
         self._btn_discard.setEnabled(False)
-        self._emit_status('Calibration running…')
+        self._emit_status("Calibration running…")
 
         self.calibration_started.emit()
 
@@ -719,60 +719,60 @@ class CalibrateTab(QWidget):
         if self._worker:
             self._worker.request_cancel()
             self._btn_cancel.setEnabled(False)
-            self._emit_status('Cancelling calibration…')
+            self._emit_status("Cancelling calibration…")
 
     def _on_progress(self, step, total, laser, lpwr):
         self._progress.setMaximum(total)
         self._progress.setValue(step)
-        self._progress.setFormat(f'{laser} nm / {lpwr} mW  ({step}/{total})')
+        self._progress.setFormat(f"{laser} nm / {lpwr} mW  ({step}/{total})")
         self._emit_status(
-            f'Calibrating: laser {laser} nm at {lpwr} mW  ({step}/{total})'
+            f"Calibrating: laser {laser} nm at {lpwr} mW  ({step}/{total})"
         )
 
     def _on_finished(self):
-        self._log.append('Calibration complete.')
-        self._progress.setFormat('Done')
+        self._log.append("Calibration complete.")
+        self._progress.setFormat("Done")
         self._btn_start.setEnabled(True)
         self._btn_cancel.setEnabled(False)
         self._update_discard_enabled()
         self._worker = None
-        self._emit_status('Calibration complete.', 5000)
+        self._emit_status("Calibration complete.", 5000)
         self.calibration_finished.emit()
 
     def _on_error(self, msg):
-        self._log.append(f'ERROR: {msg}')
-        QMessageBox.critical(self, 'Calibration error', msg)
+        self._log.append(f"ERROR: {msg}")
+        QMessageBox.critical(self, "Calibration error", msg)
         self._btn_start.setEnabled(True)
         self._btn_cancel.setEnabled(False)
         # A run that failed part-way may still have written records; let the
         # user discard those.
         self._update_discard_enabled()
         self._worker = None
-        self._emit_status(f'Calibration error: {msg}', 5000)
+        self._emit_status(f"Calibration error: {msg}", 5000)
         self.calibration_finished.emit()
 
     def _update_discard_enabled(self):
-        saved = getattr(self._pc, 'saved_calibrations', None)
+        saved = getattr(self._pc, "saved_calibrations", None)
         self._btn_discard.setEnabled(bool(saved))
 
     def _on_discard(self):
         """Delete the records written by the last calibration run."""
-        records = list(getattr(self._pc, 'saved_calibrations', None) or [])
+        records = list(getattr(self._pc, "saved_calibrations", None) or [])
         if not records:
             self._btn_discard.setEnabled(False)
             return
 
         reply = QMessageBox.question(
             self,
-            'Discard calibration',
-            f'Delete the {len(records)} calibration record(s) written by the '
-            'last run from the database?\nThis cannot be undone.',
+            "Discard calibration",
+            f"Delete the {len(records)} calibration record(s) written by the "
+            "last run from the database?\nThis cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        db_fname = self._pc.instrument.config['database']
+        db_fname = self._pc.instrument.config["database"]
 
         def _do():
             deleted = 0
@@ -782,15 +782,15 @@ class CalibrateTab(QWidget):
 
         def _on_result(deleted):
             self._pc.reset_saved_calibrations()
-            self._log.append(f'Discarded {deleted} calibration record(s).')
+            self._log.append(f"Discarded {deleted} calibration record(s).")
             self._emit_status(
-                f'Discarded {deleted} calibration record(s).', 5000
+                f"Discarded {deleted} calibration record(s).", 5000
             )
 
         def _on_error(msg):
-            self._log.append(f'ERROR discarding calibration: {msg}')
-            QMessageBox.critical(self, 'Discard error', msg)
-            self._emit_status(f'Discard failed: {msg}', 5000)
+            self._log.append(f"ERROR discarding calibration: {msg}")
+            QMessageBox.critical(self, "Discard error", msg)
+            self._emit_status(f"Discard failed: {msg}", 5000)
 
         def _on_finished():
             self._btn_start.setEnabled(True)
@@ -799,7 +799,7 @@ class CalibrateTab(QWidget):
 
         self._btn_start.setEnabled(False)
         self._btn_discard.setEnabled(False)
-        self._emit_status('Discarding calibration…')
+        self._emit_status("Discarding calibration…")
 
         worker = GenericWorker(_do)
         worker.result.connect(_on_result)
@@ -813,7 +813,7 @@ class CalibrateTab(QWidget):
         self._btn_start.setEnabled(available)
         if not available:
             self._log.append(
-                'WARNING: PowerMeter not available. Calibration is disabled.'
+                "WARNING: PowerMeter not available. Calibration is disabled."
             )
 
     def cancel_worker_and_wait(self):
@@ -850,9 +850,9 @@ class AdjustTab(QWidget):
 
         # Refresh row
         refresh_row = QHBoxLayout()
-        self._btn_refresh = QPushButton('Refresh')
+        self._btn_refresh = QPushButton("Refresh")
         self._btn_refresh.setToolTip(
-            'Re-read attenuator position and laser power from hardware'
+            "Re-read attenuator position and laser power from hardware"
         )
         self._btn_refresh.clicked.connect(self._on_refresh)
         refresh_row.addWidget(self._btn_refresh)
@@ -860,16 +860,16 @@ class AdjustTab(QWidget):
         layout.addLayout(refresh_row)
 
         # Attenuator group
-        att_group = QGroupBox('Attenuator')
+        att_group = QGroupBox("Attenuator")
         att_layout = QHBoxLayout()
-        att_layout.addWidget(QLabel('Position:'))
+        att_layout.addWidget(QLabel("Position:"))
         self._att_spin = QDoubleSpinBox()
         self._att_spin.setRange(-1e6, 1e6)
         self._att_spin.setDecimals(3)
         att_layout.addWidget(self._att_spin)
-        self._btn_att_set = QPushButton('Set')
+        self._btn_att_set = QPushButton("Set")
         self._btn_att_set.clicked.connect(self._on_att_set)
-        self._btn_att_home = QPushButton('Home')
+        self._btn_att_home = QPushButton("Home")
         self._btn_att_home.clicked.connect(self._on_att_home)
         att_layout.addWidget(self._btn_att_set)
         att_layout.addWidget(self._btn_att_home)
@@ -878,14 +878,14 @@ class AdjustTab(QWidget):
         layout.addWidget(att_group)
 
         # Laser power output group
-        pwr_group = QGroupBox('Laser power output')
+        pwr_group = QGroupBox("Laser power output")
         pwr_layout = QHBoxLayout()
-        pwr_layout.addWidget(QLabel('Power (mW):'))
+        pwr_layout.addWidget(QLabel("Power (mW):"))
         self._pwr_spin = QDoubleSpinBox()
         self._pwr_spin.setRange(0, 10000)
         self._pwr_spin.setDecimals(1)
         pwr_layout.addWidget(self._pwr_spin)
-        self._btn_pwr_set = QPushButton('Set')
+        self._btn_pwr_set = QPushButton("Set")
         self._btn_pwr_set.clicked.connect(self._on_pwr_set)
         pwr_layout.addWidget(self._btn_pwr_set)
         pwr_layout.addStretch()
@@ -894,20 +894,20 @@ class AdjustTab(QWidget):
 
         # Beampath controls
         bp_row = QHBoxLayout()
-        self._btn_bp_open = QPushButton('Open beampath')
-        self._btn_bp_close = QPushButton('Close beampath')
+        self._btn_bp_open = QPushButton("Open beampath")
+        self._btn_bp_close = QPushButton("Close beampath")
         self._btn_bp_open.clicked.connect(self._on_bp_open)
         self._btn_bp_close.clicked.connect(self._on_bp_close)
         bp_row.addWidget(self._btn_bp_open)
         bp_row.addWidget(self._btn_bp_close)
-        self._autoshutter_cb = QCheckBox('Autoshutter')
+        self._autoshutter_cb = QCheckBox("Autoshutter")
         self._autoshutter_cb.stateChanged.connect(self._on_autoshutter)
         bp_row.addWidget(self._autoshutter_cb)
         bp_row.addStretch()
         layout.addLayout(bp_row)
 
         # Status
-        self._status = QLabel('')
+        self._status = QLabel("")
         layout.addWidget(self._status)
         layout.addStretch()
 
@@ -937,10 +937,10 @@ class AdjustTab(QWidget):
         except Exception:
             saved = None
         if saved:
-            if saved.get('laser_power') is not None:
-                self._pwr_spin.setValue(float(saved['laser_power']))
-            if saved.get('attenuator') is not None:
-                self._att_spin.setValue(float(saved['attenuator']))
+            if saved.get("laser_power") is not None:
+                self._pwr_spin.setValue(float(saved["laser_power"]))
+            if saved.get("attenuator") is not None:
+                self._att_spin.setValue(float(saved["attenuator"]))
 
     def _on_refresh(self):
         """Read attenuator position and laser power from hardware."""
@@ -952,27 +952,27 @@ class AdjustTab(QWidget):
             try:
                 pos = self._pc.instrument.attenuator.curr_pos()
                 if pos is not None:
-                    result['att_pos'] = float(pos)
+                    result["att_pos"] = float(pos)
             except Exception:
                 pass
             try:
                 laser = self._pc.instrument.curr_laser
                 pwr = self._pc.instrument.lasers[laser].power
                 if pwr is not None:
-                    result['laser_pwr'] = float(pwr)
+                    result["laser_pwr"] = float(pwr)
             except Exception:
                 pass
             return result
 
         def _on_result(result):
-            if 'att_pos' in result:
-                self._att_spin.setValue(result['att_pos'])
-            if 'laser_pwr' in result:
-                self._pwr_spin.setValue(result['laser_pwr'])
-            self._status.setText('Values refreshed.')
-            self._emit_status('Ready', 2000)
+            if "att_pos" in result:
+                self._att_spin.setValue(result["att_pos"])
+            if "laser_pwr" in result:
+                self._pwr_spin.setValue(result["laser_pwr"])
+            self._status.setText("Values refreshed.")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, 'Refreshing device values…', on_result=_on_result)
+        self._run_hw(_do, "Refreshing device values…", on_result=_on_result)
 
     # --- helpers for async hardware ops ---
 
@@ -1001,9 +1001,9 @@ class AdjustTab(QWidget):
                 on_done()
 
         def _on_error(msg):
-            self._status.setText(f'Error: {msg}')
-            self._emit_status(f'Error: {msg}', 5000)
-            QMessageBox.critical(self, 'Error', msg)
+            self._status.setText(f"Error: {msg}")
+            self._emit_status(f"Error: {msg}", 5000)
+            QMessageBox.critical(self, "Error", msg)
 
         def _on_finished():
             self._hw_buttons(True)
@@ -1025,10 +1025,10 @@ class AdjustTab(QWidget):
             self._pc.instrument.record_state()
 
         def _done():
-            self._status.setText(f'Attenuator set to {pos}.')
-            self._emit_status('Ready', 2000)
+            self._status.setText(f"Attenuator set to {pos}.")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, f'Setting attenuator to {pos}…', on_done=_done)
+        self._run_hw(_do, f"Setting attenuator to {pos}…", on_done=_done)
 
     def _on_att_home(self):
         if self._pc is None:
@@ -1039,8 +1039,8 @@ class AdjustTab(QWidget):
             self._pc.instrument.record_state()
 
         def _done():
-            self._status.setText('Attenuator homed.')
-            self._emit_status('Ready', 2000)
+            self._status.setText("Attenuator homed.")
+            self._emit_status("Ready", 2000)
             # Read back new position after homing
             try:
                 pos = self._pc.instrument.attenuator.curr_pos()
@@ -1049,7 +1049,7 @@ class AdjustTab(QWidget):
             except Exception:
                 pass
 
-        self._run_hw(_do, 'Homing attenuator…', on_done=_done)
+        self._run_hw(_do, "Homing attenuator…", on_done=_done)
 
     def _on_pwr_set(self):
         if self._pc is None:
@@ -1061,10 +1061,10 @@ class AdjustTab(QWidget):
             self._pc.instrument.record_state()
 
         def _done():
-            self._status.setText(f'Laser power set to {pwr} mW.')
-            self._emit_status('Ready', 2000)
+            self._status.setText(f"Laser power set to {pwr} mW.")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, f'Setting laser power to {pwr} mW…', on_done=_done)
+        self._run_hw(_do, f"Setting laser power to {pwr} mW…", on_done=_done)
 
     def _on_bp_open(self):
         if self._pc is None:
@@ -1073,48 +1073,48 @@ class AdjustTab(QWidget):
             laser = self._pc.instrument.curr_laser
         except Exception:
             laser = None
-        protocol = getattr(self._pc, 'protocol', None) or {}
-        bp_positions = (protocol.get('beampath') or {}).get(laser)
+        protocol = getattr(self._pc, "protocol", None) or {}
+        bp_positions = (protocol.get("beampath") or {}).get(laser)
         if bp_positions is None:
-            self._status.setText('No beampath config for current laser.')
+            self._status.setText("No beampath config for current laser.")
             return
 
         def _do():
             self._pc.instrument.beampath.positions = bp_positions
 
         def _done():
-            self._status.setText('Beampath opened.')
-            self._emit_status('Ready', 2000)
+            self._status.setText("Beampath opened.")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, 'Opening beampath…', on_done=_done)
+        self._run_hw(_do, "Opening beampath…", on_done=_done)
 
     def _on_bp_close(self):
         if self._pc is None:
             return
-        protocol = getattr(self._pc, 'protocol', None) or {}
-        end_pos = (protocol.get('beampath') or {}).get('end')
+        protocol = getattr(self._pc, "protocol", None) or {}
+        end_pos = (protocol.get("beampath") or {}).get("end")
         if end_pos is None:
-            self._status.setText('No beampath end position configured.')
+            self._status.setText("No beampath end position configured.")
             return
 
         def _do():
             self._pc.instrument.beampath.positions = end_pos
 
         def _done():
-            self._status.setText('Beampath closed.')
-            self._emit_status('Ready', 2000)
+            self._status.setText("Beampath closed.")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, 'Closing beampath…', on_done=_done)
+        self._run_hw(_do, "Closing beampath…", on_done=_done)
 
     def _on_autoshutter(self, state):
         if self._pc is None:
             return
         try:
-            self._pc.instrument.beampath.objects['shutter'].autoshutter = (
+            self._pc.instrument.beampath.objects["shutter"].autoshutter = (
                 Qt.CheckState(state) == Qt.CheckState.Checked
             )
         except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            QMessageBox.critical(self, "Error", str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -1143,11 +1143,11 @@ class SetPowerTab(QWidget):
 
         # Laser selector + on/off
         laser_row = QHBoxLayout()
-        laser_row.addWidget(QLabel('Laser:'))
+        laser_row.addWidget(QLabel("Laser:"))
         self._laser_combo = QComboBox()
         self._laser_combo.currentIndexChanged.connect(self._on_laser_changed)
         laser_row.addWidget(self._laser_combo)
-        self._btn_onoff = QPushButton('switch ON')
+        self._btn_onoff = QPushButton("switch ON")
         self._btn_onoff.setCheckable(True)
         self._btn_onoff.clicked.connect(self._on_toggle_laser)
         laser_row.addWidget(self._btn_onoff)
@@ -1156,28 +1156,28 @@ class SetPowerTab(QWidget):
 
         # Multi-laser checkbox
         self._multi_cb = QCheckBox(
-            'Multi-laser mode (keep other lasers on when switching)'
+            "Multi-laser mode (keep other lasers on when switching)"
         )
         self._multi_cb.setChecked(True)
         layout.addWidget(self._multi_cb)
 
         # ── Adjustment group box ──────────────────────────────────────────
-        adj_group = QGroupBox('Power adjustment')
+        adj_group = QGroupBox("Power adjustment")
         adj_layout = QVBoxLayout()
         adj_group.setLayout(adj_layout)
 
         # Mode selector
         mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel('Mode:'))
+        mode_row.addWidget(QLabel("Mode:"))
         self._mode_combo = QComboBox()
         self._mode_combo.addItem(
-            'Combined: laser power + attenuator', 'combined'
+            "Combined: laser power + attenuator", "combined"
         )
         self._mode_combo.addItem(
-            'Fixed laser power: adjust attenuator only', 'fixed_laser'
+            "Fixed laser power: adjust attenuator only", "fixed_laser"
         )
         self._mode_combo.addItem(
-            'Fixed attenuator: adjust laser power only', 'fixed_attenuator'
+            "Fixed attenuator: adjust laser power only", "fixed_attenuator"
         )
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         mode_row.addWidget(self._mode_combo)
@@ -1186,16 +1186,16 @@ class SetPowerTab(QWidget):
 
         # Feedback control
         feedback_row = QHBoxLayout()
-        self._feedback_cb = QCheckBox('Feedback control')
+        self._feedback_cb = QCheckBox("Feedback control")
         feedback_row.addWidget(self._feedback_cb)
-        feedback_row.addWidget(QLabel('  Max deviation:'))
+        feedback_row.addWidget(QLabel("  Max deviation:"))
         self._feedback_tol_spin = QDoubleSpinBox()
         self._feedback_tol_spin.setRange(0.1, 50.0)
         self._feedback_tol_spin.setDecimals(1)
         self._feedback_tol_spin.setValue(1.0)
-        self._feedback_tol_spin.setSuffix(' %')
+        self._feedback_tol_spin.setSuffix(" %")
         feedback_row.addWidget(self._feedback_tol_spin)
-        self._btn_pi_params = QPushButton('▶ PI parameters')
+        self._btn_pi_params = QPushButton("▶ PI parameters")
         self._btn_pi_params.setFlat(True)
         self._btn_pi_params.clicked.connect(self._toggle_pi_params)
         feedback_row.addWidget(self._btn_pi_params)
@@ -1206,27 +1206,27 @@ class SetPowerTab(QWidget):
         self._pi_panel = QWidget()
         pi_layout = QHBoxLayout(self._pi_panel)
         pi_layout.setContentsMargins(16, 0, 0, 0)
-        pi_layout.addWidget(QLabel('Kp:'))
+        pi_layout.addWidget(QLabel("Kp:"))
         self._kp_spin = QDoubleSpinBox()
         self._kp_spin.setRange(0.01, 5.0)
         self._kp_spin.setDecimals(2)
         self._kp_spin.setSingleStep(0.05)
         self._kp_spin.setValue(0.85)
         self._kp_spin.setToolTip(
-            'Proportional gain — fraction of current error applied per step.\n'
-            'Lower values converge more slowly but without overshoot.'
+            "Proportional gain — fraction of current error applied per step.\n"
+            "Lower values converge more slowly but without overshoot."
         )
         pi_layout.addWidget(self._kp_spin)
-        pi_layout.addWidget(QLabel('  Ki:'))
+        pi_layout.addWidget(QLabel("  Ki:"))
         self._ki_spin = QDoubleSpinBox()
         self._ki_spin.setRange(0.0, 2.0)
         self._ki_spin.setDecimals(3)
         self._ki_spin.setSingleStep(0.01)
         self._ki_spin.setValue(0.15)
         self._ki_spin.setToolTip(
-            'Integral gain — accumulates past error to eliminate '
-            'steady-state offset.\n'
-            'Set to 0 to disable integral action.'
+            "Integral gain — accumulates past error to eliminate "
+            "steady-state offset.\n"
+            "Set to 0 to disable integral action."
         )
         pi_layout.addWidget(self._ki_spin)
         pi_layout.addStretch()
@@ -1234,20 +1234,20 @@ class SetPowerTab(QWidget):
         adj_layout.addWidget(self._pi_panel)
 
         # Power range label
-        self._range_label = QLabel('Range: N/A')
+        self._range_label = QLabel("Range: N/A")
         adj_layout.addWidget(self._range_label)
 
         # Target power + Set button
         pwr_row = QHBoxLayout()
-        pwr_row.addWidget(QLabel('Target power (mW):'))
+        pwr_row.addWidget(QLabel("Target power (mW):"))
         self._pwr_spin = QDoubleSpinBox()
         self._pwr_spin.setRange(0, 10000)
         self._pwr_spin.setDecimals(2)
         pwr_row.addWidget(self._pwr_spin)
-        self._btn_set = QPushButton('Set')
+        self._btn_set = QPushButton("Set")
         self._btn_set.clicked.connect(self._on_set_power)
         pwr_row.addWidget(self._btn_set)
-        self._btn_cancel_feedback = QPushButton('Cancel')
+        self._btn_cancel_feedback = QPushButton("Cancel")
         self._btn_cancel_feedback.clicked.connect(self._on_cancel_feedback)
         self._btn_cancel_feedback.setVisible(False)
         pwr_row.addWidget(self._btn_cancel_feedback)
@@ -1261,16 +1261,16 @@ class SetPowerTab(QWidget):
         # Where the meter is physically placed. Drives whether raw readings are
         # projected to the sample plane via the objective transmission factor.
         pm_row = QHBoxLayout()
-        pm_row.addWidget(QLabel('Powermeter position:'))
+        pm_row.addWidget(QLabel("Powermeter position:"))
         self._pm_pos_combo = QComboBox()
-        self._pm_pos_combo.addItem('Back focal plane (BFP)', POWERMETER_BFP)
-        self._pm_pos_combo.addItem('Sample plane', POWERMETER_SAMPLE)
+        self._pm_pos_combo.addItem("Back focal plane (BFP)", POWERMETER_BFP)
+        self._pm_pos_combo.addItem("Sample plane", POWERMETER_SAMPLE)
         self._pm_pos_combo.setToolTip(
-            'Where the power meter is physically positioned. In the back focal '
-            'plane (BFP), raw readings are multiplied by the objective '
-            'transmission factor (T_obj = P_sample / P_bfp) to report '
-            'sample-plane power; in the sample plane the reading is used '
-            'as-is. The power setpoint is always a sample-plane power.'
+            "Where the power meter is physically positioned. In the back focal "
+            "plane (BFP), raw readings are multiplied by the objective "
+            "transmission factor (T_obj = P_sample / P_bfp) to report "
+            "sample-plane power; in the sample plane the reading is used "
+            "as-is. The power setpoint is always a sample-plane power."
         )
         self._pm_pos_combo.currentIndexChanged.connect(
             self._on_pm_position_changed
@@ -1281,17 +1281,17 @@ class SetPowerTab(QWidget):
 
         # ── Beam-path controls ────────────────────────────────────────────
         bp_row = QHBoxLayout()
-        self._btn_open_sf = QPushButton('Open shutters && set filter')
+        self._btn_open_sf = QPushButton("Open shutters && set filter")
         self._btn_open_sf.setToolTip(
-            'Open the shutter and set the dichroic/filter for the selected '
-            'laser. Does not move the objective turret.'
+            "Open the shutter and set the dichroic/filter for the selected "
+            "laser. Does not move the objective turret."
         )
         self._btn_open_sf.clicked.connect(self._on_open_shutters_filter)
         bp_row.addWidget(self._btn_open_sf)
-        self._btn_bp_close = QPushButton('Close beampath (park)')
+        self._btn_bp_close = QPushButton("Close beampath (park)")
         self._btn_bp_close.setToolTip(
             'Move the beam path to its configured "end" position (shutter '
-            'closed, turret to the objective).'
+            "closed, turret to the objective)."
         )
         self._btn_bp_close.clicked.connect(self._on_bp_close)
         bp_row.addWidget(self._btn_bp_close)
@@ -1300,16 +1300,16 @@ class SetPowerTab(QWidget):
 
         # ── Objective turret ──────────────────────────────────────────────
         turret_row = QHBoxLayout()
-        turret_row.addWidget(QLabel('Objective turret:'))
-        self._btn_turret_obj = QPushButton('→ Objective')
+        turret_row.addWidget(QLabel("Objective turret:"))
+        self._btn_turret_obj = QPushButton("→ Objective")
         self._btn_turret_obj.setToolTip(
-            'Move the objective turret (nosepiece) to the imaging objective '
+            "Move the objective turret (nosepiece) to the imaging objective "
             'position, taken from the beam-path "end" entry.'
         )
         self._btn_turret_obj.clicked.connect(self._on_turret_objective)
-        self._btn_turret_pm = QPushButton('→ Powermeter')
+        self._btn_turret_pm = QPushButton("→ Powermeter")
         self._btn_turret_pm.setToolTip(
-            'Move the objective turret (nosepiece) to the BFP powermeter '
+            "Move the objective turret (nosepiece) to the BFP powermeter "
             'position, taken from the beam-path "start_calibrate" entry.'
         )
         self._btn_turret_pm.clicked.connect(self._on_turret_powermeter)
@@ -1319,25 +1319,25 @@ class SetPowerTab(QWidget):
         layout.addLayout(turret_row)
 
         # Beam-path state label
-        self._bp_state_label = QLabel('Beampath: unknown')
+        self._bp_state_label = QLabel("Beampath: unknown")
         self._bp_state_label.setToolTip(
-            'Current position of each beam-path element (shutter, filter '
-            'turret, ...) as read from the hardware.'
+            "Current position of each beam-path element (shutter, filter "
+            "turret, ...) as read from the hardware."
         )
         layout.addWidget(self._bp_state_label)
 
         # Measure + All off
         misc_row = QHBoxLayout()
-        self._btn_measure = QPushButton('Measure')
+        self._btn_measure = QPushButton("Measure")
         self._btn_measure.clicked.connect(self._on_measure)
-        self._btn_alloff = QPushButton('All lasers OFF')
+        self._btn_alloff = QPushButton("All lasers OFF")
         self._btn_alloff.clicked.connect(self._on_all_off)
         misc_row.addWidget(self._btn_measure)
         misc_row.addWidget(self._btn_alloff)
         misc_row.addStretch()
         layout.addLayout(misc_row)
 
-        self._status = QLabel('')
+        self._status = QLabel("")
         layout.addWidget(self._status)
 
         # ── Separator ────────────────────────────────────────────────────────
@@ -1348,9 +1348,9 @@ class SetPowerTab(QWidget):
 
         # ── Hardware state section (formerly Adjust tab) ──────────────────
         hw_refresh_row = QHBoxLayout()
-        self._btn_hw_refresh = QPushButton('Refresh hardware state')
+        self._btn_hw_refresh = QPushButton("Refresh hardware state")
         self._btn_hw_refresh.setToolTip(
-            'Re-read attenuator position and laser power from hardware'
+            "Re-read attenuator position and laser power from hardware"
         )
         self._btn_hw_refresh.clicked.connect(self._on_hw_refresh)
         hw_refresh_row.addWidget(self._btn_hw_refresh)
@@ -1358,16 +1358,16 @@ class SetPowerTab(QWidget):
         layout.addLayout(hw_refresh_row)
 
         # Attenuator direct control
-        hw_att_group = QGroupBox('Attenuator (direct)')
+        hw_att_group = QGroupBox("Attenuator (direct)")
         hw_att_layout = QHBoxLayout()
-        hw_att_layout.addWidget(QLabel('Position:'))
+        hw_att_layout.addWidget(QLabel("Position:"))
         self._hw_att_spin = QDoubleSpinBox()
         self._hw_att_spin.setRange(-1e6, 1e6)
         self._hw_att_spin.setDecimals(3)
         hw_att_layout.addWidget(self._hw_att_spin)
-        self._btn_hw_att_set = QPushButton('Set')
+        self._btn_hw_att_set = QPushButton("Set")
         self._btn_hw_att_set.clicked.connect(self._on_hw_att_set)
-        self._btn_hw_att_home = QPushButton('Home')
+        self._btn_hw_att_home = QPushButton("Home")
         self._btn_hw_att_home.clicked.connect(self._on_hw_att_home)
         hw_att_layout.addWidget(self._btn_hw_att_set)
         hw_att_layout.addWidget(self._btn_hw_att_home)
@@ -1376,14 +1376,14 @@ class SetPowerTab(QWidget):
         layout.addWidget(hw_att_group)
 
         # Laser power direct control
-        hw_pwr_group = QGroupBox('Laser power (direct)')
+        hw_pwr_group = QGroupBox("Laser power (direct)")
         hw_pwr_layout = QHBoxLayout()
-        hw_pwr_layout.addWidget(QLabel('Power (mW):'))
+        hw_pwr_layout.addWidget(QLabel("Power (mW):"))
         self._hw_pwr_spin = QDoubleSpinBox()
         self._hw_pwr_spin.setRange(0, 10000)
         self._hw_pwr_spin.setDecimals(1)
         hw_pwr_layout.addWidget(self._hw_pwr_spin)
-        self._btn_hw_pwr_set = QPushButton('Set')
+        self._btn_hw_pwr_set = QPushButton("Set")
         self._btn_hw_pwr_set.clicked.connect(self._on_hw_pwr_set)
         hw_pwr_layout.addWidget(self._btn_hw_pwr_set)
         hw_pwr_layout.addStretch()
@@ -1391,7 +1391,7 @@ class SetPowerTab(QWidget):
         layout.addWidget(hw_pwr_group)
 
         # Autoshutter
-        self._autoshutter_cb = QCheckBox('Autoshutter')
+        self._autoshutter_cb = QCheckBox("Autoshutter")
         self._autoshutter_cb.stateChanged.connect(self._on_autoshutter)
         layout.addWidget(self._autoshutter_cb)
 
@@ -1442,9 +1442,7 @@ class SetPowerTab(QWidget):
         if self._pc is None:
             return
         try:
-            current = getattr(
-                self._pc.instrument, 'powermeter_position', None
-            )
+            current = getattr(self._pc.instrument, "powermeter_position", None)
             if current is not None:
                 idx = self._pm_pos_combo.findData(current)
                 if idx >= 0:
@@ -1473,16 +1471,16 @@ class SetPowerTab(QWidget):
             saved = None
         if not saved:
             return
-        if saved.get('laser_power') is not None:
-            self._hw_pwr_spin.setValue(float(saved['laser_power']))
-        if saved.get('attenuator') is not None:
-            self._hw_att_spin.setValue(float(saved['attenuator']))
+        if saved.get("laser_power") is not None:
+            self._hw_pwr_spin.setValue(float(saved["laser_power"]))
+        if saved.get("attenuator") is not None:
+            self._hw_att_spin.setValue(float(saved["attenuator"]))
 
     def _on_laser_changed(self, idx):
         if self._pc is None:
             return
         # Save current laser's UI state before switching
-        prev_laser = getattr(self, '_current_laser', None)
+        prev_laser = getattr(self, "_current_laser", None)
         if prev_laser is not None:
             self._laser_state[prev_laser] = (
                 self._pwr_spin.value(),
@@ -1505,7 +1503,7 @@ class SetPowerTab(QWidget):
         try:
             enabled = self._pc.instrument.lasers[laser].enabled
             self._btn_onoff.setChecked(enabled)
-            self._btn_onoff.setText('switch OFF' if enabled else 'switch ON')
+            self._btn_onoff.setText("switch OFF" if enabled else "switch ON")
         except Exception as exc:
             self._status.setText(str(exc))
         # Show the persisted hardware settings for the newly selected laser
@@ -1522,7 +1520,7 @@ class SetPowerTab(QWidget):
         configured or it cannot be queried.
         """
         try:
-            if not getattr(self._pc.instrument, 'use_beampath', False):
+            if not getattr(self._pc.instrument, "use_beampath", False):
                 return None
             return dict(self._pc.instrument.beampath.positions)
         except Exception:
@@ -1531,18 +1529,18 @@ class SetPowerTab(QWidget):
     def _set_bp_label(self, positions):
         """Show the beam-path element positions next to the buttons."""
         if not positions:
-            self._bp_state_label.setText('Beampath: unknown')
+            self._bp_state_label.setText("Beampath: unknown")
             return
 
         def _fmt(val):
             if isinstance(val, bool):
-                return 'open' if val else 'closed'
+                return "open" if val else "closed"
             return str(val)
 
         self._bp_state_label.setText(
-            'Beampath: '
-            + ', '.join(
-                '{}: {}'.format(obid, _fmt(pos))
+            "Beampath: "
+            + ", ".join(
+                "{}: {}".format(obid, _fmt(pos))
                 for obid, pos in positions.items()
             )
         )
@@ -1553,16 +1551,16 @@ class SetPowerTab(QWidget):
             return
         self._run_hw(
             self._read_bp_positions,
-            'Reading beampath state…',
+            "Reading beampath state…",
             on_result=self._set_bp_label,
-            on_done=lambda: self._emit_status('Ready', 2000),
+            on_done=lambda: self._emit_status("Ready", 2000),
         )
 
     def _beampath_matches(self, target_positions):
         """Return True if every key in target_positions already matches the
         current beampath position, so the move can be skipped."""
         try:
-            if not getattr(self._pc.instrument, 'use_beampath', False):
+            if not getattr(self._pc.instrument, "use_beampath", False):
                 return False
             current = self._pc.instrument.beampath.positions
             return all(
@@ -1610,9 +1608,9 @@ class SetPowerTab(QWidget):
                 on_done()
 
         def _on_error(msg):
-            self._status.setText(f'Error: {msg}')
-            self._emit_status(f'Error: {msg}', 5000)
-            QMessageBox.critical(self, 'Error', msg)
+            self._status.setText(f"Error: {msg}")
+            self._emit_status(f"Error: {msg}", 5000)
+            QMessageBox.critical(self, "Error", msg)
 
         def _on_finished():
             self._action_buttons(True)
@@ -1638,11 +1636,11 @@ class SetPowerTab(QWidget):
             self._pc.instrument.laser_enabled = checked
 
         def _done():
-            self._btn_onoff.setText('switch OFF' if checked else 'switch ON')
+            self._btn_onoff.setText("switch OFF" if checked else "switch ON")
             self._status.setText(
                 f'Laser {laser} nm {"on" if checked else "off"}.'
             )
-            self._emit_status('Ready', 2000)
+            self._emit_status("Ready", 2000)
 
         self._run_hw(
             _do,
@@ -1657,14 +1655,14 @@ class SetPowerTab(QWidget):
         laser = self._laser_combo.currentData()
         mode = self._mode_combo.currentData()
 
-        if mode in ('fixed_attenuator', 'fixed_laser') and not hasattr(
-            self._pc.instrument, 'set_power_fixed_attenuator'
+        if mode in ("fixed_attenuator", "fixed_laser") and not hasattr(
+            self._pc.instrument, "set_power_fixed_attenuator"
         ):
             QMessageBox.warning(
                 self,
-                'Not supported',
-                'This mode requires a multi-laser instrument '
-                'with calibrations at multiple laser power levels.',
+                "Not supported",
+                "This mode requires a multi-laser instrument "
+                "with calibrations at multiple laser power levels.",
             )
             return
 
@@ -1673,26 +1671,24 @@ class SetPowerTab(QWidget):
 
         # --- Resolve feedback / beampath settings on the main thread ---
         use_feedback = self._feedback_cb.isChecked() and getattr(
-            self._pc, 'powermeter_available', False
+            self._pc, "powermeter_available", False
         )
-        protocol = getattr(self._pc, 'protocol', None) or {}
-        bp_dict = protocol.get('beampath') or {}
+        protocol = getattr(self._pc, "protocol", None) or {}
+        bp_dict = protocol.get("beampath") or {}
         # Shutter/filter for the wavelength, with the turret stripped out (it is
         # positioned separately to follow the powermeter toggle).
         bp_for_laser = bp_dict.get(laser)
         nid = self._nosepiece_id()
         if nid is not None and isinstance(bp_for_laser, dict):
-            bp_for_laser = {
-                k: v for k, v in bp_for_laser.items() if k != nid
-            }
-        bp_end_calibrate = bp_dict.get('end_calibrate')
-        bp_end = bp_dict.get('end')
+            bp_for_laser = {k: v for k, v in bp_for_laser.items() if k != nid}
+        bp_end_calibrate = bp_dict.get("end_calibrate")
+        bp_end = bp_dict.get("end")
 
         # Position the objective turret to match where the meter physically is:
         # BFP → powermeter position, sample plane → imaging objective.
         pm_pos = self._pm_pos_combo.currentData()
         pm_is_bfp = pm_pos == POWERMETER_BFP
-        turret_kind = 'powermeter' if pm_is_bfp else 'objective'
+        turret_kind = "powermeter" if pm_is_bfp else "objective"
         turret_target = self._turret_value(turret_kind)  # (id, val) or None
         try:
             factor_available = self._pc.instrument._has_transmission_factor(
@@ -1706,28 +1702,28 @@ class SetPowerTab(QWidget):
 
         # --- Build the background callable ---
         if not use_feedback:
-            if mode == 'fixed_attenuator':
+            if mode == "fixed_attenuator":
 
                 def _do():
                     self._pc.instrument.set_power_fixed_attenuator(pwr, laser)
                     self._pc.instrument.record_state(laser)
 
                 done_msg = (
-                    f'Laser power adjusted for {pwr} mW output '
-                    f'(laser {laser} nm, attenuator fixed).'
+                    f"Laser power adjusted for {pwr} mW output "
+                    f"(laser {laser} nm, attenuator fixed)."
                 )
-                status_msg = f'Adjusting laser power for {pwr} mW…'
-            elif mode == 'fixed_laser':
+                status_msg = f"Adjusting laser power for {pwr} mW…"
+            elif mode == "fixed_laser":
 
                 def _do():
                     self._pc.instrument.set_power_fixed_laser(pwr, laser)
                     self._pc.instrument.record_state(laser)
 
                 done_msg = (
-                    f'Attenuator set for {pwr} mW '
-                    f'(laser {laser} nm, laser power fixed).'
+                    f"Attenuator set for {pwr} mW "
+                    f"(laser {laser} nm, laser power fixed)."
                 )
-                status_msg = f'Setting attenuator for {pwr} mW…'
+                status_msg = f"Setting attenuator for {pwr} mW…"
             else:
 
                 def _do():
@@ -1735,12 +1731,12 @@ class SetPowerTab(QWidget):
                     self._pc.instrument.power = pwr
                     self._pc.instrument.record_state(laser)
 
-                done_msg = f'Power set to {pwr} mW for laser {laser} nm.'
-                status_msg = f'Setting power to {pwr} mW…'
+                done_msg = f"Power set to {pwr} mW for laser {laser} nm."
+                status_msg = f"Setting power to {pwr} mW…"
 
             def _done():
                 self._status.setText(done_msg)
-                self._emit_status('Ready', 2000)
+                self._emit_status("Ready", 2000)
                 self._refresh_hw_state(laser)
                 self._update_range_label()
 
@@ -1793,14 +1789,14 @@ class SetPowerTab(QWidget):
                 self._pc.instrument.record_state(laser)
 
                 return (
-                    result['measured'],
-                    result['converged'],
-                    result['cali_pred'],
-                    result['out_of_range'],
-                    result['att_pos'],
-                    result['laser_pwr'],
-                    result.get('measured_raw'),
-                    result.get('transmission'),
+                    result["measured"],
+                    result["converged"],
+                    result["cali_pred"],
+                    result["out_of_range"],
+                    result["att_pos"],
+                    result["laser_pwr"],
+                    result.get("measured_raw"),
+                    result.get("transmission"),
                 )
 
             def _on_result(res):
@@ -1816,32 +1812,32 @@ class SetPowerTab(QWidget):
                 ) = res
                 dev_pct = abs(measured - pwr) / pwr * 100.0 if pwr > 0 else 0.0
                 parts = [
-                    f'Target {pwr} mW → measured {measured:.3f} mW '
-                    f'({dev_pct:.1f}% deviation)'
+                    f"Target {pwr} mW → measured {measured:.3f} mW "
+                    f"({dev_pct:.1f}% deviation)"
                 ]
                 if not converged:
-                    parts.append(f'(did not converge within {MAX_ITER} steps)')
+                    parts.append(f"(did not converge within {MAX_ITER} steps)")
                 if out_of_range_warned:
-                    parts.append('(attenuator range limit reached)')
+                    parts.append("(attenuator range limit reached)")
                 try:
                     unit = self._pc.powermeter.unit
                 except Exception:
-                    unit = 'mW'
+                    unit = "mW"
                 # Annotate whether an objective transmission factor was used.
                 if factor is not None and factor != 1.0:
                     parts.append(
-                        f'(sample plane; measured {raw:.3f} {unit} in BFP'
-                        f' × T_obj={factor:.4f})'
+                        f"(sample plane; measured {raw:.3f} {unit} in BFP"
+                        f" × T_obj={factor:.4f})"
                     )
                 elif pm_is_bfp and not factor_available:
                     parts.append(
-                        f'(⚠ BFP selected but no objective transmission factor '
-                        f'for {laser} nm — reporting raw BFP reading as '
-                        f'sample-plane power, uncorrected)'
+                        f"(⚠ BFP selected but no objective transmission factor "
+                        f"for {laser} nm — reporting raw BFP reading as "
+                        f"sample-plane power, uncorrected)"
                     )
                 else:
-                    parts.append('(no objective transmission factor applied)')
-                self._status.setText('  '.join(parts))
+                    parts.append("(no objective transmission factor applied)")
+                self._status.setText("  ".join(parts))
                 mm_err = self._update_mm_comment(
                     laser,
                     measured,
@@ -1853,17 +1849,17 @@ class SetPowerTab(QWidget):
                 )
                 if mm_err is not None:
                     self._status.setText(
-                        '  '.join(parts) + f' — MM comment error: {mm_err}'
+                        "  ".join(parts) + f" — MM comment error: {mm_err}"
                     )
                 if cali_pred is not None and cali_pred > 0:
                     cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
                     self._emit_status(
-                        f'Calibration deviation: {cali_dev_pct:+.1f}%'
-                        f'  (calibration predicts {cali_pred:.3f} mW,'
-                        f' measured {measured:.3f} mW)'
+                        f"Calibration deviation: {cali_dev_pct:+.1f}%"
+                        f"  (calibration predicts {cali_pred:.3f} mW,"
+                        f" measured {measured:.3f} mW)"
                     )
                 else:
-                    self._emit_status('Ready', 2000)
+                    self._emit_status("Ready", 2000)
                 self._refresh_hw_state(laser)
                 self._update_range_label()
 
@@ -1878,7 +1874,7 @@ class SetPowerTab(QWidget):
             self._cancel_feedback = False
             self._btn_cancel_feedback.setVisible(True)
             self._btn_cancel_feedback.setEnabled(True)
-            self._emit_status(f'Setting {pwr} mW with feedback…')
+            self._emit_status(f"Setting {pwr} mW with feedback…")
 
             worker = GenericWorker(_do)
             progress_relay[0] = worker.progress.emit
@@ -1888,9 +1884,9 @@ class SetPowerTab(QWidget):
                 _on_result(val)
 
             def _on_error(msg):
-                self._status.setText(f'Error: {msg}')
-                self._emit_status(f'Error: {msg}', 5000)
-                QMessageBox.critical(self, 'Error', msg)
+                self._status.setText(f"Error: {msg}")
+                self._emit_status(f"Error: {msg}", 5000)
+                QMessageBox.critical(self, "Error", msg)
 
             def _on_finished():
                 self._action_buttons(True)
@@ -1947,12 +1943,12 @@ class SetPowerTab(QWidget):
         nid = self._nosepiece_id()
         if nid is None:
             return None
-        protocol = getattr(self._pc, 'protocol', None) or {}
-        bp_dict = protocol.get('beampath') or {}
-        if kind == 'powermeter':
-            entries = [bp_dict.get('start_calibrate')]
+        protocol = getattr(self._pc, "protocol", None) or {}
+        bp_dict = protocol.get("beampath") or {}
+        if kind == "powermeter":
+            entries = [bp_dict.get("start_calibrate")]
         else:  # objective
-            entries = [bp_dict.get('end'), bp_dict.get('end_calibrate')]
+            entries = [bp_dict.get("end"), bp_dict.get("end_calibrate")]
         for entry in entries:
             if isinstance(entry, dict) and nid in entry:
                 return nid, entry[nid]
@@ -1960,12 +1956,12 @@ class SetPowerTab(QWidget):
 
     def _update_turret_buttons_enabled(self):
         """Enable the turret buttons only when a nosepiece target is defined."""
-        has_obj = self._pc is not None and self._turret_value('objective')
-        has_pm = self._pc is not None and self._turret_value('powermeter')
+        has_obj = self._pc is not None and self._turret_value("objective")
+        has_pm = self._pc is not None and self._turret_value("powermeter")
         self._btn_turret_obj.setEnabled(bool(has_obj))
         self._btn_turret_pm.setEnabled(bool(has_pm))
         if self._pc is not None and self._nosepiece_id() is None:
-            tip = 'No objective turret (nosepiece) is configured.'
+            tip = "No objective turret (nosepiece) is configured."
             self._btn_turret_obj.setToolTip(tip)
             self._btn_turret_pm.setToolTip(tip)
 
@@ -1976,7 +1972,7 @@ class SetPowerTab(QWidget):
         target = self._turret_value(kind)
         if target is None:
             self._status.setText(
-                'No {} turret position configured.'.format(kind)
+                "No {} turret position configured.".format(kind)
             )
             return
         nid, value = target
@@ -1988,9 +1984,9 @@ class SetPowerTab(QWidget):
 
         def _done():
             self._status.setText(
-                'Objective turret moved to {} position.'.format(kind)
+                "Objective turret moved to {} position.".format(kind)
             )
-            self._emit_status('Ready', 2000)
+            self._emit_status("Ready", 2000)
 
         self._run_hw(
             _do,
@@ -2000,10 +1996,10 @@ class SetPowerTab(QWidget):
         )
 
     def _on_turret_objective(self):
-        self._move_turret('objective', 'Moving turret to objective…')
+        self._move_turret("objective", "Moving turret to objective…")
 
     def _on_turret_powermeter(self):
-        self._move_turret('powermeter', 'Moving turret to powermeter…')
+        self._move_turret("powermeter", "Moving turret to powermeter…")
 
     def _on_open_shutters_filter(self):
         """Open the shutter and set the dichroic/filter for the laser.
@@ -2015,17 +2011,17 @@ class SetPowerTab(QWidget):
         if self._pc is None:
             return
         laser = self._laser_combo.currentData()
-        protocol = getattr(self._pc, 'protocol', None) or {}
-        bp_positions = (protocol.get('beampath') or {}).get(laser)
+        protocol = getattr(self._pc, "protocol", None) or {}
+        bp_positions = (protocol.get("beampath") or {}).get(laser)
         if bp_positions is None:
-            self._status.setText('No beampath config for this laser.')
+            self._status.setText("No beampath config for this laser.")
             return
         nid = self._nosepiece_id()
         if nid is not None and isinstance(bp_positions, dict):
             bp_positions = {k: v for k, v in bp_positions.items() if k != nid}
         if not bp_positions:
             self._status.setText(
-                'No shutter/filter beampath config for this laser.'
+                "No shutter/filter beampath config for this laser."
             )
             return
 
@@ -2034,12 +2030,12 @@ class SetPowerTab(QWidget):
             return self._read_bp_positions()
 
         def _done():
-            self._status.setText('Shutter opened and filter set.')
-            self._emit_status('Ready', 2000)
+            self._status.setText("Shutter opened and filter set.")
+            self._emit_status("Ready", 2000)
 
         self._run_hw(
             _do,
-            'Opening shutter and setting filter…',
+            "Opening shutter and setting filter…",
             on_done=_done,
             on_result=self._set_bp_label,
         )
@@ -2047,10 +2043,10 @@ class SetPowerTab(QWidget):
     def _on_bp_close(self):
         if self._pc is None:
             return
-        protocol = getattr(self._pc, 'protocol', None) or {}
-        end_pos = (protocol.get('beampath') or {}).get('end')
+        protocol = getattr(self._pc, "protocol", None) or {}
+        end_pos = (protocol.get("beampath") or {}).get("end")
         if end_pos is None:
-            self._status.setText('No beampath end position configured.')
+            self._status.setText("No beampath end position configured.")
             return
 
         def _do():
@@ -2058,12 +2054,12 @@ class SetPowerTab(QWidget):
             return self._read_bp_positions()
 
         def _done():
-            self._status.setText('Beampath closed.')
-            self._emit_status('Ready', 2000)
+            self._status.setText("Beampath closed.")
+            self._emit_status("Ready", 2000)
 
         self._run_hw(
             _do,
-            'Closing beampath…',
+            "Closing beampath…",
             on_done=_done,
             on_result=self._set_bp_label,
         )
@@ -2096,24 +2092,20 @@ class SetPowerTab(QWidget):
         if self._pc is None:
             return
         laser = self._laser_combo.currentData()
-        protocol = getattr(self._pc, 'protocol', None) or {}
-        bp_dict = protocol.get('beampath') or {}
+        protocol = getattr(self._pc, "protocol", None) or {}
+        bp_dict = protocol.get("beampath") or {}
 
         # Shutter/filter for this laser, with the turret stripped out (the
         # turret is positioned separately, following the powermeter toggle).
         bp_for_laser = bp_dict.get(laser)
         nid = self._nosepiece_id()
         if nid is not None and isinstance(bp_for_laser, dict):
-            bp_for_laser = {
-                k: v for k, v in bp_for_laser.items() if k != nid
-            }
+            bp_for_laser = {k: v for k, v in bp_for_laser.items() if k != nid}
 
         # Position the objective turret to match where the meter physically is:
         # BFP → powermeter position, sample plane → imaging objective.
         pm_pos = self._pm_pos_combo.currentData()
-        turret_kind = (
-            'powermeter' if pm_pos == POWERMETER_BFP else 'objective'
-        )
+        turret_kind = "powermeter" if pm_pos == POWERMETER_BFP else "objective"
         turret_target = self._turret_value(turret_kind)  # (id, val) or None
 
         mode = self._mode_combo.currentData()
@@ -2157,8 +2149,8 @@ class SetPowerTab(QWidget):
             except Exception:
                 factor = None
             try:
-                if mode == 'fixed_attenuator' and hasattr(
-                    self._pc.instrument, 'predict_power_fixed_attenuator'
+                if mode == "fixed_attenuator" and hasattr(
+                    self._pc.instrument, "predict_power_fixed_attenuator"
                 ):
                     curr_lp = self._pc.instrument.lasers[laser].power
                     cali_pred = (
@@ -2178,9 +2170,15 @@ class SetPowerTab(QWidget):
                 laser_pwr = self._pc.instrument.lasers[laser].power
             except Exception:
                 laser_pwr = None
-            return measured, cali_pred, att_pos, laser_pwr, (
-                self._read_bp_positions()
-            ), raw, factor
+            return (
+                measured,
+                cali_pred,
+                att_pos,
+                laser_pwr,
+                (self._read_bp_positions()),
+                raw,
+                factor,
+            )
 
         def _on_val(res):
             (
@@ -2196,24 +2194,24 @@ class SetPowerTab(QWidget):
             try:
                 unit = self._pc.powermeter.unit
             except Exception:
-                unit = 'a.u.'
+                unit = "a.u."
 
             # Annotate whether an objective transmission factor was applied.
             if factor is not None and factor != 1.0:
                 trans_note = (
-                    f' (sample plane; measured {raw:.3f} {unit} in BFP'
-                    f' × T_obj={factor:.4f})'
+                    f" (sample plane; measured {raw:.3f} {unit} in BFP"
+                    f" × T_obj={factor:.4f})"
                 )
             elif pm_is_bfp and not factor_available:
                 trans_note = (
-                    f' (⚠ BFP selected but no objective transmission factor '
-                    f'for {laser} nm — reporting raw BFP reading as '
-                    f'sample-plane power, uncorrected)'
+                    f" (⚠ BFP selected but no objective transmission factor "
+                    f"for {laser} nm — reporting raw BFP reading as "
+                    f"sample-plane power, uncorrected)"
                 )
             else:
-                trans_note = ' (no objective transmission factor applied)'
+                trans_note = " (no objective transmission factor applied)"
             self._status.setText(
-                f'Measured power: {measured:.3f} {unit}{trans_note}'
+                f"Measured power: {measured:.3f} {unit}{trans_note}"
             )
 
             mm_err = self._update_mm_comment(
@@ -2229,26 +2227,26 @@ class SetPowerTab(QWidget):
             if cali_pred is not None and cali_pred > 0:
                 cali_dev_pct = (measured - cali_pred) / cali_pred * 100.0
                 self._emit_status(
-                    f'Calibration deviation: {cali_dev_pct:+.1f}%'
-                    f'  (calibration predicts {cali_pred:.3f} {unit},'
-                    f' measured {measured:.3f} {unit})'
+                    f"Calibration deviation: {cali_dev_pct:+.1f}%"
+                    f"  (calibration predicts {cali_pred:.3f} {unit},"
+                    f" measured {measured:.3f} {unit})"
                 )
             else:
-                self._emit_status('Ready', 2000)
+                self._emit_status("Ready", 2000)
 
             if mm_err is not None:
                 self._status.setText(
-                    f'Measured: {measured:.3f} {unit}{trans_note}'
-                    f' — MM comment error: {mm_err}'
+                    f"Measured: {measured:.3f} {unit}{trans_note}"
+                    f" — MM comment error: {mm_err}"
                 )
 
-        self._run_hw(_do, 'Measuring power…', on_result=_on_val)
+        self._run_hw(_do, "Measuring power…", on_result=_on_val)
 
     def _toggle_pi_params(self):
         visible = not self._pi_panel.isVisible()
         self._pi_panel.setVisible(visible)
         self._btn_pi_params.setText(
-            '▼ PI parameters' if visible else '▶ PI parameters'
+            "▼ PI parameters" if visible else "▶ PI parameters"
         )
 
     def _on_mode_changed(self, _idx):
@@ -2259,7 +2257,7 @@ class SetPowerTab(QWidget):
     def _update_feedback_enabled(self):
         mode = self._mode_combo.currentData()
         powermeter_ok = self._btn_measure.isEnabled()
-        feedback_ok = powermeter_ok and mode != 'combined'
+        feedback_ok = powermeter_ok and mode != "combined"
         self._feedback_cb.setEnabled(feedback_ok)
         self._feedback_tol_spin.setEnabled(feedback_ok)
         if not feedback_ok:
@@ -2279,12 +2277,12 @@ class SetPowerTab(QWidget):
                 self._pc.instrument.lasers[laser].enabled = False
 
         def _done():
-            self._status.setText('All lasers switched off.')
+            self._status.setText("All lasers switched off.")
             self._btn_onoff.setChecked(False)
-            self._btn_onoff.setText('switch ON')
-            self._emit_status('Ready', 2000)
+            self._btn_onoff.setText("switch ON")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, 'Switching all lasers off…', on_done=_done)
+        self._run_hw(_do, "Switching all lasers off…", on_done=_done)
 
     # ── Hardware state helpers ───────────────────────────────────────────────
 
@@ -2305,7 +2303,7 @@ class SetPowerTab(QWidget):
         except Exception:
             pass
         try:
-            if laser and hasattr(self._pc.instrument, 'lasers'):
+            if laser and hasattr(self._pc.instrument, "lasers"):
                 pwr = self._pc.instrument.lasers[laser].power
                 if pwr is not None:
                     self._hw_pwr_spin.setValue(float(pwr))
@@ -2321,7 +2319,7 @@ class SetPowerTab(QWidget):
         except Exception as exc:
             # cannot determine the range (e.g. not calibrated) — let the
             # hardware call report the problem
-            logger.debug('Could not check power range: %s', exc)
+            logger.debug("Could not check power range: %s", exc)
             return True
 
         tol = 1e-6 * max(abs(hi), 1.0)
@@ -2330,29 +2328,29 @@ class SetPowerTab(QWidget):
 
         QMessageBox.warning(
             self,
-            'Power out of range',
-            f'{pwr:g} mW is not reachable for laser {laser} nm in mode\n'
+            "Power out of range",
+            f"{pwr:g} mW is not reachable for laser {laser} nm in mode\n"
             f'"{self._mode_combo.currentText()}".\n\n'
-            f'Accessible range in this mode: {lo:.2f} – {hi:.2f} mW.\n\n'
-            'Choose a power within the range, or switch to a mode that '
-            'adjusts the other axis as well.',
+            f"Accessible range in this mode: {lo:.2f} – {hi:.2f} mW.\n\n"
+            "Choose a power within the range, or switch to a mode that "
+            "adjusts the other axis as well.",
         )
         return False
 
     def _update_range_label(self):
         """Compute and display the accessible power range for the mode."""
         if self._pc is None or not getattr(
-            self._pc.instrument, 'is_calibrated', False
+            self._pc.instrument, "is_calibrated", False
         ):
-            self._range_label.setText('Range: N/A (not calibrated)')
+            self._range_label.setText("Range: N/A (not calibrated)")
             return
         laser = self._laser_combo.currentData()
         mode = self._mode_combo.currentData()
         try:
             lo, hi = self._pc.instrument.accessible_power_range(mode, laser)
-            self._range_label.setText(f'Range: {lo:.2f} – {hi:.2f} mW')
+            self._range_label.setText(f"Range: {lo:.2f} – {hi:.2f} mW")
         except Exception:
-            self._range_label.setText('Range: N/A')
+            self._range_label.setText("Range: N/A")
 
     def _on_hw_refresh(self):
         """Read attenuator position and laser power from hardware."""
@@ -2364,29 +2362,29 @@ class SetPowerTab(QWidget):
             try:
                 pos = self._pc.instrument.attenuator.curr_pos()
                 if pos is not None:
-                    result['att_pos'] = float(pos)
+                    result["att_pos"] = float(pos)
             except Exception:
                 pass
             try:
                 laser = self._pc.instrument.curr_laser
                 pwr = self._pc.instrument.lasers[laser].power
                 if pwr is not None:
-                    result['laser_pwr'] = float(pwr)
+                    result["laser_pwr"] = float(pwr)
             except Exception:
                 pass
-            result['beampath'] = self._read_bp_positions()
+            result["beampath"] = self._read_bp_positions()
             return result
 
         def _on_result(result):
-            if 'att_pos' in result:
-                self._hw_att_spin.setValue(result['att_pos'])
-            if 'laser_pwr' in result:
-                self._hw_pwr_spin.setValue(result['laser_pwr'])
-            self._set_bp_label(result.get('beampath'))
-            self._status.setText('Hardware state refreshed.')
-            self._emit_status('Ready', 2000)
+            if "att_pos" in result:
+                self._hw_att_spin.setValue(result["att_pos"])
+            if "laser_pwr" in result:
+                self._hw_pwr_spin.setValue(result["laser_pwr"])
+            self._set_bp_label(result.get("beampath"))
+            self._status.setText("Hardware state refreshed.")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, 'Refreshing hardware state…', on_result=_on_result)
+        self._run_hw(_do, "Refreshing hardware state…", on_result=_on_result)
 
     def _on_hw_att_set(self):
         if self._pc is None:
@@ -2398,10 +2396,10 @@ class SetPowerTab(QWidget):
             self._pc.instrument.record_state()
 
         def _done():
-            self._status.setText(f'Attenuator set to {pos:.3f}.')
-            self._emit_status('Ready', 2000)
+            self._status.setText(f"Attenuator set to {pos:.3f}.")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, f'Setting attenuator to {pos:.3f}…', on_done=_done)
+        self._run_hw(_do, f"Setting attenuator to {pos:.3f}…", on_done=_done)
 
     def _on_hw_att_home(self):
         if self._pc is None:
@@ -2412,8 +2410,8 @@ class SetPowerTab(QWidget):
             self._pc.instrument.record_state()
 
         def _done():
-            self._status.setText('Attenuator homed.')
-            self._emit_status('Ready', 2000)
+            self._status.setText("Attenuator homed.")
+            self._emit_status("Ready", 2000)
             try:
                 pos = self._pc.instrument.attenuator.curr_pos()
                 if pos is not None:
@@ -2421,7 +2419,7 @@ class SetPowerTab(QWidget):
             except Exception:
                 pass
 
-        self._run_hw(_do, 'Homing attenuator…', on_done=_done)
+        self._run_hw(_do, "Homing attenuator…", on_done=_done)
 
     def _on_hw_pwr_set(self):
         if self._pc is None:
@@ -2433,20 +2431,20 @@ class SetPowerTab(QWidget):
             self._pc.instrument.record_state()
 
         def _done():
-            self._status.setText(f'Laser power set to {pwr} mW.')
-            self._emit_status('Ready', 2000)
+            self._status.setText(f"Laser power set to {pwr} mW.")
+            self._emit_status("Ready", 2000)
 
-        self._run_hw(_do, f'Setting laser power to {pwr} mW…', on_done=_done)
+        self._run_hw(_do, f"Setting laser power to {pwr} mW…", on_done=_done)
 
     def _on_autoshutter(self, state):
         if self._pc is None:
             return
         try:
-            self._pc.instrument.beampath.objects['shutter'].autoshutter = (
+            self._pc.instrument.beampath.objects["shutter"].autoshutter = (
                 Qt.CheckState(state) == Qt.CheckState.Checked
             )
         except Exception as exc:
-            QMessageBox.critical(self, 'Error', str(exc))
+            QMessageBox.critical(self, "Error", str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -2460,13 +2458,13 @@ class DatabaseTab(QWidget):
     status = pyqtSignal(str, int)
 
     COLUMNS = [
-        'Microscope',
-        'Wavelength (nm)',
-        'Power (mW)',
-        'Date',
-        'Time',
-        'Model',
-        'Parameters',
+        "Microscope",
+        "Wavelength (nm)",
+        "Power (mW)",
+        "Date",
+        "Time",
+        "Model",
+        "Parameters",
     ]
 
     def __init__(self, parent=None):
@@ -2484,11 +2482,11 @@ class DatabaseTab(QWidget):
 
         # Top controls
         ctrl_row = QHBoxLayout()
-        ctrl_row.addWidget(QLabel('Microscope filter:'))
+        ctrl_row.addWidget(QLabel("Microscope filter:"))
         self._scope_combo = QComboBox()
-        self._scope_combo.addItem('(all)', None)
+        self._scope_combo.addItem("(all)", None)
         ctrl_row.addWidget(self._scope_combo)
-        btn_refresh = QPushButton('Refresh')
+        btn_refresh = QPushButton("Refresh")
         btn_refresh.clicked.connect(self._on_refresh)
         ctrl_row.addWidget(btn_refresh)
         ctrl_row.addStretch()
@@ -2498,7 +2496,7 @@ class DatabaseTab(QWidget):
         layout.addLayout(ctrl_row)
 
         # Database link (shown when database is an HTTP server URL)
-        self._db_link_label = QLabel('')
+        self._db_link_label = QLabel("")
         self._db_link_label.setOpenExternalLinks(True)
         self._db_link_label.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(self._db_link_label)
@@ -2519,7 +2517,7 @@ class DatabaseTab(QWidget):
         layout.addWidget(self._table)
 
         # Status
-        self._status = QLabel('')
+        self._status = QLabel("")
         layout.addWidget(self._status)
 
         # Correction factors section
@@ -2528,9 +2526,9 @@ class DatabaseTab(QWidget):
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(sep)
         factors_hdr = QHBoxLayout()
-        factors_hdr.addWidget(QLabel('Objective Transmission (sample / BFP)'))
+        factors_hdr.addWidget(QLabel("Objective Transmission (sample / BFP)"))
         factors_hdr.addStretch()
-        self._btn_compute_transmission = QPushButton('Compute transmission')
+        self._btn_compute_transmission = QPushButton("Compute transmission")
         self._btn_compute_transmission.setEnabled(False)
         self._btn_compute_transmission.clicked.connect(
             self._on_compute_transmission
@@ -2540,11 +2538,11 @@ class DatabaseTab(QWidget):
         self._factors_table = QTableWidget(0, 5)
         self._factors_table.setHorizontalHeaderLabels(
             [
-                'Microscope',
-                'Wavelength (nm)',
-                'Date',
-                'transmission_objective',
-                'Std Dev',
+                "Microscope",
+                "Wavelength (nm)",
+                "Date",
+                "transmission_objective",
+                "Std Dev",
             ]
         )
         self._factors_table.setSelectionBehavior(
@@ -2563,7 +2561,7 @@ class DatabaseTab(QWidget):
     def set_pc(self, pc):
         self._pc = pc
         if pc is not None:
-            self._db_fname = pc.instrument.config.get('database')
+            self._db_fname = pc.instrument.config.get("database")
         else:
             self._db_fname = None
         self._btn_compute_transmission.setEnabled(pc is not None)
@@ -2571,34 +2569,34 @@ class DatabaseTab(QWidget):
         self._on_refresh()
 
     def _update_db_link(self):
-        db = self._db_fname or ''
-        if db.startswith('http://') or db.startswith('https://'):
-            docs_url = db.rstrip('/') + '/dashboard'
+        db = self._db_fname or ""
+        if db.startswith("http://") or db.startswith("https://"):
+            docs_url = db.rstrip("/") + "/dashboard"
             self._db_link_label.setText(
                 f'Server: <a href="{docs_url}">{docs_url}</a>'
             )
         else:
-            self._db_link_label.setText(f'File: {db}' if db else '')
+            self._db_link_label.setText(f"File: {db}" if db else "")
 
     def _on_refresh(self):
         if self._db_fname is None:
-            self._status.setText('No database configured.')
+            self._status.setText("No database configured.")
             return
         try:
             scope_filter = self._scope_combo.currentData()
             index = {}
             if scope_filter:
-                index['name'] = scope_filter
+                index["name"] = scope_filter
             records_df = io.load_database(
-                self._db_fname, index, time_idx='all'
+                self._db_fname, index, time_idx="all"
             )
         except Exception as exc:
-            self._status.setText(f'Error loading database: {exc}')
+            self._status.setText(f"Error loading database: {exc}")
             self._table.setRowCount(0)
             return
 
         self._table.setRowCount(0)
-        if hasattr(records_df, 'iterrows'):
+        if hasattr(records_df, "iterrows"):
             # DataFrame with MultiIndex
             known_scopes = set()
             for idx, row in records_df.iterrows():
@@ -2607,11 +2605,11 @@ class DatabaseTab(QWidget):
                 row_pos = self._table.rowCount()
                 self._table.insertRow(row_pos)
                 # idx = (name, wavelength, power, date, time)
-                scope = idx[0] if len(idx) > 0 else ''
-                wl = idx[1] if len(idx) > 1 else ''
-                pwr = idx[2] if len(idx) > 2 else ''
-                date = idx[3] if len(idx) > 3 else ''
-                time_val = idx[4] if len(idx) > 4 else ''
+                scope = idx[0] if len(idx) > 0 else ""
+                wl = idx[1] if len(idx) > 1 else ""
+                pwr = idx[2] if len(idx) > 2 else ""
+                date = idx[3] if len(idx) > 3 else ""
+                time_val = idx[4] if len(idx) > 4 else ""
                 known_scopes.add(str(scope))
 
                 params = {col: row[col] for col in row.index}
@@ -2622,7 +2620,7 @@ class DatabaseTab(QWidget):
                     }
                 )
                 params_short = params_str[:40] + (
-                    '…' if len(params_str) > 40 else ''
+                    "…" if len(params_str) > 40 else ""
                 )
 
                 values = [
@@ -2631,7 +2629,7 @@ class DatabaseTab(QWidget):
                     str(pwr),
                     str(date),
                     str(time_val),
-                    '',
+                    "",
                     params_short,
                 ]
                 for col, val in enumerate(values):
@@ -2649,7 +2647,7 @@ class DatabaseTab(QWidget):
                 self._scope_combo.addItem(sc, sc)
 
         total = self._table.rowCount()
-        self._status.setText(f'{total} record(s)')
+        self._status.setText(f"{total} record(s)")
 
         # Refresh factors table
         self._factors_table.setRowCount(0)
@@ -2660,28 +2658,28 @@ class DatabaseTab(QWidget):
                     self._db_fname,
                     device=scope_filter if scope_filter else None,
                 )
-                if hasattr(factors_df, 'iterrows') and not factors_df.empty:
+                if hasattr(factors_df, "iterrows") and not factors_df.empty:
                     for idx, row in factors_df.iterrows():
                         if not isinstance(idx, tuple):
                             idx = (idx,)
                         r = self._factors_table.rowCount()
                         self._factors_table.insertRow(r)
-                        device_val = idx[0] if len(idx) > 0 else ''
-                        wl_val = idx[1] if len(idx) > 1 else ''
-                        date_val = idx[2] if len(idx) > 2 else ''
-                        factor_val = row.get('transmission_objective_mean', '')
-                        std_val = row.get('transmission_objective_std', '')
+                        device_val = idx[0] if len(idx) > 0 else ""
+                        wl_val = idx[1] if len(idx) > 1 else ""
+                        date_val = idx[2] if len(idx) > 2 else ""
+                        factor_val = row.get("transmission_objective_mean", "")
+                        std_val = row.get("transmission_objective_std", "")
                         vals = [
                             str(device_val),
                             str(wl_val),
                             str(date_val),
                             (
-                                f'{factor_val:.4f}'
+                                f"{factor_val:.4f}"
                                 if isinstance(factor_val, float)
                                 else str(factor_val)
                             ),
                             (
-                                f'{std_val:.4f}'
+                                f"{std_val:.4f}"
                                 if isinstance(std_val, float)
                                 else str(std_val)
                             ),
@@ -2699,31 +2697,31 @@ class DatabaseTab(QWidget):
 
     def _row_to_index(self, row):
         return {
-            'name': self._table.item(row, 0).text(),
-            'wavelength [nm]': self._table.item(row, 1).text(),
-            'laser_power [mW]': self._table.item(row, 2).text(),
-            'date': self._table.item(row, 3).text(),
-            'time': self._table.item(row, 4).text(),
+            "name": self._table.item(row, 0).text(),
+            "wavelength [nm]": self._table.item(row, 1).text(),
+            "laser_power [mW]": self._table.item(row, 2).text(),
+            "date": self._table.item(row, 3).text(),
+            "time": self._table.item(row, 4).text(),
         }
 
     def _on_delete(self):
         rows = self._selected_row_indices()
         if not rows:
             QMessageBox.information(
-                self, 'Nothing selected', 'Select row(s) to delete.'
+                self, "Nothing selected", "Select row(s) to delete."
             )
             return
         reply = QMessageBox.question(
             self,
-            'Confirm delete',
-            f'Delete {len(rows)} record(s)? This cannot be undone.',
+            "Confirm delete",
+            f"Delete {len(rows)} record(s)? This cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
         if self._db_fname is None:
-            QMessageBox.warning(self, 'No database', 'No database configured.')
+            QMessageBox.warning(self, "No database", "No database configured.")
             return
 
         errors = []
@@ -2735,7 +2733,7 @@ class DatabaseTab(QWidget):
                 errors.append(str(exc))
 
         if errors:
-            QMessageBox.critical(self, 'Errors', '\n'.join(errors))
+            QMessageBox.critical(self, "Errors", "\n".join(errors))
         self._on_refresh()
 
     def _on_compute_transmission(self):
@@ -2743,17 +2741,17 @@ class DatabaseTab(QWidget):
             return
 
         try:
-            device = self._pc.instrument.config['index']['name']
+            device = self._pc.instrument.config["index"]["name"]
             lasers = list(self._pc.instrument.lasers.keys())
-            ana_config = self._pc.instrument.config['analysis']
+            ana_config = self._pc.instrument.config["analysis"]
         except Exception as exc:
             QMessageBox.critical(
-                self, 'Error', f'Could not read microscope config: {exc}'
+                self, "Error", f"Could not read microscope config: {exc}"
             )
             return
 
         self._btn_compute_transmission.setEnabled(False)
-        self._emit_status('Computing objective transmission…')
+        self._emit_status("Computing objective transmission…")
 
         def _do():
             for laser in lasers:
@@ -2764,14 +2762,14 @@ class DatabaseTab(QWidget):
         def _on_done():
             self._btn_compute_transmission.setEnabled(True)
             self._active_worker = None
-            self._emit_status('Objective transmission computed.', 4000)
+            self._emit_status("Objective transmission computed.", 4000)
             self._on_refresh()
 
         def _on_error(msg):
             self._btn_compute_transmission.setEnabled(True)
             self._active_worker = None
-            self._emit_status('', 0)
-            QMessageBox.critical(self, 'Error', msg)
+            self._emit_status("", 0)
+            QMessageBox.critical(self, "Error", msg)
 
         worker = GenericWorker(_do)
         worker.finished.connect(_on_done)
@@ -2828,10 +2826,10 @@ class MonetWidget(QWidget):
 
     # Tab key -> (display label, class)
     _TAB_CATALOG = {
-        'set_power': ('Set Power', SetPowerTab),
-        'calibrate': ('Calibrate', CalibrateTab),
-        'database': ('Database', DatabaseTab),
-        'adjust': ('Adjust', AdjustTab),
+        "set_power": ("Set Power", SetPowerTab),
+        "calibrate": ("Calibrate", CalibrateTab),
+        "database": ("Database", DatabaseTab),
+        "adjust": ("Adjust", AdjustTab),
     }
 
     def __init__(
@@ -2839,7 +2837,7 @@ class MonetWidget(QWidget):
         parent=None,
         *,
         show_toolbar=True,
-        tabs=('set_power', 'calibrate', 'database'),
+        tabs=("set_power", "calibrate", "database"),
         initial_microscope=None,
     ):
         super().__init__(parent)
@@ -2863,12 +2861,12 @@ class MonetWidget(QWidget):
 
         if show_toolbar:
             tb_row = QHBoxLayout()
-            tb_row.addWidget(QLabel('Microscope: '))
+            tb_row.addWidget(QLabel("Microscope: "))
             self._scope_combo = QComboBox()
             for name in sorted(CONFIGS.keys()):
                 self._scope_combo.addItem(name)
             tb_row.addWidget(self._scope_combo)
-            self._btn_connect = QPushButton('Connect')
+            self._btn_connect = QPushButton("Connect")
             self._btn_connect.clicked.connect(self._on_connect)
             tb_row.addWidget(self._btn_connect)
             tb_row.addStretch()
@@ -2893,7 +2891,7 @@ class MonetWidget(QWidget):
             self._tabs.addTab(w, label)
 
         # Forward calibration lifecycle if CalibrateTab is included.
-        cal = self._tab_widgets.get('calibrate')
+        cal = self._tab_widgets.get("calibrate")
         if cal is not None:
             cal.calibration_started.connect(self._on_calibration_started)
             cal.calibration_finished.connect(self._on_calibration_finished)
@@ -2903,7 +2901,7 @@ class MonetWidget(QWidget):
         try:
             import matplotlib.pyplot as _plt
 
-            _plt.switch_backend('agg')
+            _plt.switch_backend("agg")
         except Exception:
             pass
 
@@ -2930,8 +2928,8 @@ class MonetWidget(QWidget):
         """Select ``name`` in the toolbar combo (needs ``show_toolbar``)."""
         if self._scope_combo is None:
             raise RuntimeError(
-                'Toolbar is hidden; construct with show_toolbar=True or '
-                'use set_pc() to inject a protocol object directly.'
+                "Toolbar is hidden; construct with show_toolbar=True or "
+                "use set_pc() to inject a protocol object directly."
             )
         idx = self._scope_combo.findText(name)
         if idx >= 0:
@@ -2945,7 +2943,7 @@ class MonetWidget(QWidget):
         if name is None:
             name = self.current_microscope
         if not name:
-            self.connect_error.emit('No microscope selected.')
+            self.connect_error.emit("No microscope selected.")
             return
 
         import copy
@@ -2961,7 +2959,7 @@ class MonetWidget(QWidget):
             self._btn_connect.setEnabled(False)
         if self._scope_combo is not None:
             self._scope_combo.setEnabled(False)
-        self.status_changed.emit('Connecting to {}…'.format(name), 0)
+        self.status_changed.emit("Connecting to {}…".format(name), 0)
 
         self._connect_worker = ConnectWorker(
             name, config, protocol, old_pc=self._pc
@@ -2984,14 +2982,14 @@ class MonetWidget(QWidget):
         self._pc = pc
         for w in self._tab_widgets.values():
             w.set_pc(pc)
-        powermeter_ok = getattr(pc, 'powermeter_available', True)
+        powermeter_ok = getattr(pc, "powermeter_available", True)
         self._apply_powermeter_state(powermeter_ok)
         self.connected.emit(pc)
 
     def shutdown(self):
         """Cancel any running calibration and disable all lasers. Call this
         from the host's close handler when the widget is being torn down."""
-        cal = self._tab_widgets.get('calibrate')
+        cal = self._tab_widgets.get("calibrate")
         if cal is not None:
             try:
                 cal.cancel_worker_and_wait()
@@ -3018,42 +3016,42 @@ class MonetWidget(QWidget):
         name = self.current_microscope
         if not name:
             QMessageBox.warning(
-                self, 'No microscope', 'Select a microscope first.'
+                self, "No microscope", "Select a microscope first."
             )
             return
         self.connect_microscope(name)
 
     def _on_connected(self, pc):
         self._pc = pc
-        name = self.current_microscope or ''
-        self.status_changed.emit('Loading data for {}…'.format(name), 0)
+        name = self.current_microscope or ""
+        self.status_changed.emit("Loading data for {}…".format(name), 0)
         for w in self._tab_widgets.values():
             w.set_pc(pc)
-        powermeter_ok = getattr(pc, 'powermeter_available', True)
+        powermeter_ok = getattr(pc, "powermeter_available", True)
         self._apply_powermeter_state(powermeter_ok)
-        status = 'Connected to {}.'.format(name)
+        status = "Connected to {}.".format(name)
         if not powermeter_ok:
-            status += '  [PowerMeter unavailable]'
+            status += "  [PowerMeter unavailable]"
         self.status_changed.emit(status, 0)
         self.connected.emit(pc)
 
     def _apply_powermeter_state(self, available):
         """Grey out calibrate tab and feedback controls when no powermeter."""
-        cal = self._tab_widgets.get('calibrate')
+        cal = self._tab_widgets.get("calibrate")
         if cal is not None:
             self._tabs.setTabEnabled(self._tabs.indexOf(cal), available)
             cal.set_powermeter_available(available)
-        sp = self._tab_widgets.get('set_power')
+        sp = self._tab_widgets.get("set_power")
         if sp is not None:
             sp.set_powermeter_available(available)
 
     def _on_connect_warning(self, msg):
-        QMessageBox.warning(self, 'PowerMeter unavailable', msg)
+        QMessageBox.warning(self, "PowerMeter unavailable", msg)
 
     def _on_connect_error(self, msg):
         self.connect_error.emit(msg)
-        QMessageBox.critical(self, 'Connection error', msg)
-        self.status_changed.emit('Connection failed: {}'.format(msg), 8000)
+        QMessageBox.critical(self, "Connection error", msg)
+        self.status_changed.emit("Connection failed: {}".format(msg), 8000)
 
     def _on_connect_finished(self):
         if self._btn_connect is not None:
@@ -3062,13 +3060,13 @@ class MonetWidget(QWidget):
             self._scope_combo.setEnabled(True)
 
     def _on_calibration_started(self):
-        sp = self._tab_widgets.get('set_power')
+        sp = self._tab_widgets.get("set_power")
         if sp is not None:
             self._tabs.setTabEnabled(self._tabs.indexOf(sp), False)
         self.calibration_started.emit()
 
     def _on_calibration_finished(self):
-        sp = self._tab_widgets.get('set_power')
+        sp = self._tab_widgets.get("set_power")
         if sp is not None:
             self._tabs.setTabEnabled(self._tabs.indexOf(sp), True)
         self.calibration_finished.emit()
@@ -3087,13 +3085,13 @@ class MonetMainWindow(QMainWindow):
 
     def __init__(self, initial_microscope=None):
         super().__init__()
-        self.setWindowTitle('{} — Laser Power Calibration'.format(_TITLE_BASE))
+        self.setWindowTitle("{} — Laser Power Calibration".format(_TITLE_BASE))
         self.resize(900, 650)
         self._widget = MonetWidget(self, initial_microscope=initial_microscope)
         self.setCentralWidget(self._widget)
         self._widget.status_changed.connect(self.statusBar().showMessage)
         self._widget.connected.connect(self._on_connected_title)
-        self.statusBar().showMessage('Not connected')
+        self.statusBar().showMessage("Not connected")
 
     def set_status(self, msg, timeout_ms=0):
         """Back-compat shim: forward to the status bar."""
@@ -3102,7 +3100,7 @@ class MonetMainWindow(QMainWindow):
     def _on_connected_title(self, pc):
         name = self._widget.current_microscope
         if name:
-            self.setWindowTitle('{} — {}'.format(_TITLE_BASE, name))
+            self.setWindowTitle("{} — {}".format(_TITLE_BASE, name))
 
     def closeEvent(self, event):
         self._widget.shutdown()
