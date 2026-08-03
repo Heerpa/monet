@@ -1433,6 +1433,192 @@ def save_transmission_factor(
         )
 
 
+def _make_run(cluster):
+    """Build a run dict from a time-clustered list of calibration records."""
+    dts = [c["dt"] for c in cluster]
+    wls = sorted({float(c["wavelength"]) for c in cluster})
+    powers = sorted({float(c["power"]) for c in cluster})
+    members = [
+        [float(c["wavelength"]), float(c["power"]), c["date"], c["time"]]
+        for c in cluster
+    ]
+    return {
+        "device": str(cluster[0]["device"]),
+        "powermeter_type": cluster[0]["pm"],
+        "start": min(dts).strftime("%Y-%m-%d %H:%M"),
+        "end": max(dts).strftime("%Y-%m-%d %H:%M"),
+        "date": cluster[0]["date"],
+        "wavelengths": wls,
+        "powers": powers,
+        "n_cals": len(cluster),
+        "members": members,
+    }
+
+
+def list_calibration_runs(db_fname, device=None, gap_minutes=60):
+    """Group a device's calibrations into runs by power-meter position + time.
+
+    A 2D calibration run writes many single calibrations (one per wavelength /
+    power) close together in time at one power-meter position. This clusters
+    them: consecutive calibrations of the same device and ``powermeter_type``
+    belong to the same run unless they are more than ``gap_minutes`` apart. Lets
+    the operator pick a whole sample-plane run and a whole BFP run to pair for
+    the objective transmission factor instead of pairing single calibrations.
+
+    Returns
+    -------
+    list of dict
+        One dict per run (see :func:`_make_run`), newest run first. Empty if the
+        database has no ``powermeter_type`` annotation or cannot be read.
+    """
+    index = {DEVICE_TAG: device} if device else {}
+    try:
+        db = load_database(db_fname, index, time_idx="all")
+    except Exception as exc:
+        logger.debug("list_calibration_runs: load failed: %s", exc)
+        return []
+    if not hasattr(db, "iterrows") or db.empty:
+        return []
+    if "powermeter_type" not in db.columns:
+        return []
+
+    recs = []
+    for idx, row in db.iterrows():
+        if not isinstance(idx, tuple):
+            idx = (idx,)
+        pm = normalize_powermeter_type(row.get("powermeter_type"))
+        if pm not in (POWERMETER_SAMPLE, POWERMETER_BFP):
+            continue
+        date = str(idx[3])[:10] if len(idx) > 3 else ""
+        time_v = str(idx[4])[:5] if len(idx) > 4 else ""
+        try:
+            dt = datetime.strptime(date + " " + time_v, "%Y-%m-%d %H:%M")
+        except Exception:
+            continue
+        recs.append(
+            {
+                "device": idx[0] if len(idx) > 0 else "",
+                "wavelength": idx[1] if len(idx) > 1 else 0,
+                "power": idx[2] if len(idx) > 2 else 0,
+                "date": date,
+                "time": time_v,
+                "pm": pm,
+                "dt": dt,
+            }
+        )
+    if not recs:
+        return []
+
+    recs.sort(key=lambda r: (str(r["device"]), r["pm"], r["dt"]))
+    runs = []
+    i = 0
+    while i < len(recs):
+        j = i
+        cluster = [recs[i]]
+        while j + 1 < len(recs):
+            a, b = recs[j], recs[j + 1]
+            same = str(a["device"]) == str(b["device"]) and a["pm"] == b["pm"]
+            gap = (b["dt"] - a["dt"]).total_seconds()
+            if same and gap <= gap_minutes * 60:
+                cluster.append(b)
+                j += 1
+            else:
+                break
+        runs.append(_make_run(cluster))
+        i = j + 1
+
+    runs.sort(key=lambda r: r["start"], reverse=True)
+    return runs
+
+
+def compute_run_pair_factors(db_fname, sample_run, bfp_run, ana_config):
+    """Auto-pair two calibration runs and store their transmission factors.
+
+    For every wavelength/power present in both the sample-plane run and the BFP
+    run, computes the objective transmission factor from that single pair, saves
+    it as a manual factor pair (:func:`save_factor_pair`) and updates the
+    projection factor (:func:`save_transmission_factor`).
+
+    Returns
+    -------
+    list of dict
+        The stored pair records.
+    """
+    try:
+        db = load_database(
+            db_fname, {DEVICE_TAG: sample_run["device"]}, time_idx="all"
+        )
+    except Exception as exc:
+        logger.debug("compute_run_pair_factors: load failed: %s", exc)
+        return []
+    if not hasattr(db, "iterrows") or db.empty:
+        return []
+
+    # (wavelength, power, date, time) -> numeric model parameters
+    lookup = {}
+    for idx, row in db.iterrows():
+        if not isinstance(idx, tuple):
+            idx = (idx,)
+        try:
+            key = (
+                float(idx[1]),
+                float(idx[2]),
+                str(idx[3])[:10],
+                str(idx[4])[:5],
+            )
+        except (ValueError, TypeError, IndexError):
+            continue
+        lookup[key] = _row_model_pars(row)
+
+    def _member_map(run):
+        out = {}
+        for wl, power, date, time_v in run["members"]:
+            out[(float(wl), float(power))] = (
+                float(wl),
+                float(power),
+                str(date)[:10],
+                str(time_v)[:5],
+            )
+        return out
+
+    s_map = _member_map(sample_run)
+    b_map = _member_map(bfp_run)
+    stored = []
+    for wl, power in sorted(set(s_map) & set(b_map)):
+        s_pars = lookup.get(s_map[(wl, power)])
+        b_pars = lookup.get(b_map[(wl, power)])
+        if not s_pars or not b_pars:
+            continue
+        factor, n = compute_pair_factor(s_pars, b_pars, ana_config)
+        if factor is None:
+            continue
+        pair = {
+            "device": sample_run["device"],
+            "wavelength": wl,
+            "laser_power": power,
+            "date": sample_run["date"],
+            "sample_time": s_map[(wl, power)][3],
+            "bfp_time": b_map[(wl, power)][3],
+            "factor": float(factor),
+            "n_points": int(n),
+        }
+        save_factor_pair(db_fname, pair)
+        try:
+            save_transmission_factor(
+                db_fname,
+                sample_run["device"],
+                int(wl),
+                sample_run["date"],
+                float(factor),
+                0.0,
+                int(n),
+            )
+        except Exception as exc:
+            logger.debug("projection factor save failed: %s", exc)
+        stored.append(pair)
+    return stored
+
+
 def _save_factor_http(
     server_url, device, laser, date, factor_mean, factor_std, n_points
 ):

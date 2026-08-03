@@ -51,7 +51,6 @@ from monet import (
     POWERMETER_BFP,
     POWERMETER_SAMPLE,
     PROTOCOLS,
-    normalize_powermeter_type,
 )
 from monet import __version__ as _monet_version
 from monet.beampath import NikonNosepiece
@@ -2939,6 +2938,107 @@ class SetPowerTab(QWidget):
 # ---------------------------------------------------------------------------
 
 
+class RunPairDialog(QDialog):
+    """Pick one sample-plane run and one BFP run to pair for T_obj.
+
+    Runs (as returned by :func:`monet.io.list_calibration_runs`) are grouped by
+    power-meter position; the operator selects one of each and their single
+    calibrations are paired automatically by wavelength and power.
+    """
+
+    def __init__(self, runs, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Pair calibration runs — objective transmission")
+        self.selected_sample = None
+        self.selected_bfp = None
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(
+            QLabel(
+                "Select the sample-plane run and the BFP run to pair. Their "
+                "single calibrations are paired automatically by wavelength "
+                "and power."
+            )
+        )
+
+        lists_row = QHBoxLayout()
+        self._sample_list = QListWidget()
+        self._bfp_list = QListWidget()
+        for lst, pm in (
+            (self._sample_list, POWERMETER_SAMPLE),
+            (self._bfp_list, POWERMETER_BFP),
+        ):
+            for r in runs:
+                if r["powermeter_type"] != pm:
+                    continue
+                item = QListWidgetItem(self._fmt_run(r))
+                item.setData(Qt.ItemDataRole.UserRole, r)
+                lst.addItem(item)
+            lst.itemSelectionChanged.connect(self._update)
+
+        for title, lst in (
+            ("Sample-plane runs", self._sample_list),
+            ("BFP runs", self._bfp_list),
+        ):
+            col = QVBoxLayout()
+            col.addWidget(QLabel(title))
+            col.addWidget(lst)
+            lists_row.addLayout(col)
+        layout.addLayout(lists_row)
+
+        self._preview = QLabel("")
+        layout.addWidget(self._preview)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_cancel)
+        self._btn_ok = QPushButton("Compute && store")
+        self._btn_ok.setEnabled(False)
+        self._btn_ok.clicked.connect(self.accept)
+        btn_row.addWidget(self._btn_ok)
+        layout.addLayout(btn_row)
+        self.resize(640, 360)
+
+    @staticmethod
+    def _fmt_run(r):
+        wls = "/".join("{:g}".format(w) for w in r["wavelengths"])
+        pwrs = "/".join("{:g}".format(p) for p in r["powers"])
+        span = r["start"][11:]
+        if r["end"] != r["start"]:
+            span += "–" + r["end"][11:]
+        return "{} {}  ·  {} cals  ·  {} nm  ·  {} mW".format(
+            r["date"], span, r["n_cals"], wls, pwrs
+        )
+
+    @staticmethod
+    def _selected(lst):
+        items = lst.selectedItems()
+        return items[0].data(Qt.ItemDataRole.UserRole) if items else None
+
+    @staticmethod
+    def _wp_set(run):
+        return {(float(w), float(p)) for w, p, _, _ in run["members"]}
+
+    def _update(self):
+        self.selected_sample = self._selected(self._sample_list)
+        self.selected_bfp = self._selected(self._bfp_list)
+        if self.selected_sample and self.selected_bfp:
+            common = self._wp_set(self.selected_sample) & self._wp_set(
+                self.selected_bfp
+            )
+            self._preview.setText(
+                "{} wavelength/power pair(s) will be computed.".format(
+                    len(common)
+                )
+            )
+            self._btn_ok.setEnabled(len(common) > 0)
+        else:
+            self._preview.setText("")
+            self._btn_ok.setEnabled(False)
+
+
 class DatabaseTab(QWidget):
     """Tab for viewing and managing calibration records."""
 
@@ -2971,19 +3071,13 @@ class DatabaseTab(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        # Top controls
+        # Top controls. The tab always shows the connected microscope only
+        # (other scopes are reachable via the web dashboard link below).
         ctrl_row = QHBoxLayout()
-        ctrl_row.addWidget(QLabel("Microscope filter:"))
-        self._scope_combo = QComboBox()
-        self._scope_combo.addItem("(all)", None)
-        ctrl_row.addWidget(self._scope_combo)
         btn_refresh = QPushButton("Refresh")
         btn_refresh.clicked.connect(self._on_refresh)
         ctrl_row.addWidget(btn_refresh)
         ctrl_row.addStretch()
-        # btn_delete = QPushButton('Delete selected')
-        # btn_delete.clicked.connect(self._on_delete)
-        # ctrl_row.addWidget(btn_delete)
         layout.addLayout(ctrl_row)
 
         # Database link (shown when database is an HTTP server URL)
@@ -3019,15 +3113,15 @@ class DatabaseTab(QWidget):
         factors_hdr = QHBoxLayout()
         factors_hdr.addWidget(QLabel("Objective Transmission (sample / BFP)"))
         factors_hdr.addStretch()
-        self._btn_add_pair = QPushButton("Add pair from selected")
+        self._btn_add_pair = QPushButton("Pair runs…")
         self._btn_add_pair.setEnabled(False)
         self._btn_add_pair.setToolTip(
-            "Select exactly one sample-plane and one BFP calibration of the "
-            "same wavelength in the table above, then click to compute and "
-            "store their objective transmission factor. Stored pairs are "
-            "remembered and drive the plot below."
+            "Pick a whole sample-plane calibration run and a whole BFP run; "
+            "their single calibrations are paired automatically by wavelength "
+            "and power to compute the objective transmission factors. Stored "
+            "pairs are remembered and drive the plot below."
         )
-        self._btn_add_pair.clicked.connect(self._on_add_pair)
+        self._btn_add_pair.clicked.connect(self._on_add_pairing)
         factors_hdr.addWidget(self._btn_add_pair)
         self._btn_remove_pair = QPushButton("Remove pair")
         self._btn_remove_pair.setEnabled(False)
@@ -3104,26 +3198,16 @@ class DatabaseTab(QWidget):
             self._db_fname = None
         self._btn_compute_transmission.setEnabled(pc is not None)
         self._update_db_link()
-        # Pre-filter to the connected microscope: the other scopes are not of
-        # interest here (the web dashboard link covers cross-scope browsing).
-        self._preselect_current_scope()
         self._on_refresh()
 
-    def _preselect_current_scope(self):
-        """Select the connected microscope in the scope filter, if known."""
-        scope = None
-        if self._pc is not None:
-            try:
-                scope = self._pc.instrument.config["index"].get("name")
-            except Exception:
-                scope = None
-        if not scope:
-            return
-        idx = self._scope_combo.findData(scope)
-        if idx < 0:
-            self._scope_combo.addItem(str(scope), scope)
-            idx = self._scope_combo.findData(scope)
-        self._scope_combo.setCurrentIndex(idx)
+    def _current_scope(self):
+        """Name of the connected microscope, or None. The tab shows only it."""
+        if self._pc is None:
+            return None
+        try:
+            return self._pc.instrument.config["index"].get("name")
+        except Exception:
+            return None
 
     def _update_db_link(self):
         db = self._db_fname or ""
@@ -3140,7 +3224,7 @@ class DatabaseTab(QWidget):
             self._status.setText("No database configured.")
             return
         try:
-            scope_filter = self._scope_combo.currentData()
+            scope_filter = self._current_scope()
             index = {}
             if scope_filter:
                 index["name"] = scope_filter
@@ -3155,7 +3239,6 @@ class DatabaseTab(QWidget):
         self._table.setRowCount(0)
         if hasattr(records_df, "iterrows"):
             # DataFrame with MultiIndex
-            known_scopes = set()
             for idx, row in records_df.iterrows():
                 if not isinstance(idx, tuple):
                     idx = (idx,)
@@ -3167,7 +3250,6 @@ class DatabaseTab(QWidget):
                 pwr = idx[2] if len(idx) > 2 else ""
                 date = idx[3] if len(idx) > 3 else ""
                 time_val = idx[4] if len(idx) > 4 else ""
-                known_scopes.add(str(scope))
 
                 params = {col: row[col] for col in row.index}
                 # Pull the free-text comment into its own column (NaN when the
@@ -3205,20 +3287,6 @@ class DatabaseTab(QWidget):
                     elif self.COLUMNS[col] == "Comment" and comment_str:
                         item.setToolTip(comment_str)
                     self._table.setItem(row_pos, col, item)
-                # Stash this row's model parameters (incl. powermeter_type) so
-                # the manual transmission-pair tool can rebuild the two models
-                # without re-querying the database.
-                self._table.item(row_pos, 0).setData(
-                    Qt.ItemDataRole.UserRole, params
-                )
-
-            # Repopulate scope combo without clearing "all"
-            current_scopes = {
-                self._scope_combo.itemText(i)
-                for i in range(1, self._scope_combo.count())
-            }
-            for sc in sorted(known_scopes - current_scopes):
-                self._scope_combo.addItem(sc, sc)
 
         total = self._table.rowCount()
         self._status.setText(f"{total} record(s)")
@@ -3233,7 +3301,7 @@ class DatabaseTab(QWidget):
         if self._db_fname is None:
             self._update_pair_buttons()
             return
-        scope = self._scope_combo.currentData()
+        scope = self._current_scope()
         try:
             pairs_df = io.load_factor_pairs(
                 self._db_fname, device=scope if scope else None
@@ -3309,131 +3377,84 @@ class DatabaseTab(QWidget):
         except (TypeError, ValueError):
             return str(v)
 
-    @staticmethod
-    def _num(text):
-        try:
-            return float(text)
-        except (TypeError, ValueError):
-            return text
-
-    @staticmethod
-    def _model_pars(params):
-        """Numeric model parameters from a stored row-params dict."""
-        out = {}
-        for k, v in (params or {}).items():
-            if k in ("powermeter_type", "comment"):
-                continue
-            # Skip strings and NaNs (v != v is True only for NaN).
-            if isinstance(v, (int, float)) and not (
-                isinstance(v, float) and v != v
-            ):
-                out[k] = float(v)
-        return out
-
-    def _on_add_pair(self):
-        """Compute and store a transmission factor from two selected rows."""
+    def _on_add_pairing(self):
+        """Scan calibration runs, then let the user pair a sample and BFP run."""
         if self._pc is None or self._db_fname is None:
-            return
-        rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
-        if len(rows) != 2:
-            QMessageBox.information(
-                self,
-                "Select two",
-                "Select exactly two calibration rows above — one "
-                "sample-plane and one BFP measurement of the same wavelength.",
-            )
-            return
-        infos = []
-        for r in rows:
-            params = (
-                self._table.item(r, 0).data(Qt.ItemDataRole.UserRole) or {}
-            )
-            infos.append(
-                {
-                    "params": params,
-                    "pm": normalize_powermeter_type(
-                        params.get("powermeter_type")
-                    ),
-                    "device": self._table.item(r, 0).text(),
-                    "wl": self._table.item(r, 1).text(),
-                    "power": self._table.item(r, 2).text(),
-                    "date": self._table.item(r, 3).text(),
-                    "time": self._table.item(r, 4).text(),
-                }
-            )
-        samples = [i for i in infos if i["pm"] == POWERMETER_SAMPLE]
-        bfps = [i for i in infos if i["pm"] == POWERMETER_BFP]
-        if len(samples) != 1 or len(bfps) != 1:
-            QMessageBox.warning(
-                self,
-                "Need one of each",
-                "Select exactly one sample-plane and one BFP calibration "
-                "(their powermeter_type is shown in the Parameters column).",
-            )
-            return
-        s, b = samples[0], bfps[0]
-        if s["wl"] != b["wl"]:
-            QMessageBox.warning(
-                self,
-                "Wavelength mismatch",
-                "Both calibrations must be the same wavelength.",
-            )
             return
         try:
             ana_config = self._pc.instrument.config["analysis"]
         except Exception as exc:
             QMessageBox.critical(self, "Error", str(exc))
             return
-        factor, n = io.compute_pair_factor(
-            self._model_pars(s["params"]),
-            self._model_pars(b["params"]),
-            ana_config,
-        )
-        if factor is None:
-            QMessageBox.warning(
+        device = self._current_scope()
+        db_fname = self._db_fname
+        self._btn_add_pair.setEnabled(False)
+        self._emit_status("Scanning calibration runs…")
+
+        def _do():
+            return io.list_calibration_runs(db_fname, device)
+
+        def _on_result(runs):
+            self._active_worker = None
+            self._btn_add_pair.setEnabled(True)
+            self._emit_status("", 0)
+            self._show_run_dialog(runs or [], ana_config)
+
+        def _on_error(msg):
+            self._active_worker = None
+            self._btn_add_pair.setEnabled(True)
+            QMessageBox.critical(self, "Error", msg)
+
+        worker = GenericWorker(_do)
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_error)
+        self._active_worker = worker
+        worker.start()
+
+    def _show_run_dialog(self, runs, ana_config):
+        samples = [
+            r for r in runs if r["powermeter_type"] == POWERMETER_SAMPLE
+        ]
+        bfps = [r for r in runs if r["powermeter_type"] == POWERMETER_BFP]
+        if not samples or not bfps:
+            QMessageBox.information(
                 self,
-                "Could not compute",
-                "The two calibrations did not yield a valid transmission "
-                "factor.",
+                "Not enough runs",
+                "Need at least one sample-plane run and one BFP run for this "
+                "microscope. Calibrate at both power-meter positions first.",
             )
             return
-        wl_val = self._num(s["wl"])
-        pair = {
-            "device": s["device"],
-            "wavelength": wl_val,
-            "laser_power": self._num(s["power"]),
-            "date": s["date"],
-            "sample_time": s["time"],
-            "bfp_time": b["time"],
-            "factor": float(factor),
-            "n_points": int(n),
-        }
-        try:
-            io.save_factor_pair(self._db_fname, pair)
-            # Also update the factor store used for BFP -> sample-plane power
-            # projection, so the hand-picked pair drives real measurements too.
-            try:
-                io.save_transmission_factor(
-                    self._db_fname,
-                    s["device"],
-                    int(float(wl_val)),
-                    s["date"],
-                    float(factor),
-                    0.0,
-                    int(n),
-                )
-            except Exception as exc:
-                logger.debug("could not save projection factor: %s", exc)
-        except Exception as exc:
-            QMessageBox.critical(self, "Save error", str(exc))
+        dlg = RunPairDialog(runs, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        self._emit_status(
-            "Saved transmission pair {} nm: T_obj = {:.4f}".format(
-                s["wl"], factor
-            ),
-            5000,
-        )
-        self._on_refresh()
+        s_run, b_run = dlg.selected_sample, dlg.selected_bfp
+        if not s_run or not b_run:
+            return
+        db_fname = self._db_fname
+        self._emit_status("Computing transmission factors…")
+
+        def _do():
+            return io.compute_run_pair_factors(
+                db_fname, s_run, b_run, ana_config
+            )
+
+        def _on_result(stored):
+            self._active_worker = None
+            self._emit_status(
+                "Stored {} transmission pair(s).".format(len(stored or [])),
+                5000,
+            )
+            self._on_refresh()
+
+        def _on_error(msg):
+            self._active_worker = None
+            QMessageBox.critical(self, "Error", msg)
+
+        worker = GenericWorker(_do)
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_error)
+        self._active_worker = worker
+        worker.start()
 
     def _on_remove_pair(self):
         if not self._showing_manual_pairs or self._db_fname is None:
@@ -3463,7 +3484,7 @@ class DatabaseTab(QWidget):
         """
         if self._factor_canvas is None or self._db_fname is None:
             return
-        device = self._scope_combo.currentData()
+        device = self._current_scope()
         db_fname = self._db_fname
 
         # Prefer the hand-picked pairs — this is the graph the operator curates.

@@ -583,5 +583,85 @@ class TestFactorPairs(unittest.TestCase):
         self.assertTrue(mio.load_factor_pairs(self.db).empty)
 
 
+class TestCalibrationRuns(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = os.path.join(self.tmpdir, "db.xlsx")
+        self.ana_config = {
+            "classpath": "monet.analysis.LinearCurveAnalyzer",
+            "init_kwargs": {"min": 0.0, "max": 180.0},
+        }
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _cal(self, wl, power, date, time, ptype, amp):
+        return (
+            "TestScope",
+            float(wl),
+            float(power),
+            date,
+            time,
+            {"bkg": 0.0, "amp": float(amp), "powermeter_type": ptype},
+        )
+
+    def test_runs_split_by_powermeter_and_time_gap(self):
+        rows = [
+            # Sample-plane run A (10:00-10:05)
+            self._cal(488, 100, "2024-06-01", "10:00", "sample", 40),
+            self._cal(488, 200, "2024-06-01", "10:05", "sample", 80),
+            # BFP run (10:20-10:25)
+            self._cal(488, 100, "2024-06-01", "10:20", "bfp", 20),
+            self._cal(488, 200, "2024-06-01", "10:25", "bfp", 40),
+            # Sample-plane run B, hours later -> separate run
+            self._cal(488, 100, "2024-06-01", "16:00", "sample", 41),
+        ]
+        _write_calib_db(self.db, rows)
+        runs = mio.list_calibration_runs(self.db, "TestScope")
+        # 2 sample runs + 1 bfp run
+        self.assertEqual(len(runs), 3)
+        samples = [
+            r for r in runs if r["powermeter_type"] == "sample"
+        ]
+        bfps = [r for r in runs if r["powermeter_type"] == "bfp"]
+        self.assertEqual(len(samples), 2)
+        self.assertEqual(len(bfps), 1)
+        self.assertEqual(bfps[0]["n_cals"], 2)
+
+    def test_compute_run_pair_factors(self):
+        rows = [
+            self._cal(488, 100, "2024-06-01", "10:00", "sample", 40),
+            self._cal(488, 200, "2024-06-01", "10:05", "sample", 80),
+            self._cal(561, 100, "2024-06-01", "10:10", "sample", 30),
+            self._cal(488, 100, "2024-06-01", "10:20", "bfp", 20),
+            self._cal(488, 200, "2024-06-01", "10:25", "bfp", 40),
+            # 561 only in sample -> not paired
+        ]
+        _write_calib_db(self.db, rows)
+        runs = mio.list_calibration_runs(self.db, "TestScope")
+        s_run = [r for r in runs if r["powermeter_type"] == "sample"][0]
+        b_run = [r for r in runs if r["powermeter_type"] == "bfp"][0]
+        stored = mio.compute_run_pair_factors(
+            self.db, s_run, b_run, self.ana_config
+        )
+        # Only the two 488 nm powers pair (561 nm has no BFP partner).
+        self.assertEqual(len(stored), 2)
+        for p in stored:
+            self.assertEqual(p["wavelength"], 488.0)
+            self.assertAlmostEqual(p["factor"], 2.0, places=1)
+        # And they now appear as stored pairs.
+        self.assertEqual(len(mio.load_factor_pairs(self.db)), 2)
+
+    def test_no_powermeter_type_no_runs(self):
+        _write_calib_db(
+            self.db,
+            [("TestScope", 488.0, 100.0, "2024-06-01", "10:00", {"amp": 40})],
+        )
+        self.assertEqual(mio.list_calibration_runs(self.db, "TestScope"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

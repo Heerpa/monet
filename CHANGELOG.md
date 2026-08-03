@@ -31,12 +31,15 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
 - Database tab: a transmission-factor plot showing every objective-transmission
   factor by date, wavelength, and laser power (`io.compute_factor_breakdown`),
   so per-input drift and outliers are visible at a glance.
-- Database tab: manually pick which two calibrations (one sample-plane, one
-  BFP) define an objective transmission factor — "Add pair from selected"
-  computes and stores the pair, "Remove pair" deletes it. Pairs persist over
-  time in a local JSON sidecar (`io.save_factor_pair` / `load_factor_pairs` /
-  `compute_pair_factor`), drive the transmission plot, and also update the
-  factor used for BFP→sample power projection.
+- Database tab: build objective transmission factors by pairing whole
+  calibration **runs** — "Pair runs…" lists the sample-plane and BFP runs
+  (clustered from the database by power-meter position and time,
+  `io.list_calibration_runs`); pick one of each and their single calibrations
+  are paired automatically by wavelength and power
+  (`io.compute_run_pair_factors`). "Remove pair" deletes a stored pair. Pairs
+  persist in a local JSON sidecar (`io.save_factor_pair` / `load_factor_pairs`
+  / `compute_pair_factor`), drive the transmission plot, and update the factor
+  used for BFP→sample power projection.
 - Calibrate tab: a free-text **Comment** field (e.g. "laser status orange
   today") saved with every calibration of a run and shown in its own Database
   tab column.
