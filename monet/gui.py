@@ -518,6 +518,7 @@ class CalibrationPlots(QWidget):
 
         # Previous runs — thin, faded, drawn behind the live series so the
         # user can see whether the system still tracks earlier calibrations.
+        # Each line is annotated at its right end with its acquisition date.
         for laser, runs in self._history.items():
             color = self._laser_color(laser)
             for run in runs:
@@ -533,6 +534,19 @@ class CalibrationPlots(QWidget):
                     alpha=0.4,
                     zorder=1,
                 )
+                date = run.get("date", "")
+                if date:
+                    ax.annotate(
+                        date,
+                        xy=(lpwrs[-1], amps[lpwrs[-1]]),
+                        xytext=(2, 0),
+                        textcoords="offset points",
+                        fontsize=6,
+                        color=color,
+                        alpha=0.7,
+                        va="center",
+                        ha="left",
+                    )
 
         # Live run — bold, one series per wavelength, outliers ringed in red.
         flagged_report = []
@@ -1594,6 +1608,9 @@ class SetPowerTab(QWidget):
         self._btn_onoff.setCheckable(True)
         self._btn_onoff.clicked.connect(self._on_toggle_laser)
         laser_row.addWidget(self._btn_onoff)
+        self._btn_alloff = QPushButton("All lasers OFF")
+        self._btn_alloff.clicked.connect(self._on_all_off)
+        laser_row.addWidget(self._btn_alloff)
         laser_row.addStretch()
         layout.addLayout(laser_row)
 
@@ -1771,19 +1788,16 @@ class SetPowerTab(QWidget):
         )
         layout.addWidget(self._bp_state_label)
 
-        # ── Power adjustment (built above, placed below the setup controls) ─
-        layout.addWidget(adj_group)
-
-        # Measure + All off
-        misc_row = QHBoxLayout()
+        # Measure button — sits just above the power adjustment box.
+        measure_row = QHBoxLayout()
         self._btn_measure = QPushButton("Measure")
         self._btn_measure.clicked.connect(self._on_measure)
-        self._btn_alloff = QPushButton("All lasers OFF")
-        self._btn_alloff.clicked.connect(self._on_all_off)
-        misc_row.addWidget(self._btn_measure)
-        misc_row.addWidget(self._btn_alloff)
-        misc_row.addStretch()
-        layout.addLayout(misc_row)
+        measure_row.addWidget(self._btn_measure)
+        measure_row.addStretch()
+        layout.addLayout(measure_row)
+
+        # ── Power adjustment (built above, placed below the setup controls) ─
+        layout.addWidget(adj_group)
 
         self._status = QLabel("")
         layout.addWidget(self._status)
