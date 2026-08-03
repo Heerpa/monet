@@ -17,7 +17,7 @@ class Base(DeclarativeBase):
 
 
 class Factor(Base):
-    __tablename__ = 'factors'
+    __tablename__ = "factors"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_name = Column(String, nullable=False, index=True)
@@ -29,7 +29,7 @@ class Factor(Base):
 
 
 class Calibration(Base):
-    __tablename__ = 'calibrations'
+    __tablename__ = "calibrations"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_name = Column(String, nullable=False, index=True)
@@ -54,12 +54,12 @@ def get_engine(db_path):
         SQLAlchemy Engine instance.
     """
     engine = create_engine(
-        f'sqlite:///{db_path}',
-        connect_args={'check_same_thread': False},
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
     )
     # Enable WAL mode for concurrent read safety
     with engine.connect() as conn:
-        conn.exec_driver_sql('PRAGMA journal_mode=WAL')
+        conn.exec_driver_sql("PRAGMA journal_mode=WAL")
         conn.commit()
     Base.metadata.create_all(engine)
     return engine

@@ -1,0 +1,31 @@
+# Files skipped by every hook: the vendored Thorlabs TLPM wrapper (ships with
+# the OPM SDK, not our code), the setuptools-scm generated version file, and the
+# standalone example scripts under examples/ (one is a saved REPL transcript
+# whose docstring path trips flake8's E999). CI lints the `monet/` package only,
+# so this keeps pre-commit to the same scope. black/flake8's own config excludes
+# only filter directory walks, not the explicit file list pre-commit passes, so
+# the skip has to live here.
+exclude: ^(monet/TLPM\.py|monet/_version\.py|examples/)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+  # Use the maintained black mirror, pinned to the version the team runs
+  # locally so pre-commit and a manual `black` agree (keep in sync via
+  # `pre-commit autoupdate`). black reads line-length from [tool.black].
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 26.5.1
+    hooks:
+      - id: black
+  # flake8 reads its config from pyproject.toml [tool.flake8] via the
+  # Flake8-pyproject plugin (no separate pflake8 binary needed).
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        additional_dependencies: [Flake8-pyproject]

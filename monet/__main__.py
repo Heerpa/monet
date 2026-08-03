@@ -28,10 +28,10 @@ def config_logger():
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
-        '%(asctime)s | %(name)s | %(levelname)s -> %(message)s'
+        "%(asctime)s | %(name)s | %(levelname)s -> %(message)s"
     )
     file_handler = handlers.RotatingFileHandler(
-        'monet.log', maxBytes=1e6, backupCount=5
+        "monet.log", maxBytes=1e6, backupCount=5
     )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
@@ -51,7 +51,7 @@ def main():
     # Main parser
     parser = argparse.ArgumentParser("monet")
     parser.add_argument(
-        'mode',
+        "mode",
         type=str,
         help=(
             'mode. One of "set", "adjust", "caliaotf", "calibrate", '
@@ -59,91 +59,91 @@ def main():
         ),
     )
     parser.add_argument(
-        'name',
+        "name",
         type=str,
-        nargs='?',
+        nargs="?",
         default=None,
         help=(
-            'Microscope Name, as specified in config. Not required for '
-            'serve/migrate modes.'
+            "Microscope Name, as specified in config. Not required for "
+            "serve/migrate modes."
         ),
     )
     parser.add_argument(
-        '-c',
-        '--configs-file',
+        "-c",
+        "--configs-file",
         type=str,
         required=False,
         default=None,
-        help='''
+        help="""
             path to the configurations yaml file.
-            - Only for calibration mode''',
+            - Only for calibration mode""",
     )
     parser.add_argument(
-        '-p',
-        '--protocol-file',
+        "-p",
+        "--protocol-file",
         type=str,
         required=False,
         default=None,
-        help='''
+        help="""
             path to the protocol yaml file (if not supplied, only attenuation
             will be controlled, no laser control).
-            - Only for calibration mode''',
+            - Only for calibration mode""",
     )
     parser.add_argument(
-        '--host',
+        "--host",
         type=str,
-        default='0.0.0.0',
-        help='Host to bind the server to (serve mode only).',
+        default="0.0.0.0",
+        help="Host to bind the server to (serve mode only).",
     )
     parser.add_argument(
-        '--port',
+        "--port",
         type=int,
         default=8000,
-        help='Port to bind the server to (serve mode only).',
+        help="Port to bind the server to (serve mode only).",
     )
     parser.add_argument(
-        '--db-path',
+        "--db-path",
         type=str,
-        default='calibrations.db',
-        help='Path to the SQLite database file (serve/migrate mode).',
+        default="calibrations.db",
+        help="Path to the SQLite database file (serve/migrate mode).",
     )
     parser.add_argument(
-        '--source',
+        "--source",
         type=str,
         default=None,
-        help='Path to the source Excel database (migrate mode only).',
+        help="Path to the source Excel database (migrate mode only).",
     )
 
     # Parse
     args = parser.parse_args()
-    if args.mode == 'serve':
+    if args.mode == "serve":
         import uvicorn
 
-        os.environ['MONET_DB_PATH'] = args.db_path
+        os.environ["MONET_DB_PATH"] = args.db_path
         from monet.server import app
 
         uvicorn.run(app, host=args.host, port=args.port)
-    elif args.mode == 'migrate':
+    elif args.mode == "migrate":
         from monet.migrate import migrate_excel_to_sqlite
 
         if args.source is None:
-            parser.error('migrate mode requires --source argument')
+            parser.error("migrate mode requires --source argument")
         migrate_excel_to_sqlite(args.source, args.db_path)
-    elif args.mode == 'calibrate':
+    elif args.mode == "calibrate":
         MonetCalibrateInteractive(
             args.name, args.configs_file, args.protocol_file
         ).do_calibrate(args={})
-    elif args.mode == 'caliaotf':
+    elif args.mode == "caliaotf":
         MonetCalibrateInteractive(
             args.name, args.configs_file, args.protocol_file
         ).do_calibrate_aotf(args={})
-    elif args.mode == 'adjust':
+    elif args.mode == "adjust":
         MonetAdjustInteractive(
             args.name, args.configs_file, args.protocol_file
         ).cmdloop()
-    elif args.mode == 'set':
+    elif args.mode == "set":
         MonetSetInteractive(args.name).cmdloop()
-    elif args.mode == 'gui':
+    elif args.mode == "gui":
         import sys
 
         from PyQt6.QtWidgets import QApplication
@@ -220,14 +220,14 @@ def main():
 class MonetCalibrateInteractive(cmd.Cmd):
     """Command-line interactive power calibration and setting."""
 
-    intro = '''Welcome to interactive monet. Here, Microscope
+    intro = """Welcome to interactive monet. Here, Microscope
         illumination can be calibrated and set. Two modes are
         available:
             * only modulate the attenuator (e.g. HWP/Polarizator)
 
             * modulate laser type, laser power and attenuator
-        '''
-    prompt = '(monet calibrate)'
+        """
+    prompt = "(monet calibrate)"
     file = None
 
     def __init__(self, config_name, configs_file=None, protocol_file=None):
@@ -237,33 +237,33 @@ class MonetCalibrateInteractive(cmd.Cmd):
         global CONFIGS, PROTOCOLS
 
         if configs_file is not None:
-            with open(configs_file, 'r') as cf:
+            with open(configs_file, "r") as cf:
                 CONFIGS = _yaml.full_load(cf)
         try:
             config = CONFIGS[config_name]
         except KeyError as e:
             print(
-                'Could not find '
+                "Could not find "
                 + config_name
-                + ' in configurations. Aborting.'
+                + " in configurations. Aborting."
             )
-            print('All configurations:')
+            print("All configurations:")
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(CONFIGS)
             raise e
 
         if protocol_file is not None:
-            with open(protocol_file, 'r') as pf:
+            with open(protocol_file, "r") as pf:
                 PROTOCOLS = _yaml.full_load(pf)
         try:
             protocol = PROTOCOLS[config_name]
         except KeyError:
             print(
-                'Could not find '
+                "Could not find "
                 + config_name
-                + ' in protocols. Not using laser control.'
+                + " in protocols. Not using laser control."
             )
-            print('All protocols:')
+            print("All protocols:")
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(PROTOCOLS)
             protocol = None
@@ -291,13 +291,13 @@ class MonetCalibrateInteractive(cmd.Cmd):
         """Calibrate the AOTF settings (especially the frequency)."""
         import monet.aotf_cali as aotf_cali
 
-        attenuator_classpath = self.pc.instrument.config['attenuation'][
-            'classpath'
+        attenuator_classpath = self.pc.instrument.config["attenuation"][
+            "classpath"
         ]
-        if 'AOTF' not in attenuator_classpath.upper():
+        if "AOTF" not in attenuator_classpath.upper():
             raise ValueError(
-                'Probably, the attenuator is not an AOTF and thus '
-                'cannot be calibrated this way.'
+                "Probably, the attenuator is not an AOTF and thus "
+                "cannot be calibrated this way."
                 + ' No mention of "AOTF" is in {:s}'.format(
                     attenuator_classpath
                 )
@@ -315,15 +315,15 @@ class MonetCalibrateInteractive(cmd.Cmd):
             The power to set to [mW].
         """
         if not power:
-            print('Please specify a power value.')
+            print("Please specify a power value.")
         else:
             try:
                 print(
-                    'Setting power for settings {:s}'.format(
-                        '\n'.join(
+                    "Setting power for settings {:s}".format(
+                        "\n".join(
                             [
-                                str(k) + ': ' + str(v)
-                                for k, v in self.config['index'].items()
+                                str(k) + ": " + str(v)
+                                for k, v in self.config["index"].items()
                             ]
                         )
                     )
@@ -343,22 +343,22 @@ class MonetCalibrateInteractive(cmd.Cmd):
         """
         pp = pprint.PrettyPrinter(indent=2)
         try:
-            commands = line.split('--')[1:]
+            commands = line.split("--")[1:]
             kwargs = {
-                cmd.split(':')[0].strip(): cmd.split(':')[1].strip()
+                cmd.split(":")[0].strip(): cmd.split(":")[1].strip()
                 for cmd in commands
             }
         except Exception:
-            print('please format your commands correctly')
-            print('Current Configuration:')
+            print("please format your commands correctly")
+            print("Current Configuration:")
             pp.pprint(self.config)
 
-        if 'database' in kwargs.keys():
-            self.pc.instrument.config['database'] = kwargs['database']
+        if "database" in kwargs.keys():
+            self.pc.instrument.config["database"] = kwargs["database"]
 
         config_items = [
-            self.pc.instrument.config['index'],
-            self.pc.instrument.config['analysis']['init_kwargs'],
+            self.pc.instrument.config["index"],
+            self.pc.instrument.config["analysis"]["init_kwargs"],
         ]
         config_cmds = []
         for item in config_items:
@@ -372,25 +372,25 @@ class MonetCalibrateInteractive(cmd.Cmd):
                         item[cmd] = float(v)
                     except Exception:
                         item[cmd] = v
-                    print('Setting {:s} to '.format(cmd), v)
+                    print("Setting {:s} to ".format(cmd), v)
                     pp.pprint(self.pc.instrument.config)
                     break
 
     def help_config(self):
         helplines = [
-            '--database : str',
-            '   the path to the database (ends in .xlsx)',
+            "--database : str",
+            "   the path to the database (ends in .xlsx)",
         ]
         config_items = [
-            self.pc.instrument.config['index'],
-            self.pc.instrument.config['analysis']['init_kwargs'],
+            self.pc.instrument.config["index"],
+            self.pc.instrument.config["analysis"]["init_kwargs"],
         ]
         for it in config_items:
             for k, v in it.items():
-                helplines.append('--{:s}'.format(k))
-                helplines.append(' ' * 4 + 'currently {:s}'.format(str(v)))
-        print('\n'.join(helplines))
-        print('Some Fuzziness is allowed. Matching of single words is ok.')
+                helplines.append("--{:s}".format(k))
+                helplines.append(" " * 4 + "currently {:s}".format(str(v)))
+        print("\n".join(helplines))
+        print("Some Fuzziness is allowed. Matching of single words is ok.")
 
     def do_rename(self, name):
         """Rename the microscope name for the current settings.
@@ -401,7 +401,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
             The microscope name.
         """
         self.config_name = name.strip()
-        self.pc.instrument.config['index']['name'] = self.config_name
+        self.pc.instrument.config["index"]["name"] = self.config_name
 
     def do_load_config(self, fname):
         """Load configuration from file.
@@ -413,7 +413,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
         """
         import monet.calibrate as mca
 
-        with open(fname, 'r') as f:
+        with open(fname, "r") as f:
             self.pc.instrument.config = _yaml.full_load(f)
         if not self.run_2d:
             self.pc = mca.CalibrationProtocol1D(self.pc.instrument.config)
@@ -435,22 +435,22 @@ class MonetCalibrateInteractive(cmd.Cmd):
         import monet.calibrate as mca
 
         if fname is not None:
-            with open(fname, 'r') as f:
+            with open(fname, "r") as f:
                 self.pc.protocol = _yaml.full_load(f)
         else:
             self.pc.protocol = PROTOCOLS[self.config_name]
 
         if not self.run_2d:
             print(
-                'Protocol files are only used in with laser control. '
-                'Switching mode.'
+                "Protocol files are only used in with laser control. "
+                "Switching mode."
             )
             self.run_2d = True
         self.pc = mca.CalibrationProtocol2D(
             self.pc.instrument.config, self.pc.protocol
         )
 
-    def do_save_config(self, fname=''):
+    def do_save_config(self, fname=""):
         """Save configuration to file.
 
         Parameters
@@ -464,10 +464,10 @@ class MonetCalibrateInteractive(cmd.Cmd):
 
         cfgs = CONFIGS
         cfgs[self.config_name] = copy.deepcopy(self.pc.instrument.config)
-        with open(fname, 'w') as f:
+        with open(fname, "w") as f:
             _yaml.dump(cfgs, f)
 
-    def do_save_protocol(self, fname=''):
+    def do_save_protocol(self, fname=""):
         """Save configuration to file.
 
         Parameters
@@ -478,8 +478,8 @@ class MonetCalibrateInteractive(cmd.Cmd):
         """
         if not self.run_2d:
             print(
-                'Not in laser modulation mode. No protocol available for '
-                'saving.'
+                "Not in laser modulation mode. No protocol available for "
+                "saving."
             )
             return
 
@@ -488,7 +488,7 @@ class MonetCalibrateInteractive(cmd.Cmd):
 
         prts = PROTOCOLS
         prts[self.config_name] = copy.deepcopy(self.pc.protocol)
-        with open(fname, 'w') as f:
+        with open(fname, "w") as f:
             _yaml.dump(prts, f)
 
     # def do_EOF(self, line):
@@ -508,12 +508,12 @@ class MonetCalibrateInteractive(cmd.Cmd):
 class MonetAdjustInteractive(cmd.Cmd):
     """Command-line interactive power calibration and setting."""
 
-    intro = '''Welcome to interactive monet adjust. Here, Microscope
+    intro = """Welcome to interactive monet adjust. Here, Microscope
         illumination can be aligned and adjusted. To that end, all configured
         lasers can be switched on and off, laser powers set, and power
         limits queried.
-        '''
-    prompt = '(monet adjust)'
+        """
+    prompt = "(monet adjust)"
     file = None
 
     def __init__(self, config_name, configs_file=None, protocol_file=None):
@@ -523,33 +523,33 @@ class MonetAdjustInteractive(cmd.Cmd):
         global CONFIGS, PROTOCOLS
 
         if configs_file is not None:
-            with open(configs_file, 'r') as cf:
+            with open(configs_file, "r") as cf:
                 CONFIGS = _yaml.full_load(cf)
         try:
             config = CONFIGS[config_name]
         except KeyError as e:
             print(
-                'Could not find '
+                "Could not find "
                 + config_name
-                + ' in configurations. Aborting.'
+                + " in configurations. Aborting."
             )
-            print('All configurations:')
+            print("All configurations:")
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(CONFIGS)
             raise e
 
         if protocol_file is not None:
-            with open(protocol_file, 'r') as pf:
+            with open(protocol_file, "r") as pf:
                 PROTOCOLS = _yaml.full_load(pf)
         try:
             protocol = PROTOCOLS[config_name]
         except KeyError:
             print(
-                'Could not find '
+                "Could not find "
                 + config_name
-                + ' in protocols. Not using laser control.'
+                + " in protocols. Not using laser control."
             )
-            print('All protocols:')
+            print("All protocols:")
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(PROTOCOLS)
             protocol = None
@@ -572,7 +572,7 @@ class MonetAdjustInteractive(cmd.Cmd):
             Laser to set to (specified by wavelength in nm).
         """
         if not laser:
-            print('Please specify a laser.')
+            print("Please specify a laser.")
         else:
             laser = int(laser)
             try:
@@ -581,7 +581,7 @@ class MonetAdjustInteractive(cmd.Cmd):
                 self.pc.instrument.attenuator.set_wavelength(laser)
             except Exception as e:
                 print(str(e))
-                print('Available lasers: ', str(self.pc.instrument.laser))
+                print("Available lasers: ", str(self.pc.instrument.laser))
                 return
             try:
                 self.pc.instrument.laser_enabled = True
@@ -590,7 +590,7 @@ class MonetAdjustInteractive(cmd.Cmd):
                 return
             try:
                 self.pc.instrument.beampath.positions = self.pc.protocol[
-                    'beampath'
+                    "beampath"
                 ][laser]
             except Exception as e:
                 print(str(e))
@@ -606,7 +606,7 @@ class MonetAdjustInteractive(cmd.Cmd):
             The power to set to [mW].
         """
         if not power:
-            print('Please specify a power value.')
+            print("Please specify a power value.")
         else:
             try:
                 self.pc.instrument.laserpower = int(power)
@@ -616,16 +616,16 @@ class MonetAdjustInteractive(cmd.Cmd):
     def do_min_power(self, line):
         """Query the minimum power of the current laser"""
         laser = self.pc.instrument.lasers[self.pc.instrument.curr_laser]
-        print('Minimum power of laser: ', laser.min_power)
+        print("Minimum power of laser: ", laser.min_power)
 
     def do_max_power(self, line):
         """Query the maximum power of the current laser"""
         laser = self.pc.instrument.lasers[self.pc.instrument.curr_laser]
-        print('Maximum power of laser: ', laser.max_power)
+        print("Maximum power of laser: ", laser.max_power)
 
     def do_attenuate(self, pos):
         """Set the attenuation device to a position (float)"""
-        if pos.upper() == 'HOME':
+        if pos.upper() == "HOME":
             self.pc.instrument.attenuator.home()
         else:
             pos = float(pos)
@@ -635,7 +635,7 @@ class MonetAdjustInteractive(cmd.Cmd):
         """open shutter and set the correct light path positions"""
         try:
             self.pc.instrument.beampath.positions = self.pc.protocol[
-                'beampath'
+                "beampath"
             ][self.pc.instrument.curr_laser]
         except Exception as e:
             print(str(e))
@@ -645,8 +645,8 @@ class MonetAdjustInteractive(cmd.Cmd):
         """close shutter"""
         try:
             self.pc.instrument.beampath.positions = self.pc.protocol[
-                'beampath'
-            ]['end']
+                "beampath"
+            ]["end"]
         except Exception as e:
             print(str(e))
             return
@@ -656,7 +656,7 @@ class MonetAdjustInteractive(cmd.Cmd):
         try:
             line = int(line)
         except Exception:
-            if line.upper() == 'TRUE':
+            if line.upper() == "TRUE":
                 line = 1
             else:
                 line = 0
@@ -665,14 +665,14 @@ class MonetAdjustInteractive(cmd.Cmd):
         else:
             line = False
         try:
-            self.pc.instrument.beampath.objects['shutter'].autoshutter = line
+            self.pc.instrument.beampath.objects["shutter"].autoshutter = line
         except Exception as e:
             print(str(e))
             return
 
     def do_py(self, line):
         """Execute a line of code"""
-        line = 'print(' + line + ')'
+        line = "print(" + line + ")"
         f = StringIO()
         with redirect_stdout(f):
             try:
@@ -684,7 +684,7 @@ class MonetAdjustInteractive(cmd.Cmd):
 
     def do_restartdb(self, line):
         """Restart the database with the last entries and save a backup"""
-        fname = self.pc.config['database']
+        fname = self.pc.config["database"]
         io.restart_database(fname)
 
     def do_exit(self, line):
@@ -703,13 +703,13 @@ class MonetAdjustInteractive(cmd.Cmd):
 class MonetSetInteractive(cmd.Cmd):
     """Command-line interactive power setting."""
 
-    intro = '''Welcome to interactive monet - set. Here, Microscope
+    intro = """Welcome to interactive monet - set. Here, Microscope
         illumination power can be set if calibrations exist. A powermeter
         does not need to be plugged in.
         By default, a laser is switched off when navigating to a different
         one. Use command 'multi_laser'
-        '''
-    prompt = '(monet set)'
+        """
+    prompt = "(monet set)"
     file = None
     multi_laser_operation = True
 
@@ -722,11 +722,11 @@ class MonetSetInteractive(cmd.Cmd):
             config = CONFIGS[config_name]
         except KeyError as e:
             print(
-                'Could not find '
+                "Could not find "
                 + config_name
-                + ' in configurations. Aborting.'
+                + " in configurations. Aborting."
             )
-            print('All configurations:')
+            print("All configurations:")
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(CONFIGS)
             raise e
@@ -735,11 +735,11 @@ class MonetSetInteractive(cmd.Cmd):
             protocol = PROTOCOLS[config_name]
         except KeyError:
             print(
-                'Could not find '
+                "Could not find "
                 + config_name
-                + ' in protocols. Not using laser control.'
+                + " in protocols. Not using laser control."
             )
-            print('All protocols:')
+            print("All protocols:")
             pp = pprint.PrettyPrinter(indent=2)
             pp.pprint(PROTOCOLS)
             protocol = None
@@ -752,26 +752,26 @@ class MonetSetInteractive(cmd.Cmd):
             self.instrument.load_calibration_database()
         except Exception:
             raise KeyError(
-                'Microscope probably not calibrated yet. '
-                + 'Monet Set only works with an existing calibration.'
+                "Microscope probably not calibrated yet. "
+                + "Monet Set only works with an existing calibration."
             )
 
         # load powermeter if present
         try:
-            pwrconfig = config['powermeter']
+            pwrconfig = config["powermeter"]
             self.powermeter = load_class(
-                pwrconfig['classpath'], pwrconfig['init_kwargs']
+                pwrconfig["classpath"], pwrconfig["init_kwargs"]
             )
             self.use_powermeter = True
         except Exception:
             self.use_powermeter = False
-            print('Powermeter not connected. Do not use measure function')
+            print("Powermeter not connected. Do not use measure function")
             # print(traceback.format_exc())
 
         # switch on autoshutter (is switched on in initialization because
         # that is necessary for calibrate and adjust)
         try:
-            self.instrument.beampath.objects['shutter'].autoshutter = True
+            self.instrument.beampath.objects["shutter"].autoshutter = True
         except Exception:
             pass
 
@@ -788,14 +788,14 @@ class MonetSetInteractive(cmd.Cmd):
 
         # power-setting mode (see do_mode) and feedback controller parameters
         # (see do_feedback / do_feedback_config)
-        self.power_mode = 'combined'
+        self.power_mode = "combined"
         self.feedback_kp = 0.85
         self.feedback_ki = 0.15
         self.feedback_tol_pct = 1.0
         self.feedback_max_iter = 20
 
     def do_multi_laser(self, arg):
-        if arg.upper() == '0' or arg.upper() == 'FALSE':
+        if arg.upper() == "0" or arg.upper() == "FALSE":
             self.multi_laser_operation = False
             print("""
                 Switching multi-laser operation off.
@@ -822,37 +822,37 @@ class MonetSetInteractive(cmd.Cmd):
         """
         if not laser:
             if self.instrument.lasers[self.instrument.curr_laser].enabled:
-                enbl = 'on'
+                enbl = "on"
             else:
-                enbl = 'off'
+                enbl = "off"
             pwr = self.instrument.power
             print(
-                'Currently active laser ',
+                "Currently active laser ",
                 self.instrument.curr_laser,
-                'is',
+                "is",
                 enbl,
-                'and set on ',
+                "and set on ",
                 pwr,
-                'mW.',
+                "mW.",
             )
         else:
-            if isinstance(laser, str) and laser.upper() == 'OFF':
+            if isinstance(laser, str) and laser.upper() == "OFF":
                 self.instrument.lasers[self.instrument.curr_laser].enabled = (
                     False
                 )
-            elif isinstance(laser, str) and laser.upper() == 'ALLOFF':
+            elif isinstance(laser, str) and laser.upper() == "ALLOFF":
                 for las in self.instrument.laser:
                     self.instrument.lasers[las].enabled = False
-            elif isinstance(laser, str) and laser.upper() == 'ON':
+            elif isinstance(laser, str) and laser.upper() == "ON":
                 self.instrument.lasers[self.instrument.curr_laser].enabled = (
                     True
                 )
-            elif isinstance(laser, str) and laser.upper() == 'ALLON':
+            elif isinstance(laser, str) and laser.upper() == "ALLON":
                 for las in self.instrument.laser:
                     self.instrument.lasers[las].enabled = True
             else:
                 try:
-                    print('Setting laser {:s}.'.format(str(laser)))
+                    print("Setting laser {:s}.".format(str(laser)))
                     if (
                         self.instrument.curr_laser is not None
                         and self.instrument.curr_laser != laser
@@ -862,14 +862,14 @@ class MonetSetInteractive(cmd.Cmd):
                             self.instrument.curr_laser
                         ].enabled:
                             print(
-                                f'WARNING: switching to {laser}, but'
-                                + f' laser {self.instrument.curr_laser}'
-                                + 'is still ON!'
+                                f"WARNING: switching to {laser}, but"
+                                + f" laser {self.instrument.curr_laser}"
+                                + "is still ON!"
                             )
                             logger.debug(
-                                f'WARNING: switching to {laser}, but'
-                                + f' laser {self.instrument.curr_laser}'
-                                + 'is still ON!'
+                                f"WARNING: switching to {laser}, but"
+                                + f" laser {self.instrument.curr_laser}"
+                                + "is still ON!"
                             )
                     elif not self.multi_laser_operation:
                         # switch the current laser off
@@ -895,7 +895,7 @@ class MonetSetInteractive(cmd.Cmd):
         """Set the laser power of the current laser"""
         if not power:
             print(
-                'Current laserpower out of laser: ', self.instrument.laserpower
+                "Current laserpower out of laser: ", self.instrument.laserpower
             )
         else:
             try:
@@ -914,21 +914,21 @@ class MonetSetInteractive(cmd.Cmd):
             'fixed_attenuator' (keep attenuator fixed, adjust laser power).
             With no argument, the current mode is printed.
         """
-        modes = ('combined', 'fixed_laser', 'fixed_attenuator')
+        modes = ("combined", "fixed_laser", "fixed_attenuator")
         arg = arg.strip()
         if not arg:
-            print('Current power mode:', self.power_mode)
-            print('Available modes:', ', '.join(modes))
+            print("Current power mode:", self.power_mode)
+            print("Available modes:", ", ".join(modes))
             return
         if arg not in modes:
             print(
                 "Unknown mode '{:s}'. Choose one of: {:s}".format(
-                    arg, ', '.join(modes)
+                    arg, ", ".join(modes)
                 )
             )
             return
         self.power_mode = arg
-        print('Power mode set to', arg)
+        print("Power mode set to", arg)
 
     def do_range(self, arg):
         """Print the accessible output power range for the current mode."""
@@ -937,13 +937,13 @@ class MonetSetInteractive(cmd.Cmd):
                 self.power_mode, self.instrument.curr_laser
             )
             print(
-                'Accessible range ({:s} mode, laser {:s}): '
-                '{:.2f} - {:.2f} mW'.format(
+                "Accessible range ({:s} mode, laser {:s}): "
+                "{:.2f} - {:.2f} mW".format(
                     self.power_mode, str(self.instrument.curr_laser), lo, hi
                 )
             )
         except Exception as e:
-            print('Could not determine power range:', str(e))
+            print("Could not determine power range:", str(e))
 
     def do_power(self, power):
         """Set the output power [mW], using the current power mode.
@@ -956,25 +956,25 @@ class MonetSetInteractive(cmd.Cmd):
             The power to set to [mW].
         """
         if not power:
-            print('Current power at objective:', self.instrument.power)
+            print("Current power at objective:", self.instrument.power)
             return
         try:
             pwr = int(power)
             laser = self.instrument.curr_laser
-            if self.power_mode == 'fixed_laser':
+            if self.power_mode == "fixed_laser":
                 self.instrument.set_power_fixed_laser(pwr, laser)
                 print(
-                    'Set attenuator for {:d} mW '
-                    '(laser power fixed).'.format(pwr)
+                    "Set attenuator for {:d} mW "
+                    "(laser power fixed).".format(pwr)
                 )
-            elif self.power_mode == 'fixed_attenuator':
+            elif self.power_mode == "fixed_attenuator":
                 self.instrument.set_power_fixed_attenuator(pwr, laser)
                 print(
-                    'Adjusted laser power for {:d} mW '
-                    '(attenuator fixed).'.format(pwr)
+                    "Adjusted laser power for {:d} mW "
+                    "(attenuator fixed).".format(pwr)
                 )
             else:
-                print('Setting output power to ', pwr)
+                print("Setting output power to ", pwr)
                 self.instrument.power = pwr
             self.power_setvalues[self.instrument.curr_laser] = pwr
         except ValueError as e:
@@ -997,9 +997,9 @@ class MonetSetInteractive(cmd.Cmd):
         from monet.util import update_mm_acquisition_comment
 
         if not self.use_powermeter:
-            print('No powermeter is connected. Feedback control unavailable.')
+            print("No powermeter is connected. Feedback control unavailable.")
             return
-        if self.power_mode == 'combined':
+        if self.power_mode == "combined":
             print(
                 "Feedback requires mode 'fixed_laser' or 'fixed_attenuator'."
                 " Use the 'mode' command to switch."
@@ -1027,14 +1027,14 @@ class MonetSetInteractive(cmd.Cmd):
         def _progress(iteration, setpoint, measured):
             dev = (abs(measured - pwr) / pwr * 100.0) if pwr > 0 else 0.0
             print(
-                '  [feedback] iter {:2d}: setpoint={:.3f}  '
-                'measured={:.3f} mW  ({:.1f}% dev)'.format(
+                "  [feedback] iter {:2d}: setpoint={:.3f}  "
+                "measured={:.3f} mW  ({:.1f}% dev)".format(
                     iteration, setpoint, measured, dev
                 )
             )
 
         print(
-            'Feedback ({:s} mode): target {:g} mW, tolerance {:g}%'.format(
+            "Feedback ({:s} mode): target {:g} mW, tolerance {:g}%".format(
                 self.power_mode, pwr, tol
             )
         )
@@ -1052,34 +1052,34 @@ class MonetSetInteractive(cmd.Cmd):
                 progress_callback=_progress,
             )
         except KeyboardInterrupt:
-            print('\nFeedback aborted by user.')
+            print("\nFeedback aborted by user.")
             return
         except ValueError as e:
             print(str(e))
             return
 
-        measured = result['measured']
+        measured = result["measured"]
         dev = (abs(measured - pwr) / pwr * 100.0) if pwr > 0 else 0.0
         print(
-            'Target {:g} mW -> measured {:.3f} mW ({:.1f}% deviation) '
-            'after {:d} iteration(s).'.format(
-                pwr, measured, dev, result['iterations']
+            "Target {:g} mW -> measured {:.3f} mW ({:.1f}% deviation) "
+            "after {:d} iteration(s).".format(
+                pwr, measured, dev, result["iterations"]
             )
         )
-        if not result['converged']:
+        if not result["converged"]:
             print(
-                '  Did not converge within {:d} steps.'.format(
+                "  Did not converge within {:d} steps.".format(
                     self.feedback_max_iter
                 )
             )
-        if result['out_of_range']:
-            print('  Attenuator range limit reached.')
-        cali_pred = result['cali_pred']
+        if result["out_of_range"]:
+            print("  Attenuator range limit reached.")
+        cali_pred = result["cali_pred"]
         if cali_pred is not None and cali_pred > 0:
             cali_dev = (measured - cali_pred) / cali_pred * 100.0
             print(
-                '  Calibration deviation: {:+.1f}%  (calibration predicts '
-                '{:.3f} mW).'.format(cali_dev, cali_pred)
+                "  Calibration deviation: {:+.1f}%  (calibration predicts "
+                "{:.3f} mW).".format(cali_dev, cali_pred)
             )
         self.power_setvalues[self.instrument.curr_laser] = pwr
 
@@ -1087,12 +1087,27 @@ class MonetSetInteractive(cmd.Cmd):
         try:
             unit = self.powermeter.unit
         except Exception:
-            unit = 'mW'
+            unit = "mW"
+        factor = result.get("transmission")
+        if factor is not None and factor != 1.0:
+            print(
+                "  (sample plane; measured {:.3f} {} in BFP x T_obj={:.4f})".format(
+                    result.get("measured_raw"), unit, factor
+                )
+            )
+        else:
+            print("  (no objective transmission factor applied)")
         mm_err = update_mm_acquisition_comment(
-            laser, measured, unit, result['att_pos'], result['laser_pwr']
+            laser,
+            measured,
+            unit,
+            result["att_pos"],
+            result["laser_pwr"],
+            raw_power=result.get("measured_raw"),
+            transmission=factor,
         )
         if mm_err is not None:
-            print('  MicroManager comment update failed:', mm_err)
+            print("  MicroManager comment update failed:", mm_err)
 
     def do_feedback_config(self, line):
         """Configure the feedback controller parameters.
@@ -1107,27 +1122,27 @@ class MonetSetInteractive(cmd.Cmd):
         printed.
         """
         params = {
-            'kp': ('feedback_kp', float),
-            'ki': ('feedback_ki', float),
-            'tol': ('feedback_tol_pct', float),
-            'max_iter': ('feedback_max_iter', int),
+            "kp": ("feedback_kp", float),
+            "ki": ("feedback_ki", float),
+            "tol": ("feedback_tol_pct", float),
+            "max_iter": ("feedback_max_iter", int),
         }
         line = line.strip()
         if not line:
-            print('Feedback controller settings:')
-            print('  kp       =', self.feedback_kp)
-            print('  ki       =', self.feedback_ki)
-            print('  tol      =', self.feedback_tol_pct, '%')
-            print('  max_iter =', self.feedback_max_iter)
+            print("Feedback controller settings:")
+            print("  kp       =", self.feedback_kp)
+            print("  ki       =", self.feedback_ki)
+            print("  tol      =", self.feedback_tol_pct, "%")
+            print("  max_iter =", self.feedback_max_iter)
             return
         try:
-            commands = line.split('--')[1:]
+            commands = line.split("--")[1:]
             kwargs = {
-                c.split(':')[0].strip(): c.split(':')[1].strip()
+                c.split(":")[0].strip(): c.split(":")[1].strip()
                 for c in commands
             }
         except Exception:
-            print('Please format your commands as --parameter: value')
+            print("Please format your commands as --parameter: value")
             return
         for key, val in kwargs.items():
             match = get_most_similar(key, list(params.keys()))
@@ -1137,7 +1152,7 @@ class MonetSetInteractive(cmd.Cmd):
             attr, caster = params[match]
             try:
                 setattr(self, attr, caster(val))
-                print('Set {:s} to {:s}'.format(match, val))
+                print("Set {:s} to {:s}".format(match, val))
             except ValueError:
                 print(
                     'Could not parse value "{:s}" for {:s}.'.format(val, match)
@@ -1145,7 +1160,7 @@ class MonetSetInteractive(cmd.Cmd):
 
     def do_attenuate(self, pos):
         """Set the attenuation device to a position (float)"""
-        if pos.upper() == 'HOME':
+        if pos.upper() == "HOME":
             self.instrument.attenuator.home()
         else:
             pos = float(pos)
@@ -1155,43 +1170,43 @@ class MonetSetInteractive(cmd.Cmd):
         """Display the status of all available laser lines"""
         for lsr in self.instrument.laser:
             if self.instrument.lasers[lsr].enabled:
-                enbl = 'on'
+                enbl = "on"
             else:
-                enbl = 'off'
+                enbl = "off"
             pwr = self.power_setvalues[lsr]
-            print('Laser ', lsr, 'is', enbl, 'and set to ', pwr, 'mW.')
-        print('Currently active laser: ', self.instrument.curr_laser)
+            print("Laser ", lsr, "is", enbl, "and set to ", pwr, "mW.")
+        print("Currently active laser: ", self.instrument.curr_laser)
         try:
             print(
-                'Current attenuator position: ',
+                "Current attenuator position: ",
                 self.instrument.attenuator.curr_pos(),
             )
         except Exception:
             pass
         try:
-            print('Beam path positions:', self.instrument.beampath.positions)
+            print("Beam path positions:", self.instrument.beampath.positions)
         except Exception:
             pass
         try:
             print(
-                'Autoshutter:',
-                self.instrument.beampath.objects['shutter'].autoshutter,
+                "Autoshutter:",
+                self.instrument.beampath.objects["shutter"].autoshutter,
             )
         except Exception:
             pass
-        print('Power mode:', self.power_mode)
+        print("Power mode:", self.power_mode)
         try:
             lo, hi = self.instrument.accessible_power_range(
                 self.power_mode, self.instrument.curr_laser
             )
-            print('Accessible power range: {:.2f} - {:.2f} mW'.format(lo, hi))
+            print("Accessible power range: {:.2f} - {:.2f} mW".format(lo, hi))
         except Exception:
             pass
 
     def do_open(self, line):
         """open shutter and set the correct light path positions"""
         try:
-            self.instrument.beampath.positions = self.protocol['beampath'][
+            self.instrument.beampath.positions = self.protocol["beampath"][
                 self.instrument.curr_laser
             ]
         except Exception as e:
@@ -1201,8 +1216,8 @@ class MonetSetInteractive(cmd.Cmd):
     def do_close(self, line):
         """close shutter"""
         try:
-            self.instrument.beampath.positions = self.protocol['beampath'][
-                'end'
+            self.instrument.beampath.positions = self.protocol["beampath"][
+                "end"
             ]
         except Exception as e:
             print(str(e))
@@ -1213,7 +1228,7 @@ class MonetSetInteractive(cmd.Cmd):
         try:
             line = int(line)
         except Exception:
-            if line.upper() == 'TRUE':
+            if line.upper() == "TRUE":
                 line = 1
             else:
                 line = 0
@@ -1222,7 +1237,7 @@ class MonetSetInteractive(cmd.Cmd):
         else:
             line = False
         try:
-            self.instrument.beampath.objects['shutter'].autoshutter = line
+            self.instrument.beampath.objects["shutter"].autoshutter = line
         except Exception as e:
             print(str(e))
             return
@@ -1247,25 +1262,36 @@ class MonetSetInteractive(cmd.Cmd):
         from monet.util import update_mm_acquisition_comment
 
         if not self.use_powermeter:
-            print('No powermeter is connected. Cannot measure.')
+            print("No powermeter is connected. Cannot measure.")
             return
 
         laser = self.instrument.curr_laser
         # Project the raw reading to the sample plane (no-op unless the active
         # calibration used the BFP meter and a transmission factor exists).
-        measured = self.instrument.to_sample_plane(
-            self.powermeter.read(averaging), laser
-        )
-        print(POWER_TAG + ': ' + str(measured))
+        raw = self.powermeter.read(averaging)
+        measured = self.instrument.to_sample_plane(raw, laser)
+        try:
+            factor = self.instrument._bfp_factor(laser)
+        except Exception:
+            factor = None
+        print(POWER_TAG + ": " + str(measured))
         try:
             unit = self.powermeter.unit
         except Exception:
-            unit = 'mW'
+            unit = "mW"
+        if factor is not None and factor != 1.0:
+            print(
+                "  (sample plane; measured {:.3f} {} in BFP x T_obj={:.4f})".format(
+                    raw, unit, factor
+                )
+            )
+        else:
+            print("  (no objective transmission factor applied)")
 
         # Calibration deviation: what the calibration predicts vs. measured
         cali_pred = None
         try:
-            if self.power_mode == 'fixed_attenuator':
+            if self.power_mode == "fixed_attenuator":
                 curr_lp = self.instrument.lasers[laser].power
                 cali_pred = self.instrument.predict_power_fixed_attenuator(
                     curr_lp, laser
@@ -1277,8 +1303,8 @@ class MonetSetInteractive(cmd.Cmd):
         if cali_pred is not None and cali_pred > 0:
             dev = (measured - cali_pred) / cali_pred * 100.0
             print(
-                'Calibration deviation: {:+.1f}%  (calibration predicts '
-                '{:.3f} {:s}).'.format(dev, cali_pred, unit)
+                "Calibration deviation: {:+.1f}%  (calibration predicts "
+                "{:.3f} {:s}).".format(dev, cali_pred, unit)
             )
 
         # Write the measured power into the MicroManager acquisition comment
@@ -1291,14 +1317,20 @@ class MonetSetInteractive(cmd.Cmd):
         except Exception:
             laser_pwr = None
         mm_err = update_mm_acquisition_comment(
-            laser, measured, unit, att_pos, laser_pwr
+            laser,
+            measured,
+            unit,
+            att_pos,
+            laser_pwr,
+            raw_power=raw,
+            transmission=factor,
         )
         if mm_err is not None:
-            print('MicroManager comment update failed:', mm_err)
+            print("MicroManager comment update failed:", mm_err)
 
     def do_py(self, line):
         """Execute a line of code"""
-        line = 'print(' + line + ')'
+        line = "print(" + line + ")"
         f = StringIO()
         with redirect_stdout(f):
             try:
@@ -1318,7 +1350,7 @@ class MonetSetInteractive(cmd.Cmd):
 
     def close(self):
         print("Switching all lasers off.")
-        self.do_laser('off')
+        self.do_laser("off")
         pass
 
 
@@ -1336,13 +1368,13 @@ def get_most_similar(input, options):
 
 def print_help_interactive(config_commands):
     pp = pprint.PrettyPrinter(indent=2)
-    print('Interactive monet.')
-    print('Commands:')
+    print("Interactive monet.")
+    print("Commands:")
     cmd_desc = {
-        'calibrate': 'Start calibration as per the configuration',
-        'set': 'set power to a level. Args: Power in mW, float.',
-        'config': 'alter the configuration',
-        'q or exit': 'quit',
+        "calibrate": "Start calibration as per the configuration",
+        "set": "set power to a level. Args: Power in mW, float.",
+        "config": "alter the configuration",
+        "q or exit": "quit",
     }
     pp.pprint(cmd_desc)
     print_help_interactive_config(config_commands)
@@ -1350,12 +1382,12 @@ def print_help_interactive(config_commands):
 
 def print_help_interactive_config(config_commands):
     print('for config commands, use pairs of "--[CMD] [ARG]"')
-    print('Commands config (CMD): ')
+    print("Commands config (CMD): ")
     print(config_commands)
 
 
 if __name__ == "__main__":
     config_logger()
     logger = logging.getLogger(__name__)
-    logger.debug('start logging')
+    logger.debug("start logging")
     main()

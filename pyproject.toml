@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools", "setuptools-scm", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "monet"
-version = "0.3.6"
+dynamic = ["version"]
 description = "A Python based software suite to calibrate laser power for microscopy systems."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -41,6 +41,10 @@ dependencies = [
     # (the local SQLite cache/outbox that backs the HTTP database mode), so it is
     # required to import the core workflow even when only the Excel DB is used.
     "sqlalchemy>=2.0",
+    # pyserial is imported eagerly by monet.attenuation (top-level `import
+    # serial`), which is loaded whenever a control is built — including with the
+    # test attenuator — so it is a core dependency, not hardware-only.
+    "pyserial>=3.5",
 ]
 
 [project.optional-dependencies]
@@ -64,7 +68,6 @@ server = [
 hardware = [
     "pyvisa>=1.15",
     "ThorlabsPM100>=1.2.2",
-    "pyserial>=3.5",
     "microscope>=0.7",
     "nidaqmx>=1.2",
     "pycromanager",
@@ -72,12 +75,18 @@ hardware = [
     "msl-equipment @ https://github.com/MSLNZ/msl-equipment/releases/download/v0.2.0/msl_equipment-0.2.0-py3-none-any.whl",
 ]
 
-# Test / development tooling.
+# Test / development tooling. black is pinned so a manual run and the
+# pre-commit hook (see .pre-commit-config.yaml) agree; flake8 reads its config
+# from [tool.flake8] below via the Flake8-pyproject plugin.
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "coverage>=7.10",
     "httpx>=0.25",
+    "black==26.5.1",
+    "flake8>=7",
+    "Flake8-pyproject>=1.2",
+    "pre-commit>=3.7",
 ]
 
 # Convenience aggregate of every optional group.
@@ -94,6 +103,14 @@ Repository = "https://github.com/Heerpa/monet"
 
 [project.scripts]
 monet = "monet.__main__:main"
+
+[tool.setuptools_scm]
+# Writes the version into a file that is importable at runtime, even when
+# installed from a wheel or sdist (i.e. without a .git directory).
+write_to = "monet/_version.py"
+# Shown when the package is imported outside a git repository and no tag
+# is reachable (e.g. a fresh checkout with no tags yet).
+fallback_version = "0.3.6"
 
 [tool.setuptools.packages.find]
 include = ["monet*"]
@@ -116,3 +133,22 @@ filterwarnings = [
 [tool.coverage.run]
 source = ["monet"]
 omit = ["monet/tests/*"]
+
+[tool.black]
+target-version = ["py310"]
+line-length = 79
+# Vendored Thorlabs wrapper and the setuptools-scm generated version file are
+# not our code / are machine-written — keep black off them.
+extend-exclude = '(monet/TLPM\.py|monet/_version\.py)'
+
+[tool.flake8]
+# Stock flake8 only (E/W = pycodestyle, F = pyflakes, C90 = complexity). Line
+# length is owned by black, so E501 is ignored here (black already wraps code;
+# long strings/comments it can't split -- e.g. dashboard.py's embedded
+# HTML/CSS/JS -- are intentional). E203/W503 are the standard black-
+# compatibility ignores.
+extend-ignore = "E203,E501,W503"
+# extend-exclude keeps flake8's sensible defaults and additionally skips the
+# vendored Thorlabs wrapper (ships with the OPM SDK) and the setuptools-scm
+# generated _version.py.
+extend-exclude = "monet/TLPM.py,monet/_version.py"

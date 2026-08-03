@@ -79,7 +79,7 @@ class TestLaser(AbstractLaser):
     def __init__(self, connection_parameters, warmup_delay=0):
         super().__init__(warmup_delay)
         logger.debug(
-            'Simulating Test laser with connection parameters '
+            "Simulating Test laser with connection parameters "
             + str(connection_parameters)
         )
         self._enabled = False
@@ -88,23 +88,23 @@ class TestLaser(AbstractLaser):
     @property
     def enabled(self):
         logger.debug(
-            'Querying enabled state. It is {:s}'.format(str(self._enabled))
+            "Querying enabled state. It is {:s}".format(str(self._enabled))
         )
         return self._enabled
 
     @enabled.setter
     def enabled(self, value):
-        logger.debug('Setting enabled state to {:s}.'.format(str(value)))
+        logger.debug("Setting enabled state to {:s}.".format(str(value)))
         self._enabled = value
 
     @property
     def power(self):
-        logger.debug('Querying power. It is {:s}'.format(str(self._power)))
+        logger.debug("Querying power. It is {:s}".format(str(self._power)))
         return self._power
 
     @power.setter
     def power(self, power):
-        logger.debug('Setting laser power to {:s}.'.format(str(power)))
+        logger.debug("Setting laser power to {:s}.".format(str(power)))
         self._power = power
 
 
@@ -167,19 +167,19 @@ class MPBVFL_lowlevel(serial.Serial):
 
     def __init__(
         self,
-        port='COM10',
+        port="COM10",
         baudrate=9600,
         bytesize=8,
-        parity='N',
+        parity="N",
         stopbits=1,
         timeout=1,
     ):
         paritydict = {
-            'N': serial.PARITY_NONE,
-            'E': serial.PARITY_EVEN,
-            'O': serial.PARITY_ODD,
-            'M': serial.PARITY_MARK,
-            'S': serial.PARITY_SPACE,
+            "N": serial.PARITY_NONE,
+            "E": serial.PARITY_EVEN,
+            "O": serial.PARITY_ODD,
+            "M": serial.PARITY_MARK,
+            "S": serial.PARITY_SPACE,
         }
         bytesizedict = {
             5: serial.FIVEBITS,
@@ -204,70 +204,70 @@ class MPBVFL_lowlevel(serial.Serial):
     @property  # @Feat(read_once=True)
     def idn(self):
         """Identification of the device"""
-        return self.query('GETMODEL')
+        return self.query("GETMODEL")
 
     @property  # @Feat()
     def status(self):
         """Current device status"""
-        ans = self.query('shlaser')
-        return ans.split('\r')
+        ans = self.query("shlaser")
+        return ans.split("\r")
 
     # ENABLE LASER
     @property  # Feat(values={True: '1', False: '0'})
     def enabled(self):
         """Method for turning on the laser"""
-        return self.query('GETLDENABLE', values={True: '1', False: '0'})
+        return self.query("GETLDENABLE", values={True: "1", False: "0"})
 
     @enabled.setter
     def enabled(self, value):
         translation = {
-            0: '0',
-            1: '1',
-            False: '0',
-            True: '1',
-            '0': '0',
-            '1': '1',
-            'off': '0',
-            'on': '1',
-            'OFF': '0',
-            'ON': '1',
+            0: "0",
+            1: "1",
+            False: "0",
+            True: "1",
+            "0": "0",
+            "1": "1",
+            "off": "0",
+            "on": "1",
+            "OFF": "0",
+            "ON": "1",
         }
         value = translation[value]
-        self.query('SETLDENABLE ' + value, expectanswer=False)
+        self.query("SETLDENABLE " + value, expectanswer=False)
 
     # LASER'S CONTROL MODE AND SET POINT
 
     @property  # @Feat(values={'APC': '1', 'ACC': '0'})
     def ctl_mode(self):
         """To handle laser diode current (mA) in Active Current Control Mode"""
-        return self.query('GETPOWERENABLE', values={'APC': '1', 'ACC': '0'})
+        return self.query("GETPOWERENABLE", values={"APC": "1", "ACC": "0"})
 
     @ctl_mode.setter
     def ctl_mode(self, value):
-        self.query('POWERENABLE {}'.format(value), expectanswer=False)
+        self.query("POWERENABLE {}".format(value), expectanswer=False)
 
     @property  # @Feat(units='mA')
     def current_sp(self):
         """To handle laser diode current (mA) in Active Current Control Mode"""
-        return float(self.query('GETLDCUR 1'))
+        return float(self.query("GETLDCUR 1"))
 
     @current_sp.setter
     def current_sp(self, value):
-        self.query('SETLDCUR 1 {:.1f}'.format(value), expectanswer=False)
+        self.query("SETLDCUR 1 {:.1f}".format(value), expectanswer=False)
 
     @property  # @Feat(units='mW')
     def power_sp(self):
         """To handle output power set point (mW) in APC Mode"""
-        return float(self.query('GETPOWER 0'))
+        return float(self.query("GETPOWER 0"))
 
     @power_sp.setter
     def power_sp(self, value):
-        self.query('SETPOWER 0 {:.0f}'.format(value), expectanswer=False)
+        self.query("SETPOWER 0 {:.0f}".format(value), expectanswer=False)
 
     @property  # @Feat(units='mW')
     def power_sp_lim(self):
         """The power set point limits"""
-        setptlims = self.query('GETPOWERSETPTLIM 1').split(' ')
+        setptlims = self.query("GETPOWERSETPTLIM 1").split(" ")
         # setptlims = self.query('GETPOWERSETPTLIM 2').split(' ')
         return [float(setptlims[0]), float(setptlims[1])]
 
@@ -276,56 +276,56 @@ class MPBVFL_lowlevel(serial.Serial):
     @property  # @Feat(units='mW')
     def power(self):
         """To get the laser emission power (mW)"""
-        return float(self.query('POWER 0'))
+        return float(self.query("POWER 0"))
 
     @property  # @Feat(units='mA')
     def ld_current(self):
         """To get the laser diode current (mA)"""
-        return float(self.query('LDCURRENT 1'))
+        return float(self.query("LDCURRENT 1"))
 
     @property  # @Feat(units='degC')
     def ld_temp(self):
         """To get the laser diode temperature (ºC)"""
-        return float(self.query('LDTEMP 1'))
+        return float(self.query("LDTEMP 1"))
 
     @property  # @Feat(units='mA')
     def tec_current(self):
         """To get the thermoelectric cooler (TEC) current (mA)"""
-        return float(self.query('TECCURRENT 1'))
+        return float(self.query("TECCURRENT 1"))
 
     @property  # @Feat(units='degC')
     def tec_temp(self):
         """To get the thermoelectric cooler (TEC) temperature (ºC)"""
-        return float(self.query('TECTEMP 1'))
+        return float(self.query("TECTEMP 1"))
 
     # SECOND HARMONIC GENERATOR METHODS
 
     @property  # @Feat(units='degC')
     def shg_temp_sp(self):
         """To handle the SHG temperature set point"""
-        return float(self.query('GETSHGTEMP'))
+        return float(self.query("GETSHGTEMP"))
 
     @shg_temp_sp.setter
     def shg_temp_sp(self, value):
-        self.query('GETSHGTEMP {:.2f}'.format(value), expectanswer=False)
+        self.query("GETSHGTEMP {:.2f}".format(value), expectanswer=False)
 
     @property  # @Feat(units='degC')
     def shg_temp(self):
         """To get the SHG temperature"""
-        return float(self.query('SHGTEMP'))
+        return float(self.query("SHGTEMP"))
 
     @property  # @Feat()
     def shg_tune_info(self):
         """Getting information about laser ready for SHG tuning"""
-        info = self.query('GETSHGTUNERDY').split()
-        if info[0] == '0':
-            ready = 'Laser not ready for SHG tuning. '
+        info = self.query("GETSHGTUNERDY").split()
+        if info[0] == "0":
+            ready = "Laser not ready for SHG tuning. "
         else:
-            ready = 'Laser ready for SHG tuning. '
+            ready = "Laser ready for SHG tuning. "
 
-        schedule = 'Next SHG tuning scheduled in {} '.format(info[1])
-        schedule += 'hours of operation. '
-        warm = 'Warm-up period expires in {} seconds.'.format(info[2])
+        schedule = "Next SHG tuning scheduled in {} ".format(info[1])
+        schedule += "hours of operation. "
+        warm = "Warm-up period expires in {} seconds.".format(info[2])
 
         ans = ready + schedule + warm
         return ans
@@ -333,35 +333,35 @@ class MPBVFL_lowlevel(serial.Serial):
     @property  # @Feat()
     def shg_tuning(self):
         """Initiating SHG tuning"""
-        state = self.query('GETSHGTUNESTATE').split()
-        if state[0] == '0':
-            tuning = 'No SHG tuning performed since last reset. '
-        elif state[0] == '3':
-            tuning = 'SHG tuning in progress. '
-        elif state[0] == '1':
-            tuning = 'SHG tuning completed successfully. '
-        elif state[0] == '2':
-            tuning = 'SHG tuning aborted. '
+        state = self.query("GETSHGTUNESTATE").split()
+        if state[0] == "0":
+            tuning = "No SHG tuning performed since last reset. "
+        elif state[0] == "3":
+            tuning = "SHG tuning in progress. "
+        elif state[0] == "1":
+            tuning = "SHG tuning completed successfully. "
+        elif state[0] == "2":
+            tuning = "SHG tuning aborted. "
 
-        if state[1] == '0':
-            error = 'No error detected.'
-        elif state[1] == '1':
-            error = 'Error: Laser not running in APC.'
-        elif state[1] == '8':
-            error = 'Error: Output Power not stabilized.'
+        if state[1] == "0":
+            error = "No error detected."
+        elif state[1] == "1":
+            error = "Error: Laser not running in APC."
+        elif state[1] == "8":
+            error = "Error: Output Power not stabilized."
 
         return tuning + error
 
     # @Action()
     def tune_shg(self):
-        self.query('SETSHGCMD 1')
+        self.query("SETSHGCMD 1")
 
     # @Action()
     def tune_shg_stop(self):
-        self.query('SETSHGCMD 2')
+        self.query("SETSHGCMD 2")
 
     def query(self, cmd, values=None, expectanswer=True):
-        '''Send a command and receive the answer.
+        """Send a command and receive the answer.
 
         Parameters
         ----------
@@ -374,13 +374,13 @@ class MPBVFL_lowlevel(serial.Serial):
             answers.
         expectanswer : bool
             Whether to wait for an answer.
-        '''
+        """
         if self.in_waiting:
             self.reset_input_buffer()
-        self.write(cmd.encode() + b'\r')
+        self.write(cmd.encode() + b"\r")
 
         answer = self.read_until()
-        answer = answer.decode().split('\rD')[0]
+        answer = answer.decode().split("\rD")[0]
 
         if values is not None:
             valrev = {v: k for k, v in values.items()}
@@ -404,8 +404,8 @@ class Toptica_Old(AbstractLaser):
 
         self.las = TopticaiBeam(**connection_parameters)
         # enable the channels, switch off laser, just to be safe
-        self.las._conn.command(b'en 1')
-        self.las._conn.command(b'en 2')
+        self.las._conn.command(b"en 1")
+        self.las._conn.command(b"en 2")
         # self.enabled = False
 
     @property
@@ -418,11 +418,11 @@ class Toptica_Old(AbstractLaser):
             self.las.enable()
             time.sleep(self.warmup_delay)
         elif value is False:
-            if hasattr(self.las, '_conn'):
+            if hasattr(self.las, "_conn"):
                 self.las.disable()
         else:
             raise ValueError(
-                'value must be bool, but is {:s}'.format(str(value))
+                "value must be bool, but is {:s}".format(str(value))
             )
 
     @property
@@ -440,7 +440,7 @@ class Toptica_Old(AbstractLaser):
         return self.las._set_power_mw(power)
 
     def _get_power(self):
-        '''Get the power in mW'''
+        """Get the power in mW"""
         return self.las._get_power_mw()
 
     @property
@@ -487,7 +487,7 @@ class Toptica(AbstractLaser):
             self.las.set_enabled(False)
         else:
             raise ValueError(
-                'value must be bool, but is {:s}'.format(str(value))
+                "value must be bool, but is {:s}".format(str(value))
             )
 
     @property
@@ -509,7 +509,7 @@ class Toptica(AbstractLaser):
         return None
 
     def __del__(self):
-        if hasattr(self, 'las'):
+        if hasattr(self, "las"):
             try:
                 self.las.close()
             except Exception:
@@ -541,19 +541,19 @@ class Toptica_lowlevel(serial.Serial):
 
     def __init__(
         self,
-        port='COM10',
+        port="COM10",
         baudrate=115200,
         bytesize=8,
-        parity='N',
+        parity="N",
         stopbits=1,
         timeout=1,
     ):
         paritydict = {
-            'N': serial.PARITY_NONE,
-            'E': serial.PARITY_EVEN,
-            'O': serial.PARITY_ODD,
-            'M': serial.PARITY_MARK,
-            'S': serial.PARITY_SPACE,
+            "N": serial.PARITY_NONE,
+            "E": serial.PARITY_EVEN,
+            "O": serial.PARITY_ODD,
+            "M": serial.PARITY_MARK,
+            "S": serial.PARITY_SPACE,
         }
         bytesizedict = {
             5: serial.FIVEBITS,
@@ -574,7 +574,7 @@ class Toptica_lowlevel(serial.Serial):
             stopbits=stopbitsdict[stopbits],
             timeout=timeout,
         )
-        self.query('channel 1 power {:d} micro'.format(0))
+        self.query("channel 1 power {:d} micro".format(0))
 
     # ENABLE LASER
     def set_enabled(self, value):
@@ -583,32 +583,32 @@ class Toptica_lowlevel(serial.Serial):
             1: True,
             False: False,
             True: True,
-            '0': False,
-            '1': True,
-            'off': False,
-            'on': True,
-            'OFF': False,
-            'ON': True,
+            "0": False,
+            "1": True,
+            "off": False,
+            "on": True,
+            "OFF": False,
+            "ON": True,
         }
         value = translation[value]
 
         if value:
-            self.query('laser on', expectanswer=True)
-            self.query('enable 1')
-            self.query('enable 2')
+            self.query("laser on", expectanswer=True)
+            self.query("enable 1")
+            self.query("enable 2")
         else:
-            self.query('laser off', expectanswer=True)
-            self.query('disable 1')
-            self.query('disable 2')
+            self.query("laser off", expectanswer=True)
+            self.query("disable 1")
+            self.query("disable 2")
 
     def get_enabled(self):
-        answer = self.query('show ch 1')
-        answer = ';'.join(answer)
-        if 'status: on' in answer:
+        answer = self.query("show ch 1")
+        answer = ";".join(answer)
+        if "status: on" in answer:
             return True
         else:
             return False
-        return self.query('show ch 1')
+        return self.query("show ch 1")
 
     def set_power(self, value):
         """Set the power in milliwatt.
@@ -620,12 +620,12 @@ class Toptica_lowlevel(serial.Serial):
         """
         if not isinstance(value, int) and not isinstance(value, float):
             raise ValueError(
-                'Power needs to be specified as an integer mW value. '
-                'Not {:s}'.format(str(value))
+                "Power needs to be specified as an integer mW value. "
+                "Not {:s}".format(str(value))
             )
         # chan1pwr = min([int(1e3*value), 100000])
         # self.query('channel 1 power {:d} micro'.format(chan1pwr))
-        self.query('channel 2 power {:d} micro'.format(int(1e3 * value)))
+        self.query("channel 2 power {:d} micro".format(int(1e3 * value)))
 
     def get_power(self):
         """Query the current power.
@@ -635,7 +635,7 @@ class Toptica_lowlevel(serial.Serial):
         value : int
             The current power in mW.
         """
-        value = self.query('show level power')
+        value = self.query("show level power")
         # print('got values', value)
         powers = {}
         for ln in value:
@@ -650,7 +650,7 @@ class Toptica_lowlevel(serial.Serial):
         return max(powers.values())
 
     def query(self, cmd, values=None, expectanswer=True):
-        '''Send a command and receive the answer.
+        """Send a command and receive the answer.
 
         Parameters
         ----------
@@ -663,16 +663,16 @@ class Toptica_lowlevel(serial.Serial):
             answers.
         expectanswer : bool
             Whether to wait for an answer.
-        '''
+        """
         if self.in_waiting:
             self.reset_input_buffer()
         time.sleep(0.03)
-        self.write(cmd.encode() + b'\r')
+        self.write(cmd.encode() + b"\r")
         time.sleep(0.03)
 
-        answer = self.read_until('CMD>')
+        answer = self.read_until("CMD>")
         time.sleep(0.03)
-        all_answers = answer.decode().split('\r')
+        all_answers = answer.decode().split("\r")
 
         # all_answers = []
         # for i in range(10):
@@ -708,7 +708,7 @@ class LaserQuantum(AbstractLaser):
     def __init__(self, connection_parameters, warmup_delay=5):
         super().__init__(warmup_delay)
         self.laser = LaserQuantum_lowlevel(**connection_parameters)
-        self.laser.control_mode('power')
+        self.laser.control_mode("power")
 
     @property
     def enabled(self):
@@ -766,19 +766,19 @@ class LaserQuantum_lowlevel(serial.Serial):
 
     def __init__(
         self,
-        port='COM10',
+        port="COM10",
         baudrate=9600,
         bytesize=8,
-        parity='N',
+        parity="N",
         stopbits=1,
         timeout=1,
     ):
         paritydict = {
-            'N': serial.PARITY_NONE,
-            'E': serial.PARITY_EVEN,
-            'O': serial.PARITY_ODD,
-            'M': serial.PARITY_MARK,
-            'S': serial.PARITY_SPACE,
+            "N": serial.PARITY_NONE,
+            "E": serial.PARITY_EVEN,
+            "O": serial.PARITY_ODD,
+            "M": serial.PARITY_MARK,
+            "S": serial.PARITY_SPACE,
         }
         bytesizedict = {
             5: serial.FIVEBITS,
@@ -807,30 +807,30 @@ class LaserQuantum_lowlevel(serial.Serial):
             1: True,
             False: False,
             True: True,
-            '0': False,
-            '1': True,
-            'off': False,
-            'on': True,
-            'OFF': False,
-            'ON': True,
+            "0": False,
+            "1": True,
+            "off": False,
+            "on": True,
+            "OFF": False,
+            "ON": True,
         }
         value = translation[value]
 
         if value:
-            self.query('ON', expectanswer=True)
+            self.query("ON", expectanswer=True)
         else:
-            self.query('OFF', expectanswer=True)
+            self.query("OFF", expectanswer=True)
 
-    def control_mode(self, value='power'):
+    def control_mode(self, value="power"):
         """Set the control mode to one of 'power' or 'current'"""
         value = value.upper()
-        options = ['POWER', 'CURRENT']
+        options = ["POWER", "CURRENT"]
         if value not in options:
             raise ValueError(
-                'Control Mode {:s} is not implemented.'.format(value)
-                + ' use one of {:s}.'.format(str(options))
+                "Control Mode {:s} is not implemented.".format(value)
+                + " use one of {:s}.".format(str(options))
             )
-        self.query('CONTROL={:s}'.format(value))
+        self.query("CONTROL={:s}".format(value))
 
     def set_current(self, value):
         """Set the current to a specified percentage.
@@ -842,10 +842,10 @@ class LaserQuantum_lowlevel(serial.Serial):
         """
         if (not isinstance(value, int)) or value < 0 or value > 100:
             raise ValueError(
-                'Current percentage must be an integer between 0 and 100. '
-                'Not {:s}'.format(str(value))
+                "Current percentage must be an integer between 0 and 100. "
+                "Not {:s}".format(str(value))
             )
-        self.query('CURRENT={:d}'.format(value))
+        self.query("CURRENT={:d}".format(value))
 
     def set_power(self, value):
         """Set the power in milliwatt.
@@ -857,10 +857,10 @@ class LaserQuantum_lowlevel(serial.Serial):
         """
         if not isinstance(value, int):
             raise ValueError(
-                'Power needs to be specified as an integer mW value. '
-                'Not {:s}'.format(str(value))
+                "Power needs to be specified as an integer mW value. "
+                "Not {:s}".format(str(value))
             )
-        self.query('POWER={:d}'.format(value))
+        self.query("POWER={:d}".format(value))
 
     def get_power(self):
         """Query the current power.
@@ -870,7 +870,7 @@ class LaserQuantum_lowlevel(serial.Serial):
         value : int
             The current power in mW.
         """
-        return self.query('POWER?')
+        return self.query("POWER?")
 
     def sten(self, value):
         """Set enable on startup.
@@ -882,14 +882,14 @@ class LaserQuantum_lowlevel(serial.Serial):
         """
         if not isinstance(value, bool):
             raise ValueError(
-                'value must be a bool, not {:s}'.format(str(value))
+                "value must be a bool, not {:s}".format(str(value))
             )
         if value:
-            value = 'YES'
+            value = "YES"
         else:
-            value = 'NO'
-        self.query('STEN={:s}'.format(value))
-        self.query('WRITE')
+            value = "NO"
+        self.query("STEN={:s}".format(value))
+        self.query("WRITE")
 
     def stpow(self, value):
         """Set power on startup.
@@ -901,10 +901,10 @@ class LaserQuantum_lowlevel(serial.Serial):
         """
         if not isinstance(value, int):
             raise ValueError(
-                'value must be an int, not {:s}'.format(str(value))
+                "value must be an int, not {:s}".format(str(value))
             )
-        self.query('STPOW={:d}'.format(value))
-        self.query('WRITE')
+        self.query("STPOW={:d}".format(value))
+        self.query("WRITE")
 
     def get_laser_temp(self):
         """Get the temperature at the laser head.
@@ -914,7 +914,7 @@ class LaserQuantum_lowlevel(serial.Serial):
         temp : int
             Temperature in centigrade.
         """
-        return self.query('LASTEMP?')
+        return self.query("LASTEMP?")
 
     def get_psu_temp(self):
         """Get the temperature at the PSU.
@@ -924,11 +924,11 @@ class LaserQuantum_lowlevel(serial.Serial):
         temp : int
             Temperature in centigrade.
         """
-        return self.query('PSUTEMP?')
+        return self.query("PSUTEMP?")
 
     def get_status(self):
         """Get the status of the interlock"""
-        return self.query('STATUS?')
+        return self.query("STATUS?")
 
     def get_timers(self):
         """Get the timers of laser and PSU:
@@ -936,14 +936,14 @@ class LaserQuantum_lowlevel(serial.Serial):
         Laser Time=#######.# Total time the diodes have been powered
         Laser > 1A Time=#######.# Total time the diodes have been powered >1 A
         """
-        return self.query('TIMERS?')
+        return self.query("TIMERS?")
 
     def get_version(self):
         """Get the firmware version"""
-        return self.query('VERSION?')
+        return self.query("VERSION?")
 
     def query(self, cmd, values=None, expectanswer=True):
-        '''Send a command and receive the answer.
+        """Send a command and receive the answer.
 
         Parameters
         ----------
@@ -956,13 +956,13 @@ class LaserQuantum_lowlevel(serial.Serial):
             answers.
         expectanswer : bool
             Whether to wait for an answer.
-        '''
+        """
         if self.in_waiting:
             self.reset_input_buffer()
-        self.write(cmd.encode() + b'\r')
+        self.write(cmd.encode() + b"\r")
 
         answer = self.read_until()
-        answer = answer.decode().split('\rD')[0]
+        answer = answer.decode().split("\rD")[0]
 
         if values is not None:
             valrev = {v: k for k, v in values.items()}
@@ -1017,7 +1017,7 @@ class Cobolt(AbstractLaser):
         self.laser.turn_on()
         if has_key:
             print(
-                'please enable the Cobolt laser by switching the key. '
+                "please enable the Cobolt laser by switching the key. "
                 + str(connection_parameters)
             )
         self._power = 0

@@ -76,15 +76,15 @@ class IlluminationControl:
         self.is_calibrated = False
 
         self.config = config
-        anaconfig = config['analysis']
+        anaconfig = config["analysis"]
         self.analyzer = load_class(
-            anaconfig['classpath'], anaconfig['init_kwargs']
+            anaconfig["classpath"], anaconfig["init_kwargs"]
         )
 
-        attconfig = config['attenuation']
-        settgs = attconfig.get('settings', None)
+        attconfig = config["attenuation"]
+        settgs = attconfig.get("settings", None)
         self.attenuator = load_class(
-            attconfig['classpath'], attconfig['init_kwargs'], settgs
+            attconfig["classpath"], attconfig["init_kwargs"], settgs
         )
 
         if do_load_cal:
@@ -92,8 +92,8 @@ class IlluminationControl:
                 self.load_calibration()
             except Exception as e:
                 logger.warning(
-                    'Could not load calibration: %s. '
-                    'Calibration-dependent features disabled.',
+                    "Could not load calibration: %s. "
+                    "Calibration-dependent features disabled.",
                     e,
                 )
 
@@ -111,7 +111,7 @@ class IlluminationControl:
             The power to set in mW.
         """
         if not self.is_calibrated:
-            raise ValueError('No calibration present. Please calibrate first.')
+            raise ValueError("No calibration present. Please calibrate first.")
         ctrlval = self.analyzer.estimate(power)
         self.set_attenuator(ctrlval)
 
@@ -119,7 +119,7 @@ class IlluminationControl:
         """Set the attenuator value."""
         self.attenuator.set(value)
 
-    def load_calibration(self, time_idx='latest'):
+    def load_calibration(self, time_idx="latest"):
         """Load a calibration from the database and set the analyzer model.
 
         Parameters
@@ -128,9 +128,9 @@ class IlluminationControl:
             Loads either the latest (if None or a string) or a specific
             date and time.
         """
-        fname = self.config['database']
+        fname = self.config["database"]
         cali_pars = io.load_calibration(
-            fname, self.config['index'], time_idx=time_idx
+            fname, self.config["index"], time_idx=time_idx
         )
 
         self.analyzer.load_model(cali_pars)
@@ -143,7 +143,7 @@ class IlluminationControl:
         (e.g. reconnecting in the GUI) so ports are not held open by the
         previous instance. Safe to call more than once.
         """
-        release_hardware(getattr(self, 'attenuator', None))
+        release_hardware(getattr(self, "attenuator", None))
 
 
 class IlluminationLaserControl(IlluminationControl):
@@ -182,29 +182,29 @@ class IlluminationLaserControl(IlluminationControl):
         super().__init__(config, do_load_cal=do_load_cal)
 
         # here, all lasers (wavelengths) and powers are loaded
-        config['index'][LASER_TAG] = slice(None)
-        config['index'][POWER_TAG] = slice(None)
+        config["index"][LASER_TAG] = slice(None)
+        config["index"][POWER_TAG] = slice(None)
 
         self.auto_enable_lasers = auto_enable_lasers
         self.lasers = {}
         lasers_missing = []
-        for laser_key, lconf in config['lasers'].items():
+        for laser_key, lconf in config["lasers"].items():
             try:
                 laser = int(laser_key)
             except Exception:
                 laser = laser_key
             try:
-                settgs = lconf.get('settings', None)
+                settgs = lconf.get("settings", None)
                 self.lasers[laser] = load_class(
-                    lconf['classpath'], lconf['init_kwargs'], settgs
+                    lconf["classpath"], lconf["init_kwargs"], settgs
                 )
                 # self.lasers[laser].enabled = False
             except Exception as e:
-                logger.warning('Could not load laser %s: %s', laser, e)
+                logger.warning("Could not load laser %s: %s", laser, e)
                 print(
-                    'Could not load laser {:s}: {:s}. '
-                    'Check that the device is on and the COM port / '
-                    'connection settings are correct.'.format(
+                    "Could not load laser {:s}: {:s}. "
+                    "Check that the device is on and the COM port / "
+                    "connection settings are correct.".format(
                         str(laser), str(e)
                     )
                 )
@@ -213,21 +213,28 @@ class IlluminationLaserControl(IlluminationControl):
                 lasers_missing.append(laser_key)
 
         for laser_key in lasers_missing:
-            self.config['lasers'].pop(laser_key)
+            self.config["lasers"].pop(laser_key)
 
         if not self.lasers:
             raise RuntimeError(
-                'No lasers could be loaded. Configured lasers: {}. '
-                'Check that devices are powered on and COM ports have not '
-                'changed.'.format(list(config['lasers'].keys()))
+                "No lasers could be loaded. Configured lasers: {}. "
+                "Check that devices are powered on and COM ports have not "
+                "changed.".format(list(config["lasers"].keys()))
             )
         self.curr_laser = list(self.lasers.keys())[0]
 
         self._factors = {}  # {laser: transmission_objective}; = P_sample/P_bfp
         self._powermeter_type = {}  # {laser: 'sample'/'bfp'}
 
-        if 'beampath' in config.keys():
-            self.beampath = BeamPath(config['beampath'])
+        # Where the power meter is *physically* positioned right now. This is
+        # independent of the stored calibration's powermeter type: it drives
+        # whether a raw reading is projected to the sample plane (BFP) or taken
+        # as-is (sample plane) for live measurement and feedback. Defaults to
+        # the back focal plane, matching the calibration tab's default.
+        self.powermeter_position = POWERMETER_BFP
+
+        if "beampath" in config.keys():
+            self.beampath = BeamPath(config["beampath"])
             self.use_beampath = True
         else:
             self.use_beampath = False
@@ -237,8 +244,8 @@ class IlluminationLaserControl(IlluminationControl):
                 self.load_calibration_database()
             except Exception as e:
                 logger.warning(
-                    'Could not load calibration database: %s. '
-                    'Calibration-dependent features disabled.',
+                    "Could not load calibration database: %s. "
+                    "Calibration-dependent features disabled.",
                     e,
                 )
 
@@ -262,15 +269,15 @@ class IlluminationLaserControl(IlluminationControl):
         """
         if not self.is_calibrated:
             raise KeyError(
-                'Cannot populate analyzers: no calibration present.'
+                "Cannot populate analyzers: no calibration present."
             )
         laser = int(laser)
         ic(db)
         subdb = db.loc[db.index.get_level_values(LASER_TAG) == laser]
         ic(subdb)
-        anaconfig = self.config['analysis']
+        anaconfig = self.config["analysis"]
         analyzers = {}
-        power_ranges = pd.DataFrame(columns=['min', 'max'])
+        power_ranges = pd.DataFrame(columns=["min", "max"])
         for pwr, cali_pars in subdb.groupby(POWER_TAG):
             pars = {}
             for col in cali_pars.columns:
@@ -281,7 +288,7 @@ class IlluminationLaserControl(IlluminationControl):
                 except (TypeError, ValueError):
                     pass  # skip non-numeric columns (e.g. powermeter_type)
             analyzers[pwr] = load_class(
-                anaconfig['classpath'], anaconfig['init_kwargs']
+                anaconfig["classpath"], anaconfig["init_kwargs"]
             )
             analyzers[pwr].load_model(pars)
 
@@ -316,7 +323,7 @@ class IlluminationLaserControl(IlluminationControl):
         if laser in self.lasers.keys():
             # self.lasers[self.curr_laser].enabled = False
             self.curr_laser = laser
-            self.config['index'][LASER_TAG] = laser
+            self.config["index"][LASER_TAG] = laser
             if self.auto_enable_lasers:
                 self.lasers[self.curr_laser].enabled = True
             if self.is_calibrated:
@@ -327,13 +334,13 @@ class IlluminationLaserControl(IlluminationControl):
                 self.laserpower = self._power_ranges.index.min()
             else:
                 logger.debug(
-                    'Calibration not available, not setting analyzers.'
+                    "Calibration not available, not setting analyzers."
                 )
         else:
             # raise KeyError('Laser {:s} is not available'.format(str(laser)))
             print(
-                'Laser {:s} is not available'.format(str(laser))
-                + '. Choose one of '
+                "Laser {:s} is not available".format(str(laser))
+                + ". Choose one of "
                 + str(list(self.lasers.keys()))
             )
 
@@ -349,7 +356,7 @@ class IlluminationLaserControl(IlluminationControl):
         except Exception:
             pass
         self.curr_laserpower = laserpower
-        self.config['index'][POWER_TAG] = laserpower
+        self.config["index"][POWER_TAG] = laserpower
         self.lasers[self.curr_laser].power = laserpower
         if self.is_calibrated:
             self.analyzer = self._analyzers[self.curr_laserpower]
@@ -364,15 +371,48 @@ class IlluminationLaserControl(IlluminationControl):
 
     def _bfp_factor(self, laser=None):
         """Return transmission_objective = P_sample / P_bfp if the latest
-        calibration used the back focal plane (BFP) powermeter, else 1.0."""
+        calibration used the back focal plane (BFP) powermeter, else 1.0.
+
+        This is keyed on the *stored calibration* and is used to project the
+        calibration model (analyzer output, power ranges) to the sample plane.
+        For live power-meter readings use :meth:`_measurement_factor`, which is
+        keyed on where the meter is physically positioned now.
+        """
         if laser is None:
             laser = self.curr_laser
         pm_type = normalize_powermeter_type(
-            self._powermeter_type.get(laser, 'sample')
+            self._powermeter_type.get(laser, "sample")
         )
         if pm_type == POWERMETER_BFP:
             return self._factors.get(laser, 1.0)
         return 1.0
+
+    def _measurement_factor(self, laser=None):
+        """Objective transmission factor to apply to a *live* meter reading.
+
+        Unlike :meth:`_bfp_factor` (which depends on the stored calibration),
+        this depends on where the power meter is *physically* positioned now
+        (:attr:`powermeter_position`). A raw reading taken in the back focal
+        plane is multiplied by transmission_objective = P_sample / P_bfp to
+        project it to the sample plane; a reading taken in the sample plane is
+        already a sample-plane power, so the factor is 1.0.
+
+        Returns 1.0 when no transmission factor is known for ``laser`` even
+        though the meter is in the BFP — the caller should warn that the
+        reported power is the uncorrected raw reading.
+        """
+        if laser is None:
+            laser = self.curr_laser
+        pos = normalize_powermeter_type(self.powermeter_position)
+        if pos == POWERMETER_BFP:
+            return self._factors.get(laser, 1.0)
+        return 1.0
+
+    def _has_transmission_factor(self, laser=None):
+        """True if an objective transmission factor is loaded for ``laser``."""
+        if laser is None:
+            laser = self.curr_laser
+        return laser in self._factors
 
     def _sample_power_ranges(self, laser=None, power_ranges=None):
         """Return calibrated output power ranges in sample-plane units.
@@ -403,20 +443,22 @@ class IlluminationLaserControl(IlluminationControl):
     def to_sample_plane(self, raw, laser=None):
         """Project a raw power-meter reading to the sample plane.
 
-        The power meter measures in the back focal plane (BFP) when the active
-        calibration was taken with the BFP meter; everything we report to the
-        user, write into the MicroManager comment, and compare against
-        calibration predictions is in the sample plane. This applies the
-        objective transmission factor (P_sample / P_bfp) so a raw reading
-        becomes a sample-plane power.
+        Whether a projection is needed depends on where the meter is
+        *physically* positioned now (:attr:`powermeter_position`): a reading
+        taken in the back focal plane (BFP) is multiplied by the objective
+        transmission factor (P_sample / P_bfp) to become a sample-plane power,
+        while a reading taken in the sample plane is returned unchanged.
+        Everything we report to the user, write into the MicroManager comment,
+        and compare against calibration predictions is in the sample plane.
 
-        Returns `raw` unchanged unless a BFP transmission factor is available
-        for `laser` (i.e. the calibration used the BFP meter).
+        Returns `raw` unchanged unless the meter is in the BFP and a
+        transmission factor is available for `laser`.
 
         Parameters
         ----------
         raw : float
-            Power-meter reading in its native (BFP) units.
+            Power-meter reading in its native units (BFP when the meter is in
+            the back focal plane).
         laser : int or str, optional
             Laser wavelength; defaults to curr_laser.
 
@@ -425,7 +467,7 @@ class IlluminationLaserControl(IlluminationControl):
         float
             Power projected to the sample plane.
         """
-        return raw * self._bfp_factor(laser)
+        return raw * self._measurement_factor(laser)
 
     @property
     def power(self):
@@ -445,7 +487,7 @@ class IlluminationLaserControl(IlluminationControl):
             Laser power in the sample.
         """
         if not self.is_calibrated:
-            raise ValueError('Not calibrated. Cannot set power.')
+            raise ValueError("Not calibrated. Cannot set power.")
 
         # pwr is a sample-plane power; the calibrated ranges are in
         # power-meter units. Compare both in the sample plane.
@@ -454,48 +496,46 @@ class IlluminationLaserControl(IlluminationControl):
         newpwr = pwr
 
         if (
-            pwr < ranges.loc[self.curr_laserpower, 'min']
-            or pwr > ranges.loc[self.curr_laserpower, 'max']
+            pwr < ranges.loc[self.curr_laserpower, "min"]
+            or pwr > ranges.loc[self.curr_laserpower, "max"]
         ):
             # necessary to change laser output power setting
 
             # find best laserpwoer: minimal laserpower of which 95% of max
             # is larger than pwr to set
-            laserpwr_best = list(
-                ranges.loc[ranges['max'] * 0.95 > pwr].index
-            )
+            laserpwr_best = list(ranges.loc[ranges["max"] * 0.95 > pwr].index)
             if len(laserpwr_best) > 0:
                 laserpwr_best = min(laserpwr_best)
             else:
                 laserpwr_best = max(list(ranges.index))
 
-            if ranges.loc[laserpwr_best, 'min'] > pwr:
-                newpwr = ranges.loc[laserpwr_best, 'min']
+            if ranges.loc[laserpwr_best, "min"] > pwr:
+                newpwr = ranges.loc[laserpwr_best, "min"]
                 logger.debug(
-                    'Power setting {:.2f} is out of range. '.format(pwr)
-                    + 'Setting closest power = {:.2f}.'.format(newpwr)
+                    "Power setting {:.2f} is out of range. ".format(pwr)
+                    + "Setting closest power = {:.2f}.".format(newpwr)
                 )
                 print(
-                    'Power setting {:.2f} is out of range. '.format(pwr)
-                    + 'Setting closest power = {:.2f}.'.format(newpwr)
+                    "Power setting {:.2f} is out of range. ".format(pwr)
+                    + "Setting closest power = {:.2f}.".format(newpwr)
                 )
                 pwr = newpwr
-            elif ranges.loc[laserpwr_best, 'max'] < pwr:
-                newpwr = ranges.loc[laserpwr_best, 'max']
+            elif ranges.loc[laserpwr_best, "max"] < pwr:
+                newpwr = ranges.loc[laserpwr_best, "max"]
                 logger.debug(
-                    'Power setting {:.2f} is out of range. '.format(pwr)
-                    + 'Setting closest power = {:.2f}.'.format(newpwr)
+                    "Power setting {:.2f} is out of range. ".format(pwr)
+                    + "Setting closest power = {:.2f}.".format(newpwr)
                 )
                 print(
-                    'Power setting {:.2f} is out of range. '.format(pwr)
-                    + 'Setting closest power = {:.2f}.'.format(newpwr)
+                    "Power setting {:.2f} is out of range. ".format(pwr)
+                    + "Setting closest power = {:.2f}.".format(newpwr)
                 )
                 pwr = newpwr
 
             logger.debug(
-                'setting laser power to {:s}'.format(str(laserpwr_best))
+                "setting laser power to {:s}".format(str(laserpwr_best))
             )
-            print('setting laser power to {:s}'.format(str(laserpwr_best)))
+            print("setting laser power to {:s}".format(str(laserpwr_best)))
             self.laserpower = laserpwr_best
 
         # Apply BFP correction: convert sample-plane target → BFP-equivalent
@@ -503,12 +543,10 @@ class IlluminationLaserControl(IlluminationControl):
         # calibrated model range so a boundary value cannot round out of it.
         raw_lo, raw_hi = sorted(
             self._power_ranges.loc[
-                self.curr_laserpower, ['min', 'max']
+                self.curr_laserpower, ["min", "max"]
             ].astype(float)
         )
-        newpwr = float(
-            np.clip(newpwr / self._bfp_factor(), raw_lo, raw_hi)
-        )
+        newpwr = float(np.clip(newpwr / self._bfp_factor(), raw_lo, raw_hi))
         super(self.__class__, self.__class__).power.__set__(self, newpwr)
         # IlluminationControl.power.fset(self, pwr)
 
@@ -533,7 +571,7 @@ class IlluminationLaserControl(IlluminationControl):
             If not calibrated or fewer than 2 laser power levels exist.
         """
         if not self.is_calibrated:
-            raise ValueError('Not calibrated. Cannot set power.')
+            raise ValueError("Not calibrated. Cannot set power.")
 
         if laser is None:
             laser = self.curr_laser
@@ -541,8 +579,8 @@ class IlluminationLaserControl(IlluminationControl):
         analyzers, _ = self._populate_analyzers(self.cali_db, laser)
         if len(analyzers) < 2:
             raise ValueError(
-                'At least 2 calibrated laser power levels are required for '
-                'fixed-attenuator mode.'
+                "At least 2 calibrated laser power levels are required for "
+                "fixed-attenuator mode."
             )
 
         att_pos = self.attenuator.curr_pos()
@@ -559,8 +597,8 @@ class IlluminationLaserControl(IlluminationControl):
 
         if len(laser_pwrs) < 2:
             raise ValueError(
-                'Could not evaluate enough analyzer curves at the current '
-                'attenuator position.'
+                "Could not evaluate enough analyzer curves at the current "
+                "attenuator position."
             )
 
         laser_pwrs = np.array(laser_pwrs)
@@ -570,7 +608,7 @@ class IlluminationLaserControl(IlluminationControl):
         a, b = np.polyfit(laser_pwrs, output_pwrs, 1)
         if abs(a) < 1e-12:
             raise ValueError(
-                'Linear fit slope is near zero — cannot determine laser power.'
+                "Linear fit slope is near zero — cannot determine laser power."
             )
 
         # output_pwrs are in BFP units if BFP-calibrated; convert target
@@ -580,8 +618,8 @@ class IlluminationLaserControl(IlluminationControl):
             np.clip((pwr / factor - b) / a, laser_pwrs.min(), laser_pwrs.max())
         )
         logger.debug(
-            'Fixed-attenuator mode: target %.3f mW → laser power %.3f mW '
-            '(fit: a=%.4f, b=%.4f)',
+            "Fixed-attenuator mode: target %.3f mW → laser power %.3f mW "
+            "(fit: a=%.4f, b=%.4f)",
             pwr,
             laser_pwr_needed,
             a,
@@ -610,7 +648,7 @@ class IlluminationLaserControl(IlluminationControl):
             If not calibrated.
         """
         if not self.is_calibrated:
-            raise ValueError('Not calibrated. Cannot set power.')
+            raise ValueError("Not calibrated. Cannot set power.")
         if laser is None:
             laser = self.curr_laser
 
@@ -622,8 +660,8 @@ class IlluminationLaserControl(IlluminationControl):
             analyzers.keys(), key=lambda x: abs(float(x) - curr_lp)
         )
         logger.debug(
-            'Fixed-laser mode: using calibrated level %s mW '
-            '(hardware laser power %.3f mW)',
+            "Fixed-laser mode: using calibrated level %s mW "
+            "(hardware laser power %.3f mW)",
             closest_level,
             curr_lp,
         )
@@ -634,9 +672,9 @@ class IlluminationLaserControl(IlluminationControl):
         span = max(abs(raw_hi - raw_lo), 1e-12)
         if target < raw_lo - 1e-6 * span or target > raw_hi + 1e-6 * span:
             raise ValueError(
-                'Requested power {:.3f} mW is outside the range reachable '
-                'with the attenuator at laser power {:s}: '
-                '{:.3f} – {:.3f} mW.'.format(
+                "Requested power {:.3f} mW is outside the range reachable "
+                "with the attenuator at laser power {:s}: "
+                "{:.3f} – {:.3f} mW.".format(
                     pwr,
                     str(closest_level),
                     raw_lo * factor,
@@ -669,7 +707,7 @@ class IlluminationLaserControl(IlluminationControl):
             Predicted output power in mW.
         """
         if not self.is_calibrated:
-            raise ValueError('Not calibrated.')
+            raise ValueError("Not calibrated.")
         if laser is None:
             laser = self.curr_laser
 
@@ -687,7 +725,7 @@ class IlluminationLaserControl(IlluminationControl):
                 pass
 
         if len(laser_pwrs) < 2:
-            raise ValueError('Need at least 2 calibrated power levels.')
+            raise ValueError("Need at least 2 calibrated power levels.")
 
         a, b = np.polyfit(np.array(laser_pwrs), np.array(output_pwrs), 1)
         raw = float(a * float(laser_pwr) + b)
@@ -716,7 +754,7 @@ class IlluminationLaserControl(IlluminationControl):
             If not calibrated or no calibration ranges are available.
         """
         if not self.is_calibrated:
-            raise ValueError('Not calibrated. Cannot determine power range.')
+            raise ValueError("Not calibrated. Cannot determine power range.")
         if laser is None:
             laser = self.curr_laser
 
@@ -727,27 +765,27 @@ class IlluminationLaserControl(IlluminationControl):
         except (TypeError, ValueError):
             same_laser = laser == self.curr_laser
         if same_laser:
-            pr = getattr(self, '_power_ranges', None)
+            pr = getattr(self, "_power_ranges", None)
         else:
             _, pr = self._populate_analyzers(self.cali_db, laser)
         if pr is None or pr.empty:
-            raise ValueError('No calibration power ranges available.')
+            raise ValueError("No calibration power ranges available.")
         # power-meter units → sample plane (no-op unless BFP-calibrated)
         pr = self._sample_power_ranges(laser, pr)
 
-        if mode == 'combined':
-            lo = float(pr['min'].min())
-            hi = float(pr['max'].max())
-        elif mode == 'fixed_laser':
+        if mode == "combined":
+            lo = float(pr["min"].min())
+            hi = float(pr["max"].max())
+        elif mode == "fixed_laser":
             curr_lp = 0.0
             try:
                 curr_lp = float(self.lasers[laser].power)
             except Exception:
                 pass
             closest = min(pr.index, key=lambda x: abs(float(x) - curr_lp))
-            lo = float(pr.loc[closest, 'min'])
-            hi = float(pr.loc[closest, 'max'])
-        elif mode == 'fixed_attenuator':
+            lo = float(pr.loc[closest, "min"])
+            hi = float(pr.loc[closest, "max"])
+        elif mode == "fixed_attenuator":
             min_lp = float(pr.index.min())
             max_lp = float(pr.index.max())
             lo = self.predict_power_fixed_attenuator(min_lp, laser)
@@ -759,11 +797,11 @@ class IlluminationLaserControl(IlluminationControl):
         return float(lo), float(hi)
 
     def load_calibration_database(self):
-        load_index = {DEVICE_TAG: self.config['index'][DEVICE_TAG]}
+        load_index = {DEVICE_TAG: self.config["index"][DEVICE_TAG]}
         self.cali_db = io.load_database(
-            self.config['database'], load_index, 'last combinations'
+            self.config["database"], load_index, "last combinations"
         )
-        logger.debug('loaded latest calibrations for every combination')
+        logger.debug("loaded latest calibrations for every combination")
         ic(self.cali_db)
         index_combi = self.cali_db.index.to_frame(index=False)
         ic(index_combi)
@@ -780,7 +818,7 @@ class IlluminationLaserControl(IlluminationControl):
 
         # Load powermeter types and correction factors
         self._powermeter_type = {}
-        if 'powermeter_type' in self.cali_db.columns:
+        if "powermeter_type" in self.cali_db.columns:
             for laser in self.lasers.keys():
                 try:
                     laser_int = int(laser)
@@ -791,7 +829,7 @@ class IlluminationLaserControl(IlluminationControl):
                     if not sub.empty:
                         self._powermeter_type[laser] = (
                             normalize_powermeter_type(
-                                sub.iloc[-1]['powermeter_type']
+                                sub.iloc[-1]["powermeter_type"]
                             )
                         )
                 except Exception:
@@ -799,9 +837,9 @@ class IlluminationLaserControl(IlluminationControl):
 
         self._factors = {}
         try:
-            device = self.config['index'][DEVICE_TAG]
+            device = self.config["index"][DEVICE_TAG]
             factors_df = io.load_factors(
-                self.config['database'], device=device
+                self.config["database"], device=device
             )
             if not factors_df.empty:
                 for laser in self.lasers.keys():
@@ -813,15 +851,25 @@ class IlluminationLaserControl(IlluminationControl):
                         ]
                         if not sub.empty:
                             self._factors[laser] = float(
-                                sub.iloc[-1]['transmission_objective_mean']
+                                sub.iloc[-1]["transmission_objective_mean"]
                             )
                     except Exception:
                         pass
         except Exception as exc:
-            logger.debug('Could not load powermeter factors: %s', exc)
+            logger.debug("Could not load powermeter factors: %s", exc)
 
-        self.laser = self.curr_laser  # to populate the analyzers
-        self.laserpower = self.curr_laserpower
+        # Populate the analyzers for the current laser, but do NOT switch any
+        # laser on: loading the calibration (e.g. on GUI connect) must never
+        # start emission — the operator enables lasers explicitly. The
+        # auto-enable setting is preserved so intentional set-power actions
+        # still turn the laser on.
+        prev_auto = self.auto_enable_lasers
+        self.auto_enable_lasers = False
+        try:
+            self.laser = self.curr_laser  # to populate the analyzers
+            self.laserpower = self.curr_laserpower
+        finally:
+            self.auto_enable_lasers = prev_auto
 
     def record_state(self, laser=None):
         """Persist the current laser power set-point and attenuator position.
@@ -839,7 +887,7 @@ class IlluminationLaserControl(IlluminationControl):
         if laser is None:
             laser = self.curr_laser
         try:
-            microscope = self.config['index'][DEVICE_TAG]
+            microscope = self.config["index"][DEVICE_TAG]
         except Exception:
             return
         laser_power = None
@@ -847,14 +895,14 @@ class IlluminationLaserControl(IlluminationControl):
             laser_power = float(self.lasers[laser].power)
         except Exception:
             logger.debug(
-                'record_state: reading laser power failed', exc_info=True
+                "record_state: reading laser power failed", exc_info=True
             )
         attenuator = None
         try:
             attenuator = float(self.attenuator.curr_pos())
         except Exception:
             logger.debug(
-                'record_state: reading attenuator failed', exc_info=True
+                "record_state: reading attenuator failed", exc_info=True
             )
         try:
             hwstate.save_laser_state(
@@ -864,7 +912,7 @@ class IlluminationLaserControl(IlluminationControl):
                 attenuator=attenuator,
             )
         except Exception:
-            logger.debug('record_state: persisting failed', exc_info=True)
+            logger.debug("record_state: persisting failed", exc_info=True)
 
     def saved_state(self, laser=None):
         """Return the persisted ``{'laser_power', 'attenuator'}`` for a laser.
@@ -879,13 +927,13 @@ class IlluminationLaserControl(IlluminationControl):
         if laser is None:
             laser = self.curr_laser
         try:
-            microscope = self.config['index'][DEVICE_TAG]
+            microscope = self.config["index"][DEVICE_TAG]
         except Exception:
             return None
         try:
             return hwstate.get_laser_state(microscope, laser)
         except Exception:
-            logger.debug('saved_state: lookup failed', exc_info=True)
+            logger.debug("saved_state: lookup failed", exc_info=True)
             return None
 
     def disconnect(self):
@@ -895,12 +943,12 @@ class IlluminationLaserControl(IlluminationControl):
         attenuator) so a fresh connection on the same hardware can re-open
         them. Lasers are disabled first so the beam is never left on.
         """
-        for laser in list(getattr(self, 'lasers', {}).values()):
+        for laser in list(getattr(self, "lasers", {}).values()):
             try:
                 laser.enabled = False
             except Exception:
                 logger.debug(
-                    'disconnect: disabling laser failed', exc_info=True
+                    "disconnect: disabling laser failed", exc_info=True
                 )
             release_hardware(laser)
         super().disconnect()
@@ -964,7 +1012,10 @@ def run_power_feedback(
     dict
         Dictionary with keys: ``measured`` (float, last measured power
         projected to the sample plane, i.e. raw beampath reading times
-        objective transmission factor), ``converged`` (bool, whether the
+        objective transmission factor), ``measured_raw`` (float, the same
+        reading before that projection), ``transmission`` (float, the
+        objective transmission factor applied; 1.0 if none was used),
+        ``converged`` (bool, whether the
         tolerance was reached), ``cali_pred`` (float or None, power the
         calibration predicts), ``out_of_range`` (bool, whether the
         attenuator range limit was hit), ``att_pos`` (float or None, final
@@ -974,28 +1025,41 @@ def run_power_feedback(
     """
     import time
 
-    if mode not in ('fixed_laser', 'fixed_attenuator'):
+    if mode not in ("fixed_laser", "fixed_attenuator"):
         raise ValueError(
             "Feedback is only supported for 'fixed_laser' and "
             "'fixed_attenuator' modes, not '{}'.".format(mode)
         )
 
-    # The power meter and the analyzer work in back focal plane (BFP) units;
     # `target_pwr`, the progress callbacks and the returned `measured` are in
-    # the sample plane. Run the loop internally in BFP units (so analyzer calls
-    # and meter readings stay native) and project to the sample plane only at
-    # the reporting boundary. `factor` is 1.0 unless the active calibration was
-    # taken with the BFP meter.
+    # the sample plane. The loop runs internally in the *physical* meter plane
+    # (so meter readings stay native) and projects to the sample plane only at
+    # the reporting boundary. `factor` (physical) relates the meter reading to
+    # the sample plane and depends on where the meter is positioned now; it is
+    # 1.0 unless the meter is in the BFP with a known transmission factor.
     try:
-        factor = instrument._bfp_factor(laser)
+        factor = instrument._measurement_factor(laser)
     except Exception:
         factor = 1.0
     if not factor:
         factor = 1.0
-    target_bp = target_pwr / factor  # sample-plane target in BFP units
+    # `factor_cal` (calibration) relates the *analyzer* output to the sample
+    # plane and depends on the stored calibration's powermeter plane. It equals
+    # `factor` in the normal case where the meter is where the calibration was
+    # taken; the two differ only when the toggle disagrees with the calibration.
+    try:
+        factor_cal = instrument._bfp_factor(laser)
+    except Exception:
+        factor_cal = 1.0
+    if not factor_cal:
+        factor_cal = 1.0
+    # Convert a physical-meter-plane value to a calibration-plane value so it
+    # can be fed to the analyzer (fitted to calibration-meter readings).
+    phys_to_cal = factor / factor_cal
+    target_bp = target_pwr / factor  # sample-plane target in meter units
 
     # Initial open-loop power setting (these take a sample-plane target)
-    if mode == 'fixed_attenuator':
+    if mode == "fixed_attenuator":
         instrument.set_power_fixed_attenuator(target_pwr, laser)
     else:  # fixed_laser
         instrument.set_power_fixed_laser(target_pwr, laser)
@@ -1025,7 +1089,7 @@ def run_power_feedback(
             break
         if measured_bp <= 0:
             break  # cannot correct without light
-        if mode == 'fixed_attenuator':
+        if mode == "fixed_attenuator":
             # Proportional correction: scale current laser power
             curr_lp = instrument.lasers[laser].power
             instrument.lasers[laser].power = curr_lp * target_bp / measured_bp
@@ -1038,20 +1102,25 @@ def run_power_feedback(
             # Anti-windup: bound the integral contribution
             integral_e = float(np.clip(integral_e, -5.0, 5.0))
             corrected_target = target_bp * (1.0 + kp * e + ki * integral_e)
+            # Convert to calibration-plane units for the analyzer, which is
+            # fitted to calibration-meter readings and whose output_range() is
+            # likewise in calibration-plane units.
+            corrected_cal = corrected_target * phys_to_cal
             try:
                 out_rng = instrument.analyzer.output_range()
                 lo = float(out_rng[0])
                 hi = float(out_rng[1])
-                clamped = float(np.clip(corrected_target, lo, hi))
-                if abs(clamped - corrected_target) > 1e-9:
+                clamped = float(np.clip(corrected_cal, lo, hi))
+                if abs(clamped - corrected_cal) > 1e-9:
                     out_of_range = True
                     integral_e = 0.0  # reset on clamp (anti-windup)
-                corrected_target = clamped
+                corrected_cal = clamped
             except Exception:
-                corrected_target = max(0.0, corrected_target)
-            att_pos = instrument.analyzer.estimate(corrected_target)
+                corrected_cal = max(0.0, corrected_cal)
+            att_pos = instrument.analyzer.estimate(corrected_cal)
             instrument.attenuator.set(att_pos)
-            last_setpoint = corrected_target * factor  # report sample plane
+            # report sample plane (corrected_cal is in calibration-meter units)
+            last_setpoint = corrected_cal * factor_cal
             time.sleep(3)
         time.sleep(0.5)
         measured_bp = powermeter.read(5)
@@ -1069,7 +1138,7 @@ def run_power_feedback(
     # Calibration deviation: what the calibration predicts vs. measured
     cali_pred = None
     try:
-        if mode == 'fixed_attenuator':
+        if mode == "fixed_attenuator":
             curr_lp = instrument.lasers[laser].power
             cali_pred = instrument.predict_power_fixed_attenuator(
                 curr_lp, laser
@@ -1088,11 +1157,13 @@ def run_power_feedback(
         laser_pwr = None
 
     return {
-        'measured': measured,
-        'converged': converged,
-        'cali_pred': cali_pred,
-        'out_of_range': out_of_range,
-        'att_pos': att_pos,
-        'laser_pwr': laser_pwr,
-        'iterations': iterations,
+        "measured": measured,
+        "measured_raw": measured_bp,
+        "transmission": factor,
+        "converged": converged,
+        "cali_pred": cali_pred,
+        "out_of_range": out_of_range,
+        "att_pos": att_pos,
+        "laser_pwr": laser_pwr,
+        "iterations": iterations,
     }

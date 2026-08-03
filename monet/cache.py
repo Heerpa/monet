@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 
 # ── Module-level registry ──
 
-_DEFAULT_CACHE_DIR: Path = Path.home() / '.monet'
-_cache_registry: Dict[str, 'LocalCache'] = {}
+_DEFAULT_CACHE_DIR: Path = Path.home() / ".monet"
+_cache_registry: Dict[str, "LocalCache"] = {}
 
 
-def _get_cache(server_url: str) -> 'LocalCache':
+def _get_cache(server_url: str) -> "LocalCache":
     """Return the singleton LocalCache for *server_url*.
 
     Creates it if it does not exist yet.
@@ -40,7 +40,7 @@ def _get_cache(server_url: str) -> 'LocalCache':
         import hashlib
 
         url_hash = hashlib.md5(server_url.encode()).hexdigest()[:8]
-        db_path = _DEFAULT_CACHE_DIR / f'cache_{url_hash}.db'
+        db_path = _DEFAULT_CACHE_DIR / f"cache_{url_hash}.db"
         _cache_registry[server_url] = LocalCache(db_path)
     return _cache_registry[server_url]
 
@@ -64,7 +64,7 @@ class _OutboxBase(DeclarativeBase):
 
 
 class OutboxEntry(_OutboxBase):
-    __tablename__ = 'outbox'
+    __tablename__ = "outbox"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     # HTTP endpoint path, e.g. '/calibrations', '/factors'
@@ -93,11 +93,11 @@ class LocalCache:
         self._db_path = db_path
 
         engine = create_engine(
-            f'sqlite:///{db_path}',
-            connect_args={'check_same_thread': False},
+            f"sqlite:///{db_path}",
+            connect_args={"check_same_thread": False},
         )
         with engine.connect() as conn:
-            conn.exec_driver_sql('PRAGMA journal_mode=WAL')
+            conn.exec_driver_sql("PRAGMA journal_mode=WAL")
             conn.commit()
         # Create both data tables and the outbox in the same file
         _DataBase.metadata.create_all(engine)
@@ -112,25 +112,25 @@ class LocalCache:
             existing = (
                 session.query(Calibration)
                 .filter_by(
-                    device_name=record['device_name'],
-                    wavelength_nm=float(record['wavelength_nm']),
-                    laser_power_mw=float(record['laser_power_mw']),
-                    calibration_date=record['calibration_date'],
-                    calibration_time=record['calibration_time'],
+                    device_name=record["device_name"],
+                    wavelength_nm=float(record["wavelength_nm"]),
+                    laser_power_mw=float(record["laser_power_mw"]),
+                    calibration_date=record["calibration_date"],
+                    calibration_time=record["calibration_time"],
                 )
                 .first()
             )
             if existing:
-                existing.parameters_json = json.dumps(record['parameters'])
+                existing.parameters_json = json.dumps(record["parameters"])
             else:
                 session.add(
                     Calibration(
-                        device_name=record['device_name'],
-                        wavelength_nm=float(record['wavelength_nm']),
-                        laser_power_mw=float(record['laser_power_mw']),
-                        calibration_date=record['calibration_date'],
-                        calibration_time=record['calibration_time'],
-                        parameters_json=json.dumps(record['parameters']),
+                        device_name=record["device_name"],
+                        wavelength_nm=float(record["wavelength_nm"]),
+                        laser_power_mw=float(record["laser_power_mw"]),
+                        calibration_date=record["calibration_date"],
+                        calibration_time=record["calibration_time"],
+                        parameters_json=json.dumps(record["parameters"]),
                     )
                 )
             session.commit()
@@ -143,18 +143,18 @@ class LocalCache:
         """
         with self._Session() as session:
             q = session.query(Calibration)
-            if index.get('name') is not None:
-                q = q.filter_by(device_name=index['name'])
-            if index.get('wavelength [nm]') is not None:
-                q = q.filter_by(wavelength_nm=float(index['wavelength [nm]']))
-            if index.get('laser_power [mW]') is not None:
+            if index.get("name") is not None:
+                q = q.filter_by(device_name=index["name"])
+            if index.get("wavelength [nm]") is not None:
+                q = q.filter_by(wavelength_nm=float(index["wavelength [nm]"]))
+            if index.get("laser_power [mW]") is not None:
                 q = q.filter_by(
-                    laser_power_mw=float(index['laser_power [mW]'])
+                    laser_power_mw=float(index["laser_power [mW]"])
                 )
-            if index.get('date') is not None:
-                q = q.filter_by(calibration_date=index['date'])
-            if index.get('time') is not None:
-                q = q.filter_by(calibration_time=index['time'])
+            if index.get("date") is not None:
+                q = q.filter_by(calibration_date=index["date"])
+            if index.get("time") is not None:
+                q = q.filter_by(calibration_time=index["time"])
             count = q.count()
             q.delete()
             session.commit()
@@ -168,13 +168,13 @@ class LocalCache:
         with self._Session() as session:
             q = session.query(Calibration)
             # Filter by provided index fields (None / missing = wildcard)
-            if index.get('name') is not None:
-                q = q.filter_by(device_name=index['name'])
-            if index.get('wavelength [nm]') is not None:
-                q = q.filter_by(wavelength_nm=float(index['wavelength [nm]']))
-            if index.get('laser_power [mW]') is not None:
+            if index.get("name") is not None:
+                q = q.filter_by(device_name=index["name"])
+            if index.get("wavelength [nm]") is not None:
+                q = q.filter_by(wavelength_nm=float(index["wavelength [nm]"]))
+            if index.get("laser_power [mW]") is not None:
                 q = q.filter_by(
-                    laser_power_mw=float(index['laser_power [mW]'])
+                    laser_power_mw=float(index["laser_power [mW]"])
                 )
 
             # List time_idx: filter by exact date (and optionally time)
@@ -192,23 +192,23 @@ class LocalCache:
         if not all_records:
             return []
 
-        if time_idx is None or time_idx == 'latest':
+        if time_idx is None or time_idx == "latest":
             return [all_records[-1]]
 
-        if time_idx == 'last date':
-            last_date = max(r['calibration_date'] for r in all_records)
+        if time_idx == "last date":
+            last_date = max(r["calibration_date"] for r in all_records)
             return [
-                r for r in all_records if r['calibration_date'] == last_date
+                r for r in all_records if r["calibration_date"] == last_date
             ]
 
-        if time_idx == 'last combinations':
+        if time_idx == "last combinations":
             # For each (device, wavelength, power) keep the latest entry
             seen: Dict[Tuple, Dict] = {}
             for r in all_records:
                 key = (
-                    r['device_name'],
-                    r['wavelength_nm'],
-                    r['laser_power_mw'],
+                    r["device_name"],
+                    r["wavelength_nm"],
+                    r["laser_power_mw"],
                 )
                 seen[key] = (
                     r  # later entries overwrite earlier ones (sorted above)
@@ -220,12 +220,12 @@ class LocalCache:
 
     def _cal_to_dict(self, r: Calibration) -> Dict:
         return {
-            'device_name': r.device_name,
-            'wavelength_nm': r.wavelength_nm,
-            'laser_power_mw': r.laser_power_mw,
-            'calibration_date': r.calibration_date,
-            'calibration_time': r.calibration_time,
-            'parameters': json.loads(r.parameters_json),
+            "device_name": r.device_name,
+            "wavelength_nm": r.wavelength_nm,
+            "laser_power_mw": r.laser_power_mw,
+            "calibration_date": r.calibration_date,
+            "calibration_time": r.calibration_time,
+            "parameters": json.loads(r.parameters_json),
         }
 
     # ── Factor CRUD ──
@@ -236,33 +236,33 @@ class LocalCache:
             existing = (
                 session.query(Factor)
                 .filter_by(
-                    device_name=record['device_name'],
-                    wavelength_nm=float(record['wavelength_nm']),
-                    calibration_date=record['calibration_date'],
+                    device_name=record["device_name"],
+                    wavelength_nm=float(record["wavelength_nm"]),
+                    calibration_date=record["calibration_date"],
                 )
                 .first()
             )
             if existing:
                 existing.transmission_objective_mean = record[
-                    'transmission_objective_mean'
+                    "transmission_objective_mean"
                 ]
                 existing.transmission_objective_std = record[
-                    'transmission_objective_std'
+                    "transmission_objective_std"
                 ]
-                existing.n_points = record['n_points']
+                existing.n_points = record["n_points"]
             else:
                 session.add(
                     Factor(
-                        device_name=record['device_name'],
-                        wavelength_nm=float(record['wavelength_nm']),
-                        calibration_date=record['calibration_date'],
+                        device_name=record["device_name"],
+                        wavelength_nm=float(record["wavelength_nm"]),
+                        calibration_date=record["calibration_date"],
                         transmission_objective_mean=record[
-                            'transmission_objective_mean'
+                            "transmission_objective_mean"
                         ],
                         transmission_objective_std=record[
-                            'transmission_objective_std'
+                            "transmission_objective_std"
                         ],
-                        n_points=record['n_points'],
+                        n_points=record["n_points"],
                     )
                 )
             session.commit()
@@ -284,12 +284,12 @@ class LocalCache:
                     pass
             return [
                 {
-                    'device_name': r.device_name,
-                    'wavelength_nm': r.wavelength_nm,
-                    'calibration_date': r.calibration_date,
-                    'transmission_objective_mean': r.transmission_objective_mean,  # noqa: E501
-                    'transmission_objective_std': r.transmission_objective_std,
-                    'n_points': r.n_points,
+                    "device_name": r.device_name,
+                    "wavelength_nm": r.wavelength_nm,
+                    "calibration_date": r.calibration_date,
+                    "transmission_objective_mean": r.transmission_objective_mean,  # noqa: E501
+                    "transmission_objective_std": r.transmission_objective_std,
+                    "n_points": r.n_points,
                 }
                 for r in q.order_by(Factor.calibration_date).all()
             ]
@@ -325,7 +325,7 @@ class LocalCache:
             session.commit()
             eid = entry.id
         logger.warning(
-            'Server unreachable — queued %s to local outbox (id=%d)',
+            "Server unreachable — queued %s to local outbox (id=%d)",
             endpoint,
             eid,
         )

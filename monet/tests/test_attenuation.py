@@ -23,7 +23,7 @@ class TestAttenuation(unittest.TestCase):
 
     def test_basics_01_TestAttenuator(self):
         config = {
-            'test': 'config',
+            "test": "config",
         }
         att = mat.TestAttenuator(config)
 

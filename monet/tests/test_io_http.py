@@ -25,7 +25,7 @@ class _MockResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise Exception(f'HTTP {self.status_code}: {self._resp.text}')
+            raise Exception(f"HTTP {self.status_code}: {self._resp.text}")
 
     def json(self):
         return self._resp.json()
@@ -35,8 +35,8 @@ class TestIOHTTP(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.db_path = os.path.join(self.tmpdir, 'test.db')
-        os.environ['MONET_DB_PATH'] = self.db_path
+        self.db_path = os.path.join(self.tmpdir, "test.db")
+        os.environ["MONET_DB_PATH"] = self.db_path
 
         # Redirect the local cache to the temp directory so tests don't write
         # to the real ~/.monet directory.
@@ -65,13 +65,13 @@ class TestIOHTTP(unittest.TestCase):
 
             parsed = urlparse(url)
             path = parsed.path
-            json_data = kwargs.get('json')
+            json_data = kwargs.get("json")
             resp = test_client.post(path, json=json_data)
             return _MockResponse(resp)
 
         _requests.post = mock_post
 
-        self.server_url = 'http://localhost:8000'
+        self.server_url = "http://localhost:8000"
 
     def tearDown(self):
         import requests as _requests
@@ -88,55 +88,55 @@ class TestIOHTTP(unittest.TestCase):
 
     def test_save_and_load_calibration(self):
         index = {
-            'name': 'TestScope',
-            'wavelength [nm]': 488,
-            'laser_power [mW]': 100,
+            "name": "TestScope",
+            "wavelength [nm]": 488,
+            "laser_power [mW]": 100,
         }
-        cali_pars = {'bkg': 0.5, 'amp': 45.0, 'phi': 32.0}
+        cali_pars = {"bkg": 0.5, "amp": 45.0, "phi": 32.0}
 
         indexnames, indexvals = mio.save_calibration(
             self.server_url, index, cali_pars
         )
 
         self.assertEqual(indexnames, DATABASE_INDEXLEVELS)
-        self.assertEqual(indexvals[0], 'TestScope')
+        self.assertEqual(indexvals[0], "TestScope")
         self.assertEqual(indexvals[1], 488.0)
         self.assertEqual(indexvals[2], 100.0)
 
         # Load it back
         loaded = mio.load_calibration(self.server_url, index)
-        self.assertAlmostEqual(loaded['bkg'], 0.5)
-        self.assertAlmostEqual(loaded['amp'], 45.0)
-        self.assertAlmostEqual(loaded['phi'], 32.0)
+        self.assertAlmostEqual(loaded["bkg"], 0.5)
+        self.assertAlmostEqual(loaded["amp"], 45.0)
+        self.assertAlmostEqual(loaded["phi"], 32.0)
 
     def test_load_database_latest_returns_series(self):
         index = {
-            'name': 'TestScope',
-            'wavelength [nm]': 488,
-            'laser_power [mW]': 100,
+            "name": "TestScope",
+            "wavelength [nm]": 488,
+            "laser_power [mW]": 100,
         }
         mio.save_calibration(
-            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+            self.server_url, index, {"bkg": 1.0, "amp": 40.0, "phi": 30.0}
         )
 
-        result = mio.load_database(self.server_url, index, time_idx='latest')
+        result = mio.load_database(self.server_url, index, time_idx="latest")
         self.assertIsInstance(result, pd.Series)
-        self.assertAlmostEqual(result['bkg'], 1.0)
+        self.assertAlmostEqual(result["bkg"], 1.0)
 
     def test_load_database_all_returns_dataframe(self):
         index = {
-            'name': 'TestScope',
-            'wavelength [nm]': 488,
-            'laser_power [mW]': 100,
+            "name": "TestScope",
+            "wavelength [nm]": 488,
+            "laser_power [mW]": 100,
         }
         mio.save_calibration(
-            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+            self.server_url, index, {"bkg": 1.0, "amp": 40.0, "phi": 30.0}
         )
         mio.save_calibration(
-            self.server_url, index, {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0}
+            self.server_url, index, {"bkg": 2.0, "amp": 50.0, "phi": 35.0}
         )
 
-        result = mio.load_database(self.server_url, index, time_idx='all')
+        result = mio.load_database(self.server_url, index, time_idx="all")
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
         # Check MultiIndex structure
@@ -144,75 +144,75 @@ class TestIOHTTP(unittest.TestCase):
 
     def test_load_database_last_combinations(self):
         index_100 = {
-            'name': 'TestScope',
-            'wavelength [nm]': 488,
-            'laser_power [mW]': 100,
+            "name": "TestScope",
+            "wavelength [nm]": 488,
+            "laser_power [mW]": 100,
         }
         index_200 = {
-            'name': 'TestScope',
-            'wavelength [nm]': 488,
-            'laser_power [mW]': 200,
+            "name": "TestScope",
+            "wavelength [nm]": 488,
+            "laser_power [mW]": 200,
         }
         mio.save_calibration(
             self.server_url,
             index_100.copy(),
-            {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0},
+            {"bkg": 1.0, "amp": 40.0, "phi": 30.0},
         )
         mio.save_calibration(
             self.server_url,
             index_200.copy(),
-            {'bkg': 1.5, 'amp': 42.0, 'phi': 31.0},
+            {"bkg": 1.5, "amp": 42.0, "phi": 31.0},
         )
         mio.save_calibration(
             self.server_url,
             index_100.copy(),
-            {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0},
+            {"bkg": 2.0, "amp": 50.0, "phi": 35.0},
         )
 
         result = mio.load_database(
             self.server_url,
-            {'name': 'TestScope', 'wavelength [nm]': 488},
-            time_idx='last combinations',
+            {"name": "TestScope", "wavelength [nm]": 488},
+            time_idx="last combinations",
         )
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
 
     def test_load_database_with_slice_none(self):
         index = {
-            'name': 'TestScope',
-            'wavelength [nm]': 488,
-            'laser_power [mW]': 100,
+            "name": "TestScope",
+            "wavelength [nm]": 488,
+            "laser_power [mW]": 100,
         }
         mio.save_calibration(
-            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+            self.server_url, index, {"bkg": 1.0, "amp": 40.0, "phi": 30.0}
         )
 
         # Use slice(None) as wildcard for wavelength
         result = mio.load_database(
             self.server_url,
-            {'name': 'TestScope', 'wavelength [nm]': slice(None)},
-            time_idx='all',
+            {"name": "TestScope", "wavelength [nm]": slice(None)},
+            time_idx="all",
         )
         self.assertIsInstance(result, pd.DataFrame)
         self.assertGreaterEqual(len(result), 1)
 
     def test_is_server_url(self):
-        self.assertTrue(mio._is_server_url('http://localhost:8000'))
-        self.assertTrue(mio._is_server_url('https://server.lab.org'))
-        self.assertFalse(mio._is_server_url('/path/to/database.xlsx'))
-        self.assertFalse(mio._is_server_url('relative/path.xlsx'))
+        self.assertTrue(mio._is_server_url("http://localhost:8000"))
+        self.assertTrue(mio._is_server_url("https://server.lab.org"))
+        self.assertFalse(mio._is_server_url("/path/to/database.xlsx"))
+        self.assertFalse(mio._is_server_url("relative/path.xlsx"))
 
     def test_restart_database(self):
         index = {
-            'name': 'TestScope',
-            'wavelength [nm]': 488,
-            'laser_power [mW]': 100,
+            "name": "TestScope",
+            "wavelength [nm]": 488,
+            "laser_power [mW]": 100,
         }
         mio.save_calibration(
-            self.server_url, index, {'bkg': 1.0, 'amp': 40.0, 'phi': 30.0}
+            self.server_url, index, {"bkg": 1.0, "amp": 40.0, "phi": 30.0}
         )
         mio.save_calibration(
-            self.server_url, index, {'bkg': 2.0, 'amp': 50.0, 'phi': 35.0}
+            self.server_url, index, {"bkg": 2.0, "amp": 50.0, "phi": 35.0}
         )
 
         backup_path = mio.restart_database(self.server_url)
