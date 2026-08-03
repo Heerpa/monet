@@ -9,6 +9,7 @@ File in/output operations
 :copyright: Copyright (c) 2022 Jungmann Lab, MPI of Biochemistry
 """
 
+import json
 import logging
 import os
 import shutil
@@ -778,17 +779,14 @@ def mad_outlier_mask(values, thresh=3.5):
     return finite & (np.abs(modified_z) > thresh)
 
 
-def flag_amplitude_outliers(lpwrs, amps, thresh=3.5, rel_frac=0.2):
+def flag_amplitude_outliers(lpwrs, amps, rel_thresh=0.02):
     """Indices of amplitude points that stray from the linear power trend.
 
     Amplitude (max measured power) vs. laser-power set-point is expected to be
-    roughly linear, so a single failed calibration shows up as a point off the
-    line. A robust Theil–Sen line is fit (median of pairwise slopes, so the
-    outlier cannot drag the fit toward itself the way least-squares would) and
-    the residuals are tested with :func:`mad_outlier_mask`. When the good
-    points are (near-)collinear the residual MAD collapses to zero; a relative
-    deviation fallback (``rel_frac``) then still catches an obvious single
-    failure.
+    linear, so a single failed calibration shows up as a point off the line. A
+    robust Theil–Sen line is fit (median of pairwise slopes, so the outlier
+    cannot drag the fit toward itself the way least-squares would) and every
+    point whose residual exceeds ``rel_thresh`` of its fitted value is flagged.
 
     Parameters
     ----------
@@ -796,11 +794,9 @@ def flag_amplitude_outliers(lpwrs, amps, thresh=3.5, rel_frac=0.2):
         Laser-power set-points.
     amps : 1D array-like
         Measured amplitude (max power) at each set-point.
-    thresh : float
-        Modified z-score cutoff for the MAD test.
-    rel_frac : float
-        Fallback: fraction of the fitted value a residual must exceed to count
-        as an outlier when the MAD test finds none.
+    rel_thresh : float
+        Relative deviation from the fitted line above which a point counts as
+        off-linear (default 0.02 = 2 %).
 
     Returns
     -------
@@ -826,18 +822,14 @@ def flag_amplitude_outliers(lpwrs, amps, thresh=3.5, rel_frac=0.2):
     fit = slope * x + intercept
     resid = y - fit
 
-    mask = np.asarray(mad_outlier_mask(resid, thresh=thresh))
-    if not mask.any():
-        # Near-collinear good points -> MAD is 0; fall back to a relative test.
-        scale = np.maximum(np.abs(fit), 1e-9)
-        mask = (np.abs(resid) / scale) > rel_frac
-
     out = {}
-    for i in np.nonzero(mask)[0]:
+    for i in range(n):
         denom = abs(fit[i])
         if denom < 1e-12:
             denom = abs(y[i]) if abs(y[i]) > 1e-12 else 1.0
-        out[int(i)] = float(abs(resid[i]) / denom)
+        rel = abs(resid[i]) / denom
+        if rel > rel_thresh:
+            out[int(i)] = float(rel)
     return out
 
 
@@ -1166,24 +1158,23 @@ def _row_model_pars(row):
     return pars
 
 
-def _pair_factor(df_sample, df_bfp, lpwr, ana_config, positions):
-    """Robust P_sample / P_bfp factor at one power level.
+def compute_pair_factor(sample_pars, bfp_pars, ana_config):
+    """Robust P_sample / P_bfp factor from two calibrations' model params.
 
-    Returns ``(factor, n_kept)`` from the latest sample-plane and BFP
-    calibration at ``lpwr``, sampling ``positions`` and dropping MAD outliers.
-    ``(None, 0)`` if the pair cannot be evaluated.
+    Rebuilds both models, samples 50 attenuator positions across the analysis
+    range, forms the sample/BFP power ratio at each and returns the MAD-robust
+    mean as ``(factor, n_kept)``; ``(None, 0)`` if it cannot be evaluated.
     """
     from monet.util import load_class
 
-    s_rows = df_sample.loc[df_sample.index.get_level_values(POWER_TAG) == lpwr]
-    b_rows = df_bfp.loc[df_bfp.index.get_level_values(POWER_TAG) == lpwr]
-    if s_rows.empty or b_rows.empty:
-        return None, 0
+    att_min = ana_config["init_kwargs"].get("min", 0)
+    att_max = ana_config["init_kwargs"].get("max", 180)
+    positions = np.linspace(att_min, att_max, 50)
     try:
         ana_s = load_class(ana_config["classpath"], ana_config["init_kwargs"])
-        ana_s.load_model(_row_model_pars(s_rows.iloc[-1]))
+        ana_s.load_model(sample_pars)
         ana_b = load_class(ana_config["classpath"], ana_config["init_kwargs"])
-        ana_b.load_model(_row_model_pars(b_rows.iloc[-1]))
+        ana_b.load_model(bfp_pars)
     except Exception:
         return None, 0
     ratios = []
@@ -1202,6 +1193,23 @@ def _pair_factor(df_sample, df_bfp, lpwr, ana_config, positions):
     if keep.size == 0:
         keep = arr
     return float(np.mean(keep)), int(keep.size)
+
+
+def _pair_factor(df_sample, df_bfp, lpwr, ana_config):
+    """Robust P_sample / P_bfp factor at one power level.
+
+    Returns ``(factor, n_kept)`` from the latest sample-plane and BFP
+    calibration at ``lpwr``; ``(None, 0)`` if the pair cannot be evaluated.
+    """
+    s_rows = df_sample.loc[df_sample.index.get_level_values(POWER_TAG) == lpwr]
+    b_rows = df_bfp.loc[df_bfp.index.get_level_values(POWER_TAG) == lpwr]
+    if s_rows.empty or b_rows.empty:
+        return None, 0
+    return compute_pair_factor(
+        _row_model_pars(s_rows.iloc[-1]),
+        _row_model_pars(b_rows.iloc[-1]),
+        ana_config,
+    )
 
 
 def compute_factor_breakdown(db_fname, device, ana_config, laser=None):
@@ -1265,10 +1273,6 @@ def compute_factor_breakdown(db_fname, device, ana_config, laser=None):
     if "powermeter_type" not in db.columns:
         return empty
 
-    att_min = ana_config["init_kwargs"].get("min", 0)
-    att_max = ana_config["init_kwargs"].get("max", 180)
-    positions = np.linspace(att_min, att_max, 50)
-
     rows = []
     for las, laser_df in db.groupby(LASER_TAG):
         dates = np.array(
@@ -1285,9 +1289,7 @@ def compute_factor_breakdown(db_fname, device, ana_config, laser=None):
                 df_bfp.index.get_level_values(POWER_TAG)
             )
             for lpwr in sorted(common):
-                factor, n = _pair_factor(
-                    df_sample, df_bfp, lpwr, ana_config, positions
-                )
+                factor, n = _pair_factor(df_sample, df_bfp, lpwr, ana_config)
                 if factor is not None:
                     rows.append(
                         {
@@ -1301,6 +1303,134 @@ def compute_factor_breakdown(db_fname, device, ana_config, laser=None):
     if not rows:
         return empty
     return pd.DataFrame(rows, columns=cols)
+
+
+# ──────────────────────────────────────────────
+# Manually-selected transmission-factor pairs
+#
+# An operator-curated overlay: the user picks exactly which sample-plane and
+# BFP calibrations to pair for the objective transmission factor, instead of
+# relying on same-day auto-pairing. Persisted in a local JSON sidecar (next to
+# the Excel database, or in the HTTP cache directory for server databases) so
+# no shared-database schema is touched, and used to drive the factor plot.
+# ──────────────────────────────────────────────
+
+FACTOR_PAIR_KEYS = (
+    "device",
+    "wavelength",
+    "laser_power",
+    "date",
+    "sample_time",
+    "bfp_time",
+)
+FACTOR_PAIR_COLUMNS = [
+    "date",
+    "wavelength",
+    "laser_power",
+    "factor",
+    "n_points",
+    "sample_time",
+    "bfp_time",
+    "device",
+]
+
+
+def _factor_pairs_path(db_fname):
+    """Local JSON path holding the manually-selected factor pairs."""
+    if _is_server_url(db_fname):
+        import hashlib
+
+        import monet.cache as _cache
+
+        h = hashlib.md5(db_fname.encode()).hexdigest()[:8]
+        return os.path.join(
+            str(_cache._DEFAULT_CACHE_DIR), "factor_pairs_{}.json".format(h)
+        )
+    return os.path.splitext(db_fname)[0] + ".factor_pairs.json"
+
+
+def _pair_key(pair):
+    return tuple(pair.get(k) for k in FACTOR_PAIR_KEYS)
+
+
+def _load_factor_pairs_raw(path):
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as exc:
+        logger.debug("could not read factor pairs %s: %s", path, exc)
+        return []
+
+
+def _write_factor_pairs_raw(path, pairs):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(pairs, f, indent=2)
+
+
+def save_factor_pair(db_fname, pair):
+    """Persist a manually-selected transmission-factor pair (upsert by key).
+
+    Parameters
+    ----------
+    db_fname : str
+        Database path / URL the pairs belong to (locates the sidecar).
+    pair : dict
+        Keys ``device, wavelength, laser_power, date, sample_time, bfp_time,
+        factor, n_points``.
+    """
+    path = _factor_pairs_path(db_fname)
+    pairs = _load_factor_pairs_raw(path)
+    key = _pair_key(pair)
+    pairs = [p for p in pairs if _pair_key(p) != key]
+    pairs.append(pair)
+    _write_factor_pairs_raw(path, pairs)
+
+
+def delete_factor_pair(db_fname, pair):
+    """Remove the stored pair whose key matches ``pair``. Returns count."""
+    path = _factor_pairs_path(db_fname)
+    pairs = _load_factor_pairs_raw(path)
+    key = _pair_key(pair)
+    kept = [p for p in pairs if _pair_key(p) != key]
+    if len(kept) != len(pairs):
+        _write_factor_pairs_raw(path, kept)
+    return len(pairs) - len(kept)
+
+
+def load_factor_pairs(db_fname, device=None):
+    """Load manually-selected transmission-factor pairs as a DataFrame.
+
+    Columns match :data:`FACTOR_PAIR_COLUMNS`; empty DataFrame if none.
+    """
+    pairs = _load_factor_pairs_raw(_factor_pairs_path(db_fname))
+    if device is not None:
+        pairs = [p for p in pairs if p.get("device") == device]
+    if not pairs:
+        return pd.DataFrame(columns=FACTOR_PAIR_COLUMNS)
+    return pd.DataFrame(pairs, columns=FACTOR_PAIR_COLUMNS)
+
+
+def save_transmission_factor(
+    db_fname, device, laser, date, factor_mean, factor_std, n_points
+):
+    """Write a transmission_objective factor to the DB (Excel sheet or HTTP).
+
+    Public wrapper so a manually-computed pair can update the same factor store
+    that :func:`compute_and_save_factor` writes and that the power-projection
+    path (:mod:`monet.control`) reads.
+    """
+    if _is_server_url(db_fname):
+        _save_factor_http(
+            db_fname, device, laser, date, factor_mean, factor_std, n_points
+        )
+    else:
+        _save_factor_excel(
+            db_fname, device, laser, date, factor_mean, factor_std, n_points
+        )
 
 
 def _save_factor_http(

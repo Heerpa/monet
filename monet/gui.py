@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -50,6 +51,7 @@ from monet import (
     POWERMETER_BFP,
     POWERMETER_SAMPLE,
     PROTOCOLS,
+    normalize_powermeter_type,
 )
 from monet import __version__ as _monet_version
 from monet.beampath import NikonNosepiece
@@ -94,6 +96,7 @@ class CalibrationWorker(QThread):
         powermeter_type=POWERMETER_SAMPLE,
         manage_laser_state=True,
         power_filter=None,
+        comment=None,
     ):
         super().__init__()
         self._pc = pc
@@ -103,6 +106,7 @@ class CalibrationWorker(QThread):
         self._powermeter_type = powermeter_type
         self._manage_laser_state = manage_laser_state
         self._power_filter = power_filter
+        self._comment = comment
         self._cancel_requested = False
 
     def request_cancel(self):
@@ -134,6 +138,7 @@ class CalibrationWorker(QThread):
                 manage_laser_state=self._manage_laser_state,
                 powermeter_type=self._powermeter_type,
                 power_filter=self._power_filter,
+                comment=self._comment,
             )
         except InterruptedError:
             self.log_message.emit("Calibration cancelled.")
@@ -351,9 +356,9 @@ class CalibrationPlots(QWidget):
     # [{"laser": str, "lpwr": float, "residual_frac": float}, ...].
     flagged_changed = pyqtSignal(object)
 
-    # A point is flagged when its modified z-score against the linear fit
-    # exceeds this (see io.mad_outlier_mask).
-    OUTLIER_THRESH = 3.5
+    # A point is flagged when it deviates from the robust linear fit by more
+    # than this fraction (see io.flag_amplitude_outliers).
+    OUTLIER_REL_THRESH = 0.02
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -440,26 +445,6 @@ class CalibrationPlots(QWidget):
             for lpwr in lpwrs
         ]
 
-    def remove_points(self, targets):
-        """Drop specific ``(laser, lpwr)`` points from the amplitude plot.
-
-        Used after their records are discarded so the stale points no longer
-        show. ``lpwr`` matches by numeric value (int/float agnostic).
-        """
-        changed = False
-        for laser, lpwr in targets:
-            pts = self._amplitudes.get(laser)
-            if not pts:
-                continue
-            for key in list(pts):
-                if float(key) == float(lpwr):
-                    del pts[key]
-                    changed = True
-            if not pts:
-                del self._amplitudes[laser]
-        if changed:
-            self._redraw_amplitudes()
-
     # Matplotlib's default (tab10) categorical palette, inlined so no pyplot
     # import is needed in this Qt-embedded canvas.
     _COLORS = [
@@ -502,11 +487,12 @@ class CalibrationPlots(QWidget):
         """Indices of live points that stray from the linear trend.
 
         Delegates to :func:`monet.io.flag_amplitude_outliers` (robust
-        Theil–Sen line + MAD test) so the logic is unit-tested independently of
-        the GUI. Returns ``{index: residual_frac}`` for the flagged points.
+        Theil–Sen line + 2 % relative-deviation test) so the logic is
+        unit-tested independently of the GUI. Returns ``{index: residual_frac}``
+        for the flagged points.
         """
         return io.flag_amplitude_outliers(
-            lpwrs, amps, thresh=self.OUTLIER_THRESH
+            lpwrs, amps, rel_thresh=self.OUTLIER_REL_THRESH
         )
 
     def _redraw_amplitudes(self):
@@ -732,6 +718,20 @@ class CalibrateTab(QWidget):
         pm_row.addStretch()
         layout.addLayout(pm_row)
 
+        # Free-text comment stored with every calibration of this run.
+        comment_row = QHBoxLayout()
+        comment_row.addWidget(QLabel("Comment:"))
+        self._comment_edit = QLineEdit()
+        self._comment_edit.setPlaceholderText(
+            "optional note for this run, e.g. 'laser status orange today'"
+        )
+        self._comment_edit.setToolTip(
+            "Free-text note saved alongside every calibration written in this "
+            "run (visible in the Database tab)."
+        )
+        comment_row.addWidget(self._comment_edit)
+        layout.addLayout(comment_row)
+
         # Progress bar
         self._progress = QProgressBar()
         self._progress.setFormat("Waiting…")
@@ -777,13 +777,14 @@ class CalibrateTab(QWidget):
         fl_btn_row = QHBoxLayout()
         self._btn_discard_flagged = QPushButton("Discard selected")
         self._btn_discard_flagged.setToolTip(
-            "Delete the ticked calibration records from the database."
+            "Delete the ticked calibration records from the database. The "
+            "points stay listed so you can then re-measure them."
         )
         self._btn_discard_flagged.clicked.connect(self._on_discard_flagged)
-        self._btn_recal_flagged = QPushButton("Recalibrate selected")
+        self._btn_recal_flagged = QPushButton("Re-measure selected")
         self._btn_recal_flagged.setToolTip(
-            "Delete the ticked records and re-measure exactly those "
-            "wavelength / power points."
+            "Re-measure exactly the ticked wavelength / power points "
+            "(replacing any existing records for them)."
         )
         self._btn_recal_flagged.clicked.connect(self._on_recalibrate_flagged)
         fl_btn_row.addWidget(self._btn_discard_flagged)
@@ -891,6 +892,8 @@ class CalibrateTab(QWidget):
             )
             return
 
+        comment = self._comment_edit.text().strip() or None
+
         # 1D mode
         if not (hasattr(self._pc, "protocol") and self._pc.protocol):
             self._log.append("Starting 1D calibration…")
@@ -899,7 +902,7 @@ class CalibrateTab(QWidget):
             self._plots.clear()
             self._pc.reset_saved_calibrations()
             try:
-                ctrl_vals, powers = self._pc.calibrate()
+                ctrl_vals, powers = self._pc.calibrate(comment=comment)
                 laser = self._pc.instrument.config["index"].get(
                     "wavelength [nm]", ""
                 )
@@ -942,6 +945,7 @@ class CalibrateTab(QWidget):
         power points — used when re-measuring flagged calibrations.
         """
         powermeter_type = self._pm_pos_combo.currentData() or POWERMETER_SAMPLE
+        comment = self._comment_edit.text().strip() or None
         # Overlay previous runs so the operator can watch for drift.
         self._load_history_async(selected, powermeter_type)
         self._worker = CalibrationWorker(
@@ -950,6 +954,7 @@ class CalibrateTab(QWidget):
             powermeter_type=powermeter_type,
             manage_laser_state=not self._multi_cb.isChecked(),
             power_filter=power_filter,
+            comment=comment,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.point.connect(self._plots.add_point)
@@ -1119,30 +1124,30 @@ class CalibrateTab(QWidget):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        self._delete_records_async(records, targets, then_recalibrate=None)
+        self._delete_records_async(records, then_recalibrate=None)
 
     def _on_recalibrate_flagged(self):
         targets = self._checked_flagged()
         if not targets:
             QMessageBox.information(
-                self, "Nothing ticked", "Tick the point(s) to recalibrate."
+                self, "Nothing ticked", "Tick the point(s) to re-measure."
             )
             return
+        # Any still-present records for these points are deleted first so the
+        # re-measurement does not leave a stale duplicate; if they were already
+        # discarded this is simply a no-op.
         records = self._flagged_to_records(targets)
         reply = QMessageBox.question(
             self,
-            "Recalibrate flagged",
-            "Delete {} old record(s) and re-measure {} point(s)?".format(
-                len(records), len(targets)
-            ),
+            "Re-measure flagged",
+            "Re-measure {} flagged point(s) now?".format(len(targets)),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        # Delete the bad records first, then re-run just those points.
-        self._delete_records_async(records, targets, then_recalibrate=targets)
+        self._delete_records_async(records, then_recalibrate=targets)
 
-    def _delete_records_async(self, records, targets, then_recalibrate=None):
+    def _delete_records_async(self, records, then_recalibrate=None):
         """Delete ``records`` in the background, optionally recalibrating."""
         db_fname = self._pc.instrument.config["database"]
 
@@ -1173,9 +1178,11 @@ class CalibrateTab(QWidget):
             if then_recalibrate:
                 self._recalibrate_points(then_recalibrate)
             else:
-                # Drop the discarded points from the plot so they no longer
-                # show as stale flags.
-                self._plots.remove_points(targets)
+                # Keep the discarded points on the plot / in the flagged list
+                # so they stay selectable — the user can then click
+                # "Re-measure selected" to re-acquire them. (They are only
+                # removed from the plot once they are actually re-measured on
+                # the linear trend.)
                 self._btn_start.setEnabled(True)
                 self._update_flagged_buttons()
 
@@ -2799,6 +2806,24 @@ class SetPowerTab(QWidget):
         )
         return False
 
+    def refresh_calibration_state(self):
+        """Re-sync the calibration-dependent UI after a calibration run.
+
+        A run reloads the instrument's calibration database at the end, but
+        this tab's range label is only recomputed on user interaction, so it
+        would keep showing the pre-run value. Refresh it here; also reload
+        defensively should the instrument-side reload have failed, so the tab
+        is never wedged as "not calibrated" when a calibration exists.
+        """
+        if self._pc is None:
+            return
+        if not getattr(self._pc.instrument, "is_calibrated", False):
+            try:
+                self._pc.instrument.load_calibration_database()
+            except Exception:
+                pass
+        self._update_range_label()
+
     def _update_range_label(self):
         """Compute and display the accessible power range for the mode."""
         if self._pc is None or not getattr(
@@ -2926,6 +2951,7 @@ class DatabaseTab(QWidget):
         "Date",
         "Time",
         "Model",
+        "Comment",
         "Parameters",
     ]
 
@@ -2993,21 +3019,46 @@ class DatabaseTab(QWidget):
         factors_hdr = QHBoxLayout()
         factors_hdr.addWidget(QLabel("Objective Transmission (sample / BFP)"))
         factors_hdr.addStretch()
-        self._btn_compute_transmission = QPushButton("Compute transmission")
+        self._btn_add_pair = QPushButton("Add pair from selected")
+        self._btn_add_pair.setEnabled(False)
+        self._btn_add_pair.setToolTip(
+            "Select exactly one sample-plane and one BFP calibration of the "
+            "same wavelength in the table above, then click to compute and "
+            "store their objective transmission factor. Stored pairs are "
+            "remembered and drive the plot below."
+        )
+        self._btn_add_pair.clicked.connect(self._on_add_pair)
+        factors_hdr.addWidget(self._btn_add_pair)
+        self._btn_remove_pair = QPushButton("Remove pair")
+        self._btn_remove_pair.setEnabled(False)
+        self._btn_remove_pair.setToolTip(
+            "Remove the selected manually-added transmission pair."
+        )
+        self._btn_remove_pair.clicked.connect(self._on_remove_pair)
+        factors_hdr.addWidget(self._btn_remove_pair)
+        self._btn_compute_transmission = QPushButton("Auto-compute")
         self._btn_compute_transmission.setEnabled(False)
+        self._btn_compute_transmission.setToolTip(
+            "Automatically pair same-day sample-plane and BFP calibrations "
+            "and compute the transmission factor for each wavelength."
+        )
         self._btn_compute_transmission.clicked.connect(
             self._on_compute_transmission
         )
         factors_hdr.addWidget(self._btn_compute_transmission)
         layout.addLayout(factors_hdr)
-        self._factors_table = QTableWidget(0, 5)
+        # Shows the manually-selected pairs when any exist, otherwise the
+        # auto-computed factors.  ``_showing_manual_pairs`` tracks which.
+        self._showing_manual_pairs = False
+        self._factors_table = QTableWidget(0, 6)
         self._factors_table.setHorizontalHeaderLabels(
             [
                 "Microscope",
                 "Wavelength (nm)",
+                "Power (mW)",
                 "Date",
                 "transmission_objective",
-                "Std Dev",
+                "n / std",
             ]
         )
         self._factors_table.setSelectionBehavior(
@@ -3021,6 +3072,9 @@ class DatabaseTab(QWidget):
         )
         self._factors_table.horizontalHeader().setStretchLastSection(True)
         self._factors_table.setMaximumHeight(150)
+        self._factors_table.itemSelectionChanged.connect(
+            self._update_pair_buttons
+        )
         layout.addWidget(self._factors_table)
 
         # Transmission-factor plot: one point per (date, wavelength, laser
@@ -3116,6 +3170,14 @@ class DatabaseTab(QWidget):
                 known_scopes.add(str(scope))
 
                 params = {col: row[col] for col in row.index}
+                # Pull the free-text comment into its own column (NaN when the
+                # record predates the feature or had no note).
+                comment_val = params.pop("comment", None)
+                comment_str = (
+                    ""
+                    if comment_val is None or comment_val != comment_val
+                    else str(comment_val)
+                )
                 params_str = json.dumps(
                     {
                         k: round(v, 4) if isinstance(v, float) else v
@@ -3133,13 +3195,22 @@ class DatabaseTab(QWidget):
                     str(date),
                     str(time_val),
                     "",
+                    comment_str,
                     params_short,
                 ]
                 for col, val in enumerate(values):
                     item = QTableWidgetItem(val)
                     if col == len(values) - 1:
                         item.setToolTip(params_str)
+                    elif self.COLUMNS[col] == "Comment" and comment_str:
+                        item.setToolTip(comment_str)
                     self._table.setItem(row_pos, col, item)
+                # Stash this row's model parameters (incl. powermeter_type) so
+                # the manual transmission-pair tool can rebuild the two models
+                # without re-querying the database.
+                self._table.item(row_pos, 0).setData(
+                    Qt.ItemDataRole.UserRole, params
+                )
 
             # Repopulate scope combo without clearing "all"
             current_scopes = {
@@ -3152,55 +3223,260 @@ class DatabaseTab(QWidget):
         total = self._table.rowCount()
         self._status.setText(f"{total} record(s)")
 
-        # Refresh factors table
-        self._factors_table.setRowCount(0)
-        if self._db_fname is not None:
-            try:
-                scope_filter = self._scope_combo.currentData()
-                factors_df = io.load_factors(
-                    self._db_fname,
-                    device=scope_filter if scope_filter else None,
-                )
-                if hasattr(factors_df, "iterrows") and not factors_df.empty:
-                    for idx, row in factors_df.iterrows():
-                        if not isinstance(idx, tuple):
-                            idx = (idx,)
-                        r = self._factors_table.rowCount()
-                        self._factors_table.insertRow(r)
-                        device_val = idx[0] if len(idx) > 0 else ""
-                        wl_val = idx[1] if len(idx) > 1 else ""
-                        date_val = idx[2] if len(idx) > 2 else ""
-                        factor_val = row.get("transmission_objective_mean", "")
-                        std_val = row.get("transmission_objective_std", "")
-                        vals = [
-                            str(device_val),
-                            str(wl_val),
-                            str(date_val),
-                            (
-                                f"{factor_val:.4f}"
-                                if isinstance(factor_val, float)
-                                else str(factor_val)
-                            ),
-                            (
-                                f"{std_val:.4f}"
-                                if isinstance(std_val, float)
-                                else str(std_val)
-                            ),
-                        ]
-                        for c, v in enumerate(vals):
-                            self._factors_table.setItem(
-                                r, c, QTableWidgetItem(v)
-                            )
-            except Exception:
-                pass
-
+        self._refresh_factors_table()
         self._refresh_factor_plot()
 
+    def _refresh_factors_table(self):
+        """Show manually-selected pairs if any exist, else the auto factors."""
+        self._factors_table.setRowCount(0)
+        self._showing_manual_pairs = False
+        if self._db_fname is None:
+            self._update_pair_buttons()
+            return
+        scope = self._scope_combo.currentData()
+        try:
+            pairs_df = io.load_factor_pairs(
+                self._db_fname, device=scope if scope else None
+            )
+        except Exception:
+            pairs_df = None
+
+        if pairs_df is not None and not pairs_df.empty:
+            self._showing_manual_pairs = True
+            for _, row in pairs_df.iterrows():
+                r = self._factors_table.rowCount()
+                self._factors_table.insertRow(r)
+                vals = [
+                    str(row.get("device", "")),
+                    str(row.get("wavelength", "")),
+                    str(row.get("laser_power", "")),
+                    str(row.get("date", "")),
+                    self._fmt(row.get("factor", "")),
+                    "n={}".format(row.get("n_points", "")),
+                ]
+                for c, v in enumerate(vals):
+                    self._factors_table.setItem(r, c, QTableWidgetItem(v))
+                # Keep the pair dict so it can be deleted from the store.
+                self._factors_table.item(r, 0).setData(
+                    Qt.ItemDataRole.UserRole, row.to_dict()
+                )
+            self._update_pair_buttons()
+            return
+
+        # Fallback: auto-computed factors (also used for power projection).
+        try:
+            factors_df = io.load_factors(
+                self._db_fname, device=scope if scope else None
+            )
+        except Exception:
+            factors_df = None
+        if factors_df is not None and not factors_df.empty:
+            for idx, row in factors_df.iterrows():
+                if not isinstance(idx, tuple):
+                    idx = (idx,)
+                r = self._factors_table.rowCount()
+                self._factors_table.insertRow(r)
+                std_val = row.get("transmission_objective_std", "")
+                vals = [
+                    str(idx[0] if len(idx) > 0 else ""),
+                    str(idx[1] if len(idx) > 1 else ""),
+                    "",  # no per-power breakdown for auto factors
+                    str(idx[2] if len(idx) > 2 else ""),
+                    self._fmt(row.get("transmission_objective_mean", "")),
+                    (
+                        "std={:.4f}".format(std_val)
+                        if isinstance(std_val, float)
+                        else str(std_val)
+                    ),
+                ]
+                for c, v in enumerate(vals):
+                    self._factors_table.setItem(r, c, QTableWidgetItem(v))
+        self._update_pair_buttons()
+
+    def _update_pair_buttons(self):
+        """Enable pair actions per selection / mode."""
+        connected = self._pc is not None
+        self._btn_add_pair.setEnabled(connected)
+        can_remove = self._showing_manual_pairs and bool(
+            self._factors_table.selectedIndexes()
+        )
+        self._btn_remove_pair.setEnabled(can_remove)
+
+    @staticmethod
+    def _fmt(v):
+        try:
+            return "{:.4f}".format(float(v))
+        except (TypeError, ValueError):
+            return str(v)
+
+    @staticmethod
+    def _num(text):
+        try:
+            return float(text)
+        except (TypeError, ValueError):
+            return text
+
+    @staticmethod
+    def _model_pars(params):
+        """Numeric model parameters from a stored row-params dict."""
+        out = {}
+        for k, v in (params or {}).items():
+            if k in ("powermeter_type", "comment"):
+                continue
+            # Skip strings and NaNs (v != v is True only for NaN).
+            if isinstance(v, (int, float)) and not (
+                isinstance(v, float) and v != v
+            ):
+                out[k] = float(v)
+        return out
+
+    def _on_add_pair(self):
+        """Compute and store a transmission factor from two selected rows."""
+        if self._pc is None or self._db_fname is None:
+            return
+        rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        if len(rows) != 2:
+            QMessageBox.information(
+                self,
+                "Select two",
+                "Select exactly two calibration rows above — one "
+                "sample-plane and one BFP measurement of the same wavelength.",
+            )
+            return
+        infos = []
+        for r in rows:
+            params = (
+                self._table.item(r, 0).data(Qt.ItemDataRole.UserRole) or {}
+            )
+            infos.append(
+                {
+                    "params": params,
+                    "pm": normalize_powermeter_type(
+                        params.get("powermeter_type")
+                    ),
+                    "device": self._table.item(r, 0).text(),
+                    "wl": self._table.item(r, 1).text(),
+                    "power": self._table.item(r, 2).text(),
+                    "date": self._table.item(r, 3).text(),
+                    "time": self._table.item(r, 4).text(),
+                }
+            )
+        samples = [i for i in infos if i["pm"] == POWERMETER_SAMPLE]
+        bfps = [i for i in infos if i["pm"] == POWERMETER_BFP]
+        if len(samples) != 1 or len(bfps) != 1:
+            QMessageBox.warning(
+                self,
+                "Need one of each",
+                "Select exactly one sample-plane and one BFP calibration "
+                "(their powermeter_type is shown in the Parameters column).",
+            )
+            return
+        s, b = samples[0], bfps[0]
+        if s["wl"] != b["wl"]:
+            QMessageBox.warning(
+                self,
+                "Wavelength mismatch",
+                "Both calibrations must be the same wavelength.",
+            )
+            return
+        try:
+            ana_config = self._pc.instrument.config["analysis"]
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", str(exc))
+            return
+        factor, n = io.compute_pair_factor(
+            self._model_pars(s["params"]),
+            self._model_pars(b["params"]),
+            ana_config,
+        )
+        if factor is None:
+            QMessageBox.warning(
+                self,
+                "Could not compute",
+                "The two calibrations did not yield a valid transmission "
+                "factor.",
+            )
+            return
+        wl_val = self._num(s["wl"])
+        pair = {
+            "device": s["device"],
+            "wavelength": wl_val,
+            "laser_power": self._num(s["power"]),
+            "date": s["date"],
+            "sample_time": s["time"],
+            "bfp_time": b["time"],
+            "factor": float(factor),
+            "n_points": int(n),
+        }
+        try:
+            io.save_factor_pair(self._db_fname, pair)
+            # Also update the factor store used for BFP -> sample-plane power
+            # projection, so the hand-picked pair drives real measurements too.
+            try:
+                io.save_transmission_factor(
+                    self._db_fname,
+                    s["device"],
+                    int(float(wl_val)),
+                    s["date"],
+                    float(factor),
+                    0.0,
+                    int(n),
+                )
+            except Exception as exc:
+                logger.debug("could not save projection factor: %s", exc)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save error", str(exc))
+            return
+        self._emit_status(
+            "Saved transmission pair {} nm: T_obj = {:.4f}".format(
+                s["wl"], factor
+            ),
+            5000,
+        )
+        self._on_refresh()
+
+    def _on_remove_pair(self):
+        if not self._showing_manual_pairs or self._db_fname is None:
+            return
+        rows = sorted(
+            {idx.row() for idx in self._factors_table.selectedIndexes()}
+        )
+        if not rows:
+            return
+        removed = 0
+        for r in rows:
+            item = self._factors_table.item(r, 0)
+            pair = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if pair:
+                try:
+                    removed += io.delete_factor_pair(self._db_fname, pair)
+                except Exception as exc:
+                    logger.debug("delete pair failed: %s", exc)
+        self._emit_status("Removed {} pair(s).".format(removed), 4000)
+        self._on_refresh()
+
     def _refresh_factor_plot(self):
-        """Recompute and redraw the per-input transmission-factor plot."""
+        """Redraw the transmission-factor plot.
+
+        Manually-selected pairs take precedence; when none exist the auto
+        same-day breakdown is shown instead.
+        """
         if self._factor_canvas is None or self._db_fname is None:
             return
         device = self._scope_combo.currentData()
+        db_fname = self._db_fname
+
+        # Prefer the hand-picked pairs — this is the graph the operator curates.
+        try:
+            pairs_df = io.load_factor_pairs(
+                db_fname, device=device if device else None
+            )
+        except Exception:
+            pairs_df = None
+        if pairs_df is not None and not pairs_df.empty:
+            self._draw_factor_plot(pairs_df, source="manual pairs")
+            return
+
         ana_config = None
         if self._pc is not None:
             try:
@@ -3208,17 +3484,16 @@ class DatabaseTab(QWidget):
             except Exception:
                 ana_config = None
         # A specific microscope and its analysis config are needed to rebuild
-        # the models the factor is sampled from.
+        # the models the auto factor is sampled from.
         if not device or ana_config is None:
             self._draw_factor_plot(None)
             return
-        db_fname = self._db_fname
 
         def _do():
             return io.compute_factor_breakdown(db_fname, device, ana_config)
 
         def _on_result(df):
-            self._draw_factor_plot(df)
+            self._draw_factor_plot(df, source="auto (same-day pairing)")
             self._factor_worker = None
 
         def _on_error(msg):
@@ -3245,7 +3520,7 @@ class DatabaseTab(QWidget):
         "#17becf",
     ]
 
-    def _draw_factor_plot(self, df):
+    def _draw_factor_plot(self, df, source=""):
         """Draw factor vs date, colored by wavelength, a point per power."""
         if self._factor_canvas is None:
             return
@@ -3255,7 +3530,8 @@ class DatabaseTab(QWidget):
             ax.text(
                 0.5,
                 0.5,
-                "No paired sample/BFP calibrations to plot",
+                "No transmission pairs to plot\n"
+                "(select two calibrations and 'Add pair from selected')",
                 ha="center",
                 va="center",
                 fontsize=8,
@@ -3286,10 +3562,10 @@ class DatabaseTab(QWidget):
             )
         ax.set_ylabel("T_obj = P_sample / P_bfp", fontsize=8)
         ax.set_xlabel("date", fontsize=8)
-        ax.set_title(
-            "objective transmission by date / wavelength / power",
-            fontsize=9,
-        )
+        title = "objective transmission by date / wavelength / power"
+        if source:
+            title += "  —  {}".format(source)
+        ax.set_title(title, fontsize=9)
         ax.tick_params(labelsize=7)
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=7)
@@ -3675,6 +3951,11 @@ class MonetWidget(QWidget):
         sp = self._tab_widgets.get("set_power")
         if sp is not None:
             self._tabs.setTabEnabled(self._tabs.indexOf(sp), True)
+            # The run reloaded the shared instrument's calibration; refresh the
+            # Set Power tab so its range display reflects the new calibration
+            # instead of staying stuck on "not calibrated".
+            if hasattr(sp, "refresh_calibration_state"):
+                sp.refresh_calibration_state()
         self.calibration_finished.emit()
 
     def closeEvent(self, event):

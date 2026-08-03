@@ -266,9 +266,8 @@ class TestFlagAmplitudeOutliers(unittest.TestCase):
         )
 
     def test_single_high_outlier_collinear(self):
-        # Perfectly collinear but one failed point: OLS+MAD would miss this
-        # (the fit gets dragged toward the outlier); the robust fit + fallback
-        # catches it.
+        # Perfectly collinear but one failed point: the robust Theil-Sen fit is
+        # not dragged toward the outlier, so it stands out.
         out = mio.flag_amplitude_outliers(
             [10, 20, 30, 40, 50], [100, 200, 900, 400, 500]
         )
@@ -281,12 +280,27 @@ class TestFlagAmplitudeOutliers(unittest.TestCase):
         self.assertEqual(set(out), {4})
 
     def test_noisy_but_ok_no_flags(self):
+        # ~1 % scatter is below the 2 % threshold.
         self.assertEqual(
             mio.flag_amplitude_outliers(
-                [10, 20, 30, 40, 50], [102, 199, 301, 398, 503]
+                [10, 20, 30, 40, 50], [101, 201, 299, 401, 499]
             ),
             {},
         )
+
+    def test_just_under_two_percent_no_flag(self):
+        # 30 mW point 1.5 % high off a 10x line -> not flagged.
+        out = mio.flag_amplitude_outliers(
+            [10, 20, 30, 40, 50], [100, 200, 300 * 1.015, 400, 500]
+        )
+        self.assertEqual(out, {})
+
+    def test_just_over_two_percent_flagged(self):
+        # 30 mW point 3 % high off a 10x line -> flagged.
+        out = mio.flag_amplitude_outliers(
+            [10, 20, 30, 40, 50], [100, 200, 300 * 1.03, 400, 500]
+        )
+        self.assertEqual(set(out), {2})
 
     def test_noisy_with_outlier(self):
         out = mio.flag_amplitude_outliers(
@@ -491,6 +505,82 @@ class TestComputeAndSaveFactorOutliers(unittest.TestCase):
         # Robust mean should stay near the good cluster (~2.0), not be pulled
         # toward 3.0 by the failed run.
         self.assertLess(df.iloc[0]["transmission_objective_mean"], 2.5)
+
+
+class TestFactorPairs(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = os.path.join(self.tmpdir, "db.xlsx")
+        self.ana_config = {
+            "classpath": "monet.analysis.LinearCurveAnalyzer",
+            "init_kwargs": {"min": 0.0, "max": 180.0},
+        }
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _pair(self, factor=2.0, power=100.0, s_time="10:00", b_time="10:05"):
+        return {
+            "device": "TestScope",
+            "wavelength": 488.0,
+            "laser_power": power,
+            "date": "2024-06-01",
+            "sample_time": s_time,
+            "bfp_time": b_time,
+            "factor": factor,
+            "n_points": 50,
+        }
+
+    def test_compute_pair_factor(self):
+        factor, n = mio.compute_pair_factor(
+            {"bkg": 0.1, "amp": 40.0},
+            {"bkg": 0.05, "amp": 20.0},
+            self.ana_config,
+        )
+        self.assertAlmostEqual(factor, 2.0, places=1)
+        self.assertGreater(n, 0)
+
+    def test_save_and_load(self):
+        mio.save_factor_pair(self.db, self._pair())
+        df = mio.load_factor_pairs(self.db, device="TestScope")
+        self.assertEqual(len(df), 1)
+        self.assertAlmostEqual(df.iloc[0]["factor"], 2.0)
+        self.assertEqual(df.iloc[0]["laser_power"], 100.0)
+
+    def test_upsert_same_key(self):
+        mio.save_factor_pair(self.db, self._pair(factor=2.0))
+        mio.save_factor_pair(self.db, self._pair(factor=2.5))
+        df = mio.load_factor_pairs(self.db)
+        self.assertEqual(len(df), 1)
+        self.assertAlmostEqual(df.iloc[0]["factor"], 2.5)
+
+    def test_distinct_keys_coexist(self):
+        mio.save_factor_pair(self.db, self._pair(power=100.0))
+        mio.save_factor_pair(self.db, self._pair(power=200.0))
+        self.assertEqual(len(mio.load_factor_pairs(self.db)), 2)
+
+    def test_delete(self):
+        p = self._pair()
+        mio.save_factor_pair(self.db, p)
+        removed = mio.delete_factor_pair(self.db, p)
+        self.assertEqual(removed, 1)
+        self.assertTrue(mio.load_factor_pairs(self.db).empty)
+
+    def test_device_filter(self):
+        mio.save_factor_pair(self.db, self._pair())
+        other = self._pair()
+        other["device"] = "OtherScope"
+        mio.save_factor_pair(self.db, other)
+        self.assertEqual(
+            len(mio.load_factor_pairs(self.db, device="TestScope")), 1
+        )
+        self.assertEqual(len(mio.load_factor_pairs(self.db)), 2)
+
+    def test_load_missing_is_empty(self):
+        self.assertTrue(mio.load_factor_pairs(self.db).empty)
 
 
 if __name__ == "__main__":

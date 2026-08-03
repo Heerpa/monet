@@ -10,6 +10,13 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
 
 ## [Unreleased]
 
+### Fixed
+- A completed calibration no longer leaves the shared instrument reporting "no
+  calibration available": `CalibrationProtocol2D.run_protocol` reloads the
+  calibration database at the end (each 1D step toggles `is_calibrated` off),
+  and the Set Power tab refreshes its range display when a run finishes. Power
+  could not be set from the Set Power tab after calibrating until reconnecting.
+
 ### Added
 - Calibrate tab: the live "amplitude vs. laser power" plot now overlays the
   most recent previous runs as thin faded reference lines (per wavelength,
@@ -24,8 +31,23 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
 - Database tab: a transmission-factor plot showing every objective-transmission
   factor by date, wavelength, and laser power (`io.compute_factor_breakdown`),
   so per-input drift and outliers are visible at a glance.
+- Database tab: manually pick which two calibrations (one sample-plane, one
+  BFP) define an objective transmission factor — "Add pair from selected"
+  computes and stores the pair, "Remove pair" deletes it. Pairs persist over
+  time in a local JSON sidecar (`io.save_factor_pair` / `load_factor_pairs` /
+  `compute_pair_factor`), drive the transmission plot, and also update the
+  factor used for BFP→sample power projection.
+- Calibrate tab: a free-text **Comment** field (e.g. "laser status orange
+  today") saved with every calibration of a run and shown in its own Database
+  tab column.
 
 ### Changed
+- Calibrate tab: off-linear flagging now uses a simple 2 % relative-deviation
+  threshold against the robust line (was a MAD z-score), matching how operators
+  reason about it (`io.flag_amplitude_outliers`).
+- Calibrate tab: discarding flagged points now only deletes their records and
+  keeps them listed; re-measuring is a separate explicit "Re-measure selected"
+  action (no automatic re-acquisition).
 - Objective transmission factor: the pooled P_sample/P_bfp ratios now have
   robust (MAD) outliers dropped before averaging, so a single failed
   calibration no longer skews the saved factor (`io.mad_outlier_mask`).

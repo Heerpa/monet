@@ -122,6 +122,7 @@ class CalibrationProtocol1D:
         powermeter_type=POWERMETER_SAMPLE,
         save_plot=True,
         point_callback=None,
+        comment=None,
     ):
         """Calibrate power with parameters from the configuration file.
 
@@ -177,6 +178,7 @@ class CalibrationProtocol1D:
             powermeter_type=powermeter_type,
             ctrl_vals=control_par_vals,
             powers=powers,
+            comment=comment,
         )
 
         return control_par_vals, powers
@@ -188,6 +190,7 @@ class CalibrationProtocol1D:
         powermeter_type=POWERMETER_SAMPLE,
         ctrl_vals=None,
         powers=None,
+        comment=None,
     ):
         """Save the calibration to the database.
 
@@ -203,10 +206,15 @@ class CalibrationProtocol1D:
         ctrl_vals, powers : 1D arrays, optional
             The raw control values and measured powers, plotted as the data
             points behind the fitted curve when available.
+        comment : str or None
+            Free-text note for this run (e.g. 'laser status orange today'),
+            stored as a ``comment`` column alongside the calibration.
         """
         powermeter_type = normalize_powermeter_type(powermeter_type)
         cali_pars = self.instrument.analyzer.get_model()
         cali_pars["powermeter_type"] = powermeter_type
+        if comment:
+            cali_pars["comment"] = comment
 
         fname = self.instrument.config["database"]
         if not dry_run:
@@ -406,6 +414,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         manage_laser_state=True,
         powermeter_type="manual",
         power_filter=None,
+        comment=None,
     ):
         """Run a protocol over lasers and power settings.
 
@@ -414,6 +423,8 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
         Parameters
         ----------
+        comment : str or None
+            Free-text note stored with every calibration written in this run.
         power_filter : dict or None
             If given, ``{laser: iterable of laser powers}``; only those power
             levels are (re-)measured for the listed lasers. Used to recalibrate
@@ -553,6 +564,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     powermeter_type=powermeter_type,
                     save_plot=False,
                     point_callback=_on_point,
+                    comment=comment,
                 )
                 for an, pw in zip(angles, powers):
                     measpwrs.loc[an, lpwr] = pw
@@ -635,8 +647,19 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                         "Could not re-enable autoshutter after " "calibration",
                         exc_info=True,
                     )
-        # self.instrument.is_calibrated = True
-        # self.instrument.load_calibration_database()
+        # Reload the freshly-written calibrations so the shared instrument is
+        # left calibrated: each 1D step above toggles ``is_calibrated`` off, so
+        # without this a run would leave the instrument reporting "no
+        # calibration available" — breaking other surfaces on the same
+        # connection (e.g. the Set Power tab) until reconnect. Guarded so a
+        # reload failure never masks an otherwise-successful run.
+        try:
+            self.instrument.load_calibration_database()
+        except Exception:
+            logger.debug(
+                "Could not reload calibration database after run",
+                exc_info=True,
+            )
 
         # copy all plots from local folder into a timestamped archive folder
         # (file-based DB only, and only when a plot folder is configured)
