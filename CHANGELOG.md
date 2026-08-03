@@ -10,7 +10,30 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
 
 ## [Unreleased]
 
+### Added
+- Calibrate tab: the live "amplitude vs. laser power" plot now overlays the
+  most recent previous runs as thin faded reference lines (per wavelength,
+  matched to the current power-meter position), so drift is visible while a
+  calibration builds up (`io.load_amplitude_history`).
+- Calibrate tab: single calibrations whose amplitude strays from the (expected
+  linear) amplitude-vs-power trend are flagged in red and listed in a new panel
+  where they can be ticked and **discarded** or **recalibrated in place**.
+  Outlier detection uses a robust Theil–Sen fit + MAD test
+  (`io.flag_amplitude_outliers`); `CalibrationProtocol2D.run_protocol` gained a
+  `power_filter` for re-measuring individual points.
+- Database tab: a transmission-factor plot showing every objective-transmission
+  factor by date, wavelength, and laser power (`io.compute_factor_breakdown`),
+  so per-input drift and outliers are visible at a glance.
+
 ### Changed
+- Objective transmission factor: the pooled P_sample/P_bfp ratios now have
+  robust (MAD) outliers dropped before averaging, so a single failed
+  calibration no longer skews the saved factor (`io.mad_outlier_mask`).
+- Calibrate tab: the "BFP powermeter" checkbox is now a "Powermeter position"
+  dropdown (BFP / sample plane), matching the Set Power tab's selector.
+- Database tab: the record list is now pre-filtered to the connected
+  microscope on connect (other scopes remain reachable via the web dashboard
+  link).
 - Build/versioning aligned to the shared DNA-PAINT stack conventions (S0A-2):
   the version is now derived from the git tag via setuptools-scm (written to
   `monet/_version.py`; `monet.__version__` imports it with a fallback) instead

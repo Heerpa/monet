@@ -744,6 +744,204 @@ def plot_device_amplitude_history(db_fname, device, plot_dir, analyzer):
         plt.close(fig)
 
 
+def mad_outlier_mask(values, thresh=3.5):
+    """Boolean mask of robust outliers via the median absolute deviation.
+
+    Flags entries whose modified (MAD-based) z-score exceeds ``thresh``
+    (default 3.5, the common Iglewicz–Hoaglin cutoff). Returns an all-False
+    mask when there are fewer than three finite points or the MAD is zero, so
+    callers never discard everything merely for lack of spread.
+
+    Parameters
+    ----------
+    values : 1D array-like
+        The values to test (e.g. fit residuals or transmission ratios).
+    thresh : float
+        Modified z-score above which a point counts as an outlier.
+
+    Returns
+    -------
+    mask : np.ndarray of bool
+        True where the corresponding value is an outlier.
+    """
+    arr = np.asarray(values, dtype=float)
+    mask = np.zeros(arr.shape, dtype=bool)
+    finite = np.isfinite(arr)
+    if int(finite.sum()) < 3:
+        return mask
+    med = np.median(arr[finite])
+    mad = np.median(np.abs(arr[finite] - med))
+    if mad == 0:
+        return mask
+    # 0.6745 scales the MAD to the standard deviation of a normal sample.
+    modified_z = 0.6745 * (arr - med) / mad
+    return finite & (np.abs(modified_z) > thresh)
+
+
+def flag_amplitude_outliers(lpwrs, amps, thresh=3.5, rel_frac=0.2):
+    """Indices of amplitude points that stray from the linear power trend.
+
+    Amplitude (max measured power) vs. laser-power set-point is expected to be
+    roughly linear, so a single failed calibration shows up as a point off the
+    line. A robust Theil–Sen line is fit (median of pairwise slopes, so the
+    outlier cannot drag the fit toward itself the way least-squares would) and
+    the residuals are tested with :func:`mad_outlier_mask`. When the good
+    points are (near-)collinear the residual MAD collapses to zero; a relative
+    deviation fallback (``rel_frac``) then still catches an obvious single
+    failure.
+
+    Parameters
+    ----------
+    lpwrs : 1D array-like
+        Laser-power set-points.
+    amps : 1D array-like
+        Measured amplitude (max power) at each set-point.
+    thresh : float
+        Modified z-score cutoff for the MAD test.
+    rel_frac : float
+        Fallback: fraction of the fitted value a residual must exceed to count
+        as an outlier when the MAD test finds none.
+
+    Returns
+    -------
+    dict
+        ``{index: relative_residual}`` for flagged points; empty for fewer
+        than three points.
+    """
+    if len(amps) < 3:
+        return {}
+    x = np.asarray(lpwrs, dtype=float)
+    y = np.asarray(amps, dtype=float)
+
+    # Theil–Sen robust slope: median of all pairwise slopes.
+    slopes = []
+    n = len(x)
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = x[j] - x[i]
+            if dx != 0:
+                slopes.append((y[j] - y[i]) / dx)
+    slope = float(np.median(slopes)) if slopes else 0.0
+    intercept = float(np.median(y - slope * x))
+    fit = slope * x + intercept
+    resid = y - fit
+
+    mask = np.asarray(mad_outlier_mask(resid, thresh=thresh))
+    if not mask.any():
+        # Near-collinear good points -> MAD is 0; fall back to a relative test.
+        scale = np.maximum(np.abs(fit), 1e-9)
+        mask = (np.abs(resid) / scale) > rel_frac
+
+    out = {}
+    for i in np.nonzero(mask)[0]:
+        denom = abs(fit[i])
+        if denom < 1e-12:
+            denom = abs(y[i]) if abs(y[i]) > 1e-12 else 1.0
+        out[int(i)] = float(abs(resid[i]) / denom)
+    return out
+
+
+def load_amplitude_history(
+    db_fname, device, analyzer, laser=None, powermeter_type=None, max_runs=3
+):
+    """Amplitude (max fitted power) vs laser power for recent runs.
+
+    Groups a device's calibrations by date (one calibration run per day) and,
+    for the most recent ``max_runs`` days, evaluates each fitted model's
+    maximum output power at every laser-power set-point. Used to draw previous
+    runs as thin reference lines behind the live amplitude plot so the user can
+    judge whether the system is still stable.
+
+    Parameters
+    ----------
+    db_fname : str
+        Excel database path or server URL.
+    device : str
+        Device / microscope name.
+    analyzer : object
+        An analysis instance with ``load_model`` and ``output_range``; reused
+        across rows, so it must not be shared with a live calibration.
+    laser : int/str or None
+        If given, restrict to this wavelength.
+    powermeter_type : str or None
+        If given, restrict to calibrations taken at this power-meter position
+        ('sample' or 'bfp'), so the overlay is comparable to the live run.
+        Rows predating the ``powermeter_type`` column are always included.
+    max_runs : int
+        Number of most-recent dates to return per laser.
+
+    Returns
+    -------
+    history : dict
+        ``{laser (str): [{"date": str, "amplitudes": {lpwr: maxpower}}]}``,
+        each list ordered oldest → newest with at most ``max_runs`` entries.
+        Empty dict on any load error.
+    """
+    index = {DEVICE_TAG: device}
+    if laser is not None:
+        try:
+            index[LASER_TAG] = int(laser)
+        except (ValueError, TypeError):
+            index[LASER_TAG] = laser
+    try:
+        db = load_database(db_fname, index, time_idx="all")
+    except Exception as exc:
+        logger.debug("load_amplitude_history: could not load db: %s", exc)
+        return {}
+    if not hasattr(db, "iterrows") or db.empty:
+        return {}
+
+    want_type = (
+        normalize_powermeter_type(powermeter_type)
+        if powermeter_type is not None
+        else None
+    )
+
+    history = {}
+    for las, laser_df in db.groupby(LASER_TAG):
+        # Keep only the requested power-meter position when the column exists;
+        # legacy rows without it are treated as matching.
+        if want_type is not None and "powermeter_type" in laser_df.columns:
+            pm_norm = laser_df["powermeter_type"].map(
+                lambda v: normalize_powermeter_type(v) if pd.notna(v) else None
+            )
+            laser_df = laser_df.loc[(pm_norm == want_type) | pm_norm.isna()]
+        if laser_df.empty:
+            continue
+
+        dates = laser_df.index.get_level_values("date")
+        date_strs = np.array([str(d)[:10] for d in dates])
+        recent_dates = sorted(set(date_strs))[-max_runs:]
+
+        runs = []
+        for date in recent_dates:
+            date_df = laser_df.loc[date_strs == date]
+            amplitudes = {}
+            for lpwr, lpwr_df in date_df.groupby(
+                date_df.index.get_level_values(POWER_TAG)
+            ):
+                row = lpwr_df.iloc[-1]  # latest time for this power level
+                pars = {}
+                for col in row.index:
+                    val = row[col]
+                    try:
+                        if not np.isnan(val):
+                            pars[col] = val
+                    except (TypeError, ValueError):
+                        pass
+                try:
+                    analyzer.load_model(pars)
+                    maxpower = float(np.real(analyzer.output_range()[1]))
+                except Exception:
+                    continue
+                amplitudes[float(lpwr)] = maxpower
+            if amplitudes:
+                runs.append({"date": date, "amplitudes": amplitudes})
+        if runs:
+            history[str(las)] = runs
+    return history
+
+
 # ──────────────────────────────────────────────
 # Powermeter correction factors
 # ──────────────────────────────────────────────
@@ -920,16 +1118,30 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
         )
         return
 
-    factor_mean = float(np.mean(all_ratios))
-    factor_std = float(np.std(all_ratios))
-    n_points = len(all_ratios)
+    # A single failed calibration among the pooled ratios would skew the mean;
+    # drop robust outliers (a failed run shows up as a cluster far from the
+    # median) before averaging. Never drop everything — fall back to the full
+    # set if the mask would empty it.
+    ratios = np.asarray(all_ratios, dtype=float)
+    outliers = mad_outlier_mask(ratios, thresh=3.5)
+    kept = ratios[~outliers]
+    n_dropped = int(outliers.sum())
+    if kept.size == 0:
+        kept = ratios
+        n_dropped = 0
+
+    factor_mean = float(np.mean(kept))
+    factor_std = float(np.std(kept))
+    n_points = int(kept.size)
     logger.debug(
-        "transmission_objective %s/%s: mean=%.4f std=%.4f n=%d",
+        "transmission_objective %s/%s: mean=%.4f std=%.4f n=%d "
+        "(dropped %d outlier ratio(s))",
         device,
         laser,
         factor_mean,
         factor_std,
         n_points,
+        n_dropped,
     )
     if _is_server_url(db_fname):
         _save_factor_http(
@@ -939,6 +1151,156 @@ def compute_and_save_factor(db_fname, device, laser, ana_config):
         _save_factor_excel(
             db_fname, device, laser, today, factor_mean, factor_std, n_points
         )
+
+
+def _row_model_pars(row):
+    """Numeric model parameters from a calibration row (drop NaNs/strings)."""
+    pars = {}
+    for col in row.index:
+        val = row[col]
+        try:
+            if not np.isnan(val):
+                pars[col] = val
+        except (TypeError, ValueError):
+            pass
+    return pars
+
+
+def _pair_factor(df_sample, df_bfp, lpwr, ana_config, positions):
+    """Robust P_sample / P_bfp factor at one power level.
+
+    Returns ``(factor, n_kept)`` from the latest sample-plane and BFP
+    calibration at ``lpwr``, sampling ``positions`` and dropping MAD outliers.
+    ``(None, 0)`` if the pair cannot be evaluated.
+    """
+    from monet.util import load_class
+
+    s_rows = df_sample.loc[df_sample.index.get_level_values(POWER_TAG) == lpwr]
+    b_rows = df_bfp.loc[df_bfp.index.get_level_values(POWER_TAG) == lpwr]
+    if s_rows.empty or b_rows.empty:
+        return None, 0
+    try:
+        ana_s = load_class(ana_config["classpath"], ana_config["init_kwargs"])
+        ana_s.load_model(_row_model_pars(s_rows.iloc[-1]))
+        ana_b = load_class(ana_config["classpath"], ana_config["init_kwargs"])
+        ana_b.load_model(_row_model_pars(b_rows.iloc[-1]))
+    except Exception:
+        return None, 0
+    ratios = []
+    for pos in positions:
+        try:
+            p_s = ana_s.estimate_power(pos)
+            p_b = ana_b.estimate_power(pos)
+            if p_s > 0 and p_b > 0:
+                ratios.append(p_s / p_b)
+        except Exception:
+            pass
+    if not ratios:
+        return None, 0
+    arr = np.asarray(ratios, dtype=float)
+    keep = arr[~mad_outlier_mask(arr, thresh=3.5)]
+    if keep.size == 0:
+        keep = arr
+    return float(np.mean(keep)), int(keep.size)
+
+
+def compute_factor_breakdown(db_fname, device, ana_config, laser=None):
+    """Per-input objective transmission factors, for visualization.
+
+    Where :func:`compute_and_save_factor` pools every P_sample / P_bfp ratio
+    into one saved number per device/laser/day, this returns a *separate*
+    factor for each (date, wavelength, laser power) that has paired
+    sample-plane and BFP calibrations, so the factor's stability across those
+    inputs can be plotted.
+
+    Parameters
+    ----------
+    db_fname : str
+        Excel database path or server URL.
+    device : str
+        Device / microscope name.
+    ana_config : dict
+        Analysis config with 'classpath' and 'init_kwargs'.
+    laser : int/str or None
+        Restrict to one wavelength.
+
+    Returns
+    -------
+    df : pandas DataFrame
+        Columns ``date, wavelength, laser_power, factor, n_points``; empty if
+        nothing can be paired.
+    """
+    cols = ["date", "wavelength", "laser_power", "factor", "n_points"]
+    empty = pd.DataFrame(columns=cols)
+
+    try:
+        if _is_server_url(db_fname):
+            index = {DEVICE_TAG: device}
+            if laser is not None:
+                index[LASER_TAG] = int(laser)
+            db = load_database(db_fname, index, time_idx="all")
+        else:
+            if not os.path.exists(db_fname):
+                return empty
+            db = pd.read_excel(
+                db_fname,
+                sheet_name=0,
+                index_col=list(range(len(DATABASE_INDEXLEVELS))),
+            )
+            db = db.loc[db.index.get_level_values(DEVICE_TAG) == device]
+            if laser is not None:
+                try:
+                    lmask = db.index.get_level_values(LASER_TAG).astype(
+                        float
+                    ) == float(int(laser))
+                except Exception:
+                    lmask = db.index.get_level_values(LASER_TAG) == int(laser)
+                db = db.loc[lmask]
+    except Exception as exc:
+        logger.debug("compute_factor_breakdown: load failed: %s", exc)
+        return empty
+
+    if not hasattr(db, "iterrows") or db.empty:
+        return empty
+    if "powermeter_type" not in db.columns:
+        return empty
+
+    att_min = ana_config["init_kwargs"].get("min", 0)
+    att_max = ana_config["init_kwargs"].get("max", 180)
+    positions = np.linspace(att_min, att_max, 50)
+
+    rows = []
+    for las, laser_df in db.groupby(LASER_TAG):
+        dates = np.array(
+            [str(d)[:10] for d in laser_df.index.get_level_values("date")]
+        )
+        for date in sorted(set(dates)):
+            date_df = laser_df.loc[dates == date]
+            pm_norm = date_df["powermeter_type"].map(normalize_powermeter_type)
+            df_sample = date_df.loc[pm_norm == POWERMETER_SAMPLE]
+            df_bfp = date_df.loc[pm_norm == POWERMETER_BFP]
+            if df_sample.empty or df_bfp.empty:
+                continue
+            common = set(df_sample.index.get_level_values(POWER_TAG)) & set(
+                df_bfp.index.get_level_values(POWER_TAG)
+            )
+            for lpwr in sorted(common):
+                factor, n = _pair_factor(
+                    df_sample, df_bfp, lpwr, ana_config, positions
+                )
+                if factor is not None:
+                    rows.append(
+                        {
+                            "date": date,
+                            "wavelength": float(las),
+                            "laser_power": float(lpwr),
+                            "factor": factor,
+                            "n_points": n,
+                        }
+                    )
+    if not rows:
+        return empty
+    return pd.DataFrame(rows, columns=cols)
 
 
 def _save_factor_http(

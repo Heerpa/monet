@@ -405,6 +405,7 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
         point_callback=None,
         manage_laser_state=True,
         powermeter_type="manual",
+        power_filter=None,
     ):
         """Run a protocol over lasers and power settings.
 
@@ -413,6 +414,13 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
 
         Parameters
         ----------
+        power_filter : dict or None
+            If given, ``{laser: iterable of laser powers}``; only those power
+            levels are (re-)measured for the listed lasers. Used to recalibrate
+            individual failed points. When active, the run is treated as
+            partial: the aggregate per-laser plots (model history, measured
+            power table) are left untouched so they are not overwritten with
+            an incomplete set of powers.
         wait_time : float
             Time to wait between attenuator steps [s].
         switch_time : float
@@ -447,34 +455,47 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             if laser_filter is None or las in laser_filter
         ]
 
+        partial = power_filter is not None
+
+        def _powers_for(las):
+            """Laser powers to measure for ``las`` after the power filter."""
+            lps = self.protocol["laser_powers"][las]
+            if partial and power_filter.get(las) is not None:
+                allowed = {float(a) for a in power_filter[las]}
+                lps = [lp for lp in lps if float(lp) in allowed]
+            return lps
+
         # delete plots belonging to the lasers being calibrated so stale
         # power levels do not linger. Per-curve files are named
         # '<wl>nm_<power>mW.png' and model/meas plots '<wl>nm.png' /
         # 'pwrmeasured_<wl>nm.*'; all are overwritten on re-run, but
-        # pruning removes powers no longer calibrated.
-        laser_ints = {int(las) for las in lasers}
-        for fname in os.listdir(plotfolder):
-            matched = any(
-                fname
-                in (
-                    "{:d}nm.png".format(li),
-                    "pwrmeasured_{:d}nm.png".format(li),
-                    "pwrmeasured_{:d}nm.xlsx".format(li),
+        # pruning removes powers no longer calibrated. Skipped for a partial
+        # (single-point recalibration) run so untouched powers keep their
+        # plots.
+        if not partial:
+            laser_ints = {int(las) for las in lasers}
+            for fname in os.listdir(plotfolder):
+                matched = any(
+                    fname
+                    in (
+                        "{:d}nm.png".format(li),
+                        "pwrmeasured_{:d}nm.png".format(li),
+                        "pwrmeasured_{:d}nm.xlsx".format(li),
+                    )
+                    or (
+                        fname.startswith("{:d}nm_".format(li))
+                        and fname.endswith("mW.png")
+                    )
+                    # legacy timestamped curve files from older versions
+                    or "wavelength (nm)-{:d}_".format(li) in fname
+                    for li in laser_ints
                 )
-                or (
-                    fname.startswith("{:d}nm_".format(li))
-                    and fname.endswith("mW.png")
-                )
-                # legacy timestamped curve files from older versions
-                or "wavelength (nm)-{:d}_".format(li) in fname
-                for li in laser_ints
-            )
-            if matched:
-                try:
-                    os.remove(os.path.join(plotfolder, fname))
-                except Exception:
-                    pass
-        total = sum(len(self.protocol["laser_powers"][las]) for las in lasers)
+                if matched:
+                    try:
+                        os.remove(os.path.join(plotfolder, fname))
+                    except Exception:
+                        pass
+        total = sum(len(_powers_for(las)) for las in lasers)
         step = 0
 
         if manage_laser_state:
@@ -488,7 +509,9 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
             print("switching to laser", laser)
             self.instrument.laser = laser
             self.instrument.laser_enabled = True
-            laserpowers = self.protocol["laser_powers"][laser]
+            laserpowers = _powers_for(laser)
+            if not laserpowers:
+                continue
             if self.instrument.use_beampath:
                 self.instrument.beampath.positions = self.protocol["beampath"][
                     laser
@@ -560,8 +583,12 @@ class CalibrationProtocol2D(CalibrationProtocol1D):
                     laser,
                     self.instrument.config["analysis"],
                 )
-            self.plot_model(modelpars, laser)
-            self.save_measvals(measpwrs, laser, powermeter_type)
+            # For a partial recalibration ``modelpars`` / ``measpwrs`` only
+            # hold the re-measured powers, so leave the aggregate plots — which
+            # should show every power — as the last full run left them.
+            if not partial:
+                self.plot_model(modelpars, laser)
+                self.save_measvals(measpwrs, laser, powermeter_type)
             # Render one projected attenuation curve per power level, named
             # '<wl>nm_<power>mW.png' so only the newest of each is kept.
             for lpwr in laserpowers:

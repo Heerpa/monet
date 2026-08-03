@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QProgressBar,
@@ -43,6 +45,8 @@ from PyQt6.QtWidgets import (
 import monet.io as io
 from monet import (
     CONFIGS,
+    LASER_TAG,
+    POWER_TAG,
     POWERMETER_BFP,
     POWERMETER_SAMPLE,
     PROTOCOLS,
@@ -89,6 +93,7 @@ class CalibrationWorker(QThread):
         switch_time=10,
         powermeter_type=POWERMETER_SAMPLE,
         manage_laser_state=True,
+        power_filter=None,
     ):
         super().__init__()
         self._pc = pc
@@ -97,6 +102,7 @@ class CalibrationWorker(QThread):
         self._switch_time = switch_time
         self._powermeter_type = powermeter_type
         self._manage_laser_state = manage_laser_state
+        self._power_filter = power_filter
         self._cancel_requested = False
 
     def request_cancel(self):
@@ -127,6 +133,7 @@ class CalibrationWorker(QThread):
                 point_callback=_point_callback,
                 manage_laser_state=self._manage_laser_state,
                 powermeter_type=self._powermeter_type,
+                power_filter=self._power_filter,
             )
         except InterruptedError:
             self.log_message.emit("Calibration cancelled.")
@@ -328,15 +335,34 @@ class CalibrationPlots(QWidget):
     measured power — of every curve of the run, against the laser power
     set-point, with one series per wavelength.
 
+    Previous calibration runs (loaded via :meth:`set_history`) are drawn as
+    thin faded lines behind the live series so drift is visible at a glance.
+    The amplitude vs. laser-power relationship is expected to be roughly
+    linear; single points that stray from a robust line fit are flagged in red
+    and reported via the :attr:`flagged_changed` signal so they can be
+    discarded and re-measured.
+
     The curve grows point by point via ``add_point``; ``add_curve`` closes it
     off at the end of a power step and records its amplitude. Both are
     connected to ``CalibrationWorker`` signals and so run on the main thread.
     """
 
+    # Emits the list of currently-flagged points as
+    # [{"laser": str, "lpwr": float, "residual_frac": float}, ...].
+    flagged_changed = pyqtSignal(object)
+
+    # A point is flagged when its modified z-score against the linear fit
+    # exceeds this (see io.mad_outlier_mask).
+    OUTLIER_THRESH = 3.5
+
     def __init__(self, parent=None):
         super().__init__(parent)
         # {laser: {laser power set-point: max measured power}}
         self._amplitudes = {}
+        # {laser: [{"date": str, "amplitudes": {lpwr: maxpower}}]} — past runs
+        self._history = {}
+        # {laser: set(lpwr)} flagged as outliers in the current run
+        self._flagged = {}
         # (laser, lpwr) of the curve currently being acquired, or None
         self._curve_key = None
         self._curve_line = None
@@ -374,18 +400,95 @@ class CalibrationPlots(QWidget):
         self.clear()
 
     def clear(self):
-        """Drop all accumulated data and reset both axes."""
+        """Drop the current run's data and reset both axes.
+
+        Loaded history (see :meth:`set_history`) is preserved so it can be
+        drawn behind the next run; use :meth:`set_history` with an empty dict
+        to drop it too.
+        """
         self._amplitudes = {}
+        self._flagged = {}
         self._curve_key = None
         self._curve_line = None
         self._curve_x = []
         self._curve_y = []
+        self.flagged_changed.emit([])
         if not self._has_mpl:
             return
         self._curve_ax.clear()
         self._style_curve_axes("current attenuation curve")
         self._curve_canvas.draw_idle()
         self._redraw_amplitudes()
+
+    def set_history(self, history):
+        """Set previous calibration runs to overlay as thin reference lines.
+
+        Parameters
+        ----------
+        history : dict
+            As returned by :func:`monet.io.load_amplitude_history`:
+            ``{laser: [{"date": str, "amplitudes": {lpwr: maxpower}}]}``.
+        """
+        self._history = history or {}
+        self._redraw_amplitudes()
+
+    def flagged_points(self):
+        """Return the currently-flagged points as ``[(laser, lpwr), ...]``."""
+        return [
+            (laser, lpwr)
+            for laser, lpwrs in self._flagged.items()
+            for lpwr in lpwrs
+        ]
+
+    def remove_points(self, targets):
+        """Drop specific ``(laser, lpwr)`` points from the amplitude plot.
+
+        Used after their records are discarded so the stale points no longer
+        show. ``lpwr`` matches by numeric value (int/float agnostic).
+        """
+        changed = False
+        for laser, lpwr in targets:
+            pts = self._amplitudes.get(laser)
+            if not pts:
+                continue
+            for key in list(pts):
+                if float(key) == float(lpwr):
+                    del pts[key]
+                    changed = True
+            if not pts:
+                del self._amplitudes[laser]
+        if changed:
+            self._redraw_amplitudes()
+
+    # Matplotlib's default (tab10) categorical palette, inlined so no pyplot
+    # import is needed in this Qt-embedded canvas.
+    _COLORS = [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+        "#bcbd22",
+        "#17becf",
+    ]
+
+    def _laser_color(self, laser):
+        """Stable color per wavelength across history and live series."""
+        keys = {str(k) for k in self._amplitudes} | {
+            str(k) for k in self._history
+        }
+        try:
+            lasers = sorted(keys, key=float)
+        except ValueError:
+            lasers = sorted(keys)
+        try:
+            idx = lasers.index(str(laser))
+        except ValueError:
+            idx = 0
+        return self._COLORS[idx % len(self._COLORS)]
 
     def _style_curve_axes(self, title):
         ax = self._curve_ax
@@ -395,26 +498,93 @@ class CalibrationPlots(QWidget):
         ax.tick_params(labelsize=7)
         ax.grid(True, alpha=0.3)
 
+    def _detect_outliers(self, lpwrs, amps):
+        """Indices of live points that stray from the linear trend.
+
+        Delegates to :func:`monet.io.flag_amplitude_outliers` (robust
+        Theil–Sen line + MAD test) so the logic is unit-tested independently of
+        the GUI. Returns ``{index: residual_frac}`` for the flagged points.
+        """
+        return io.flag_amplitude_outliers(
+            lpwrs, amps, thresh=self.OUTLIER_THRESH
+        )
+
     def _redraw_amplitudes(self):
+        if not self._has_mpl:
+            return
         ax = self._amp_ax
         ax.clear()
+        self._flagged = {}
+
+        # Previous runs — thin, faded, drawn behind the live series so the
+        # user can see whether the system still tracks earlier calibrations.
+        for laser, runs in self._history.items():
+            color = self._laser_color(laser)
+            for run in runs:
+                amps = run.get("amplitudes", {})
+                if not amps:
+                    continue
+                lpwrs = sorted(amps, key=float)
+                ax.plot(
+                    lpwrs,
+                    [amps[lp] for lp in lpwrs],
+                    color=color,
+                    linewidth=0.6,
+                    alpha=0.4,
+                    zorder=1,
+                )
+
+        # Live run — bold, one series per wavelength, outliers ringed in red.
+        flagged_report = []
         for laser in sorted(self._amplitudes, key=float):
+            color = self._laser_color(laser)
             points = self._amplitudes[laser]
             lpwrs = sorted(points, key=float)
+            amps = [points[lp] for lp in lpwrs]
             ax.plot(
                 lpwrs,
-                [points[lp] for lp in lpwrs],
+                amps,
                 marker="o",
+                color=color,
+                linewidth=1.6,
+                zorder=3,
                 label="{} nm".format(laser),
             )
+            outliers = self._detect_outliers(lpwrs, amps)
+            if outliers:
+                self._flagged[laser] = {lpwrs[i] for i in outliers}
+                ax.plot(
+                    [lpwrs[i] for i in outliers],
+                    [amps[i] for i in outliers],
+                    marker="o",
+                    markersize=11,
+                    markerfacecolor="none",
+                    markeredgecolor="red",
+                    markeredgewidth=1.8,
+                    linestyle="none",
+                    zorder=4,
+                )
+                for i, frac in outliers.items():
+                    flagged_report.append(
+                        {
+                            # keep the original laser key so recalibration
+                            # filters match the protocol's laser_sequence.
+                            "laser": laser,
+                            "lpwr": float(lpwrs[i]),
+                            "residual_frac": frac,
+                        }
+                    )
+
         ax.set_xlabel("laser power set-point [mW]", fontsize=8)
         ax.set_ylabel("max measured power [mW]", fontsize=8)
         ax.set_title("measured power amplitudes", fontsize=9)
         ax.tick_params(labelsize=7)
         ax.grid(True, alpha=0.3)
-        if self._amplitudes:
+        handles, labels = ax.get_legend_handles_labels()
+        if labels:
             ax.legend(fontsize=7)
         self._amp_canvas.draw_idle()
+        self.flagged_changed.emit(flagged_report)
 
     def add_point(self, laser, lpwr, index, total, ctrl_val, power):
         """Extend the current curve by one freshly measured point.
@@ -488,7 +658,10 @@ class CalibrateTab(QWidget):
         self._pc = None
         self._worker = None
         self._discard_worker = None  # keep alive to prevent GC
+        self._history_worker = None  # keep alive to prevent GC
         self._checkboxes = {}
+        # Latest outlier report from CalibrationPlots (list of dicts).
+        self._flagged_report = []
         self._build_ui()
 
     def _emit_status(self, msg, timeout_ms=0):
@@ -527,16 +700,23 @@ class CalibrateTab(QWidget):
         )
         layout.addWidget(self._multi_cb)
 
-        # Back focal plane (BFP) powermeter checkbox
-        self._bfp_pm_cb = QCheckBox("Use back focal plane (BFP) powermeter")
-        self._bfp_pm_cb.setEnabled(True)
-        self._bfp_pm_cb.setToolTip(
-            "When checked, the beampath is moved to the BFP powermeter "
-            "position during calibration. A correction factor is "
-            "computed if both sample-plane and BFP calibrations exist "
-            "for the same day."
+        # Power-meter position — mirrors the Set Power tab's dropdown so the
+        # two surfaces present the same control (see SetPowerTab._pm_pos_combo).
+        pm_row = QHBoxLayout()
+        pm_row.addWidget(QLabel("Powermeter position:"))
+        self._pm_pos_combo = QComboBox()
+        self._pm_pos_combo.addItem("Back focal plane (BFP)", POWERMETER_BFP)
+        self._pm_pos_combo.addItem("Sample plane", POWERMETER_SAMPLE)
+        self._pm_pos_combo.setToolTip(
+            "Where the power meter is physically positioned for this "
+            "calibration run. For the back focal plane (BFP) the beampath is "
+            "moved to the BFP powermeter position; an objective transmission "
+            "factor is computed if both sample-plane and BFP calibrations "
+            "exist for the same day."
         )
-        layout.addWidget(self._bfp_pm_cb)
+        pm_row.addWidget(self._pm_pos_combo)
+        pm_row.addStretch()
+        layout.addLayout(pm_row)
 
         # Progress bar
         self._progress = QProgressBar()
@@ -552,6 +732,7 @@ class CalibrateTab(QWidget):
         # the splitter would squeeze the log down to an unreadable column.
         self._log.setMinimumWidth(240)
         self._plots = CalibrationPlots()
+        self._plots.flagged_changed.connect(self._on_flagged_changed)
 
         lower = QSplitter(Qt.Orientation.Horizontal)
         lower.addWidget(self._log)
@@ -563,6 +744,41 @@ class CalibrateTab(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         layout.addWidget(lower, 1)
+
+        # Flagged-points panel — populated when the amplitude vs. laser-power
+        # trend has outliers (single failed calibrations). Hidden otherwise.
+        self._flagged_group = QGroupBox(
+            "Flagged calibrations (off the linear amplitude trend)"
+        )
+        self._flagged_group.setToolTip(
+            "Points whose measured amplitude strays from the expected linear "
+            "relationship with laser power — usually a failed single "
+            "calibration. Tick the ones to act on, then discard them or "
+            "re-measure them in place."
+        )
+        fl_layout = QVBoxLayout()
+        self._flagged_list = QListWidget()
+        self._flagged_list.setMaximumHeight(110)
+        fl_layout.addWidget(self._flagged_list)
+        fl_btn_row = QHBoxLayout()
+        self._btn_discard_flagged = QPushButton("Discard selected")
+        self._btn_discard_flagged.setToolTip(
+            "Delete the ticked calibration records from the database."
+        )
+        self._btn_discard_flagged.clicked.connect(self._on_discard_flagged)
+        self._btn_recal_flagged = QPushButton("Recalibrate selected")
+        self._btn_recal_flagged.setToolTip(
+            "Delete the ticked records and re-measure exactly those "
+            "wavelength / power points."
+        )
+        self._btn_recal_flagged.clicked.connect(self._on_recalibrate_flagged)
+        fl_btn_row.addWidget(self._btn_discard_flagged)
+        fl_btn_row.addWidget(self._btn_recal_flagged)
+        fl_btn_row.addStretch()
+        fl_layout.addLayout(fl_btn_row)
+        self._flagged_group.setLayout(fl_layout)
+        self._flagged_group.setVisible(False)
+        layout.addWidget(self._flagged_group)
 
         # Start / Cancel / Discard buttons
         btn_row2 = QHBoxLayout()
@@ -588,6 +804,8 @@ class CalibrateTab(QWidget):
         self._pc = pc
         self._rebuild_checkboxes()
         self._plots.clear()
+        # Drop history overlaid from any previous connection.
+        self._plots.set_history({})
         self._update_discard_enabled()
         has_beampath = (
             pc is not None
@@ -595,7 +813,13 @@ class CalibrateTab(QWidget):
             and hasattr(pc.instrument, "use_beampath")
             and pc.instrument.use_beampath
         )
-        self._bfp_pm_cb.setEnabled(has_beampath)
+        # Without a beam path the BFP position cannot be reached, so pin the
+        # selector to the sample plane and disable it.
+        self._pm_pos_combo.setEnabled(has_beampath)
+        if not has_beampath:
+            idx = self._pm_pos_combo.findData(POWERMETER_SAMPLE)
+            if idx >= 0:
+                self._pm_pos_combo.setCurrentIndex(idx)
 
     def _rebuild_checkboxes(self):
         # Remove old checkboxes (keep the button row at index 0)
@@ -695,17 +919,23 @@ class CalibrateTab(QWidget):
         self._emit_status("Calibration running…")
 
         self.calibration_started.emit()
+        self._launch_calibration(selected)
 
-        powermeter_type = (
-            POWERMETER_BFP
-            if self._bfp_pm_cb.isChecked()
-            else POWERMETER_SAMPLE
-        )
+    def _launch_calibration(self, selected, power_filter=None):
+        """Start a calibration worker for ``selected`` lasers.
+
+        ``power_filter`` ({laser: [powers]}) restricts the run to specific
+        power points — used when re-measuring flagged calibrations.
+        """
+        powermeter_type = self._pm_pos_combo.currentData() or POWERMETER_SAMPLE
+        # Overlay previous runs so the operator can watch for drift.
+        self._load_history_async(selected, powermeter_type)
         self._worker = CalibrationWorker(
             self._pc,
             laser_filter=selected,
             powermeter_type=powermeter_type,
             manage_laser_state=not self._multi_cb.isChecked(),
+            power_filter=power_filter,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.point.connect(self._plots.add_point)
@@ -714,6 +944,46 @@ class CalibrateTab(QWidget):
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
         self._worker.start()
+        # Now that a run is in progress, the flag actions are disabled.
+        self._update_flagged_buttons()
+
+    def _load_history_async(self, lasers, powermeter_type):
+        """Load recent runs' amplitude curves and overlay them (background)."""
+        if self._pc is None:
+            return
+        try:
+            cfg = self._pc.instrument.config
+            device = cfg["index"].get("name")
+            ana_cfg = cfg["analysis"]
+            db_fname = cfg["database"]
+        except Exception:
+            return
+        if not device:
+            return
+        keep = {str(las) for las in lasers}
+
+        def _do():
+            from monet.util import load_class
+
+            analyzer = load_class(ana_cfg["classpath"], ana_cfg["init_kwargs"])
+            all_hist = io.load_amplitude_history(
+                db_fname, device, analyzer, powermeter_type=powermeter_type
+            )
+            return {k: v for k, v in all_hist.items() if k in keep}
+
+        def _on_result(history):
+            self._plots.set_history(history or {})
+            self._history_worker = None
+
+        def _on_hist_error(msg):
+            logger.debug("amplitude history load failed: %s", msg)
+            self._history_worker = None
+
+        worker = GenericWorker(_do)
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_hist_error)
+        self._history_worker = worker
+        worker.start()
 
     def _on_cancel(self):
         if self._worker:
@@ -736,6 +1006,7 @@ class CalibrateTab(QWidget):
         self._btn_cancel.setEnabled(False)
         self._update_discard_enabled()
         self._worker = None
+        self._update_flagged_buttons()
         self._emit_status("Calibration complete.", 5000)
         self.calibration_finished.emit()
 
@@ -748,12 +1019,184 @@ class CalibrateTab(QWidget):
         # user discard those.
         self._update_discard_enabled()
         self._worker = None
+        self._update_flagged_buttons()
         self._emit_status(f"Calibration error: {msg}", 5000)
         self.calibration_finished.emit()
 
     def _update_discard_enabled(self):
         saved = getattr(self._pc, "saved_calibrations", None)
         self._btn_discard.setEnabled(bool(saved))
+
+    # ── Flagged (outlier) calibration points ──────────────────────────────
+    def _on_flagged_changed(self, report):
+        """Rebuild the flagged-points list from the plot's outlier report."""
+        self._flagged_report = list(report or [])
+        self._flagged_list.clear()
+        for entry in self._flagged_report:
+            laser = entry["laser"]
+            lpwr = entry["lpwr"]
+            pct = entry.get("residual_frac", 0.0) * 100.0
+            item = QListWidgetItem(
+                "{} nm @ {:g} mW  ({:.0f}% off trend)".format(laser, lpwr, pct)
+            )
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, (laser, lpwr))
+            self._flagged_list.addItem(item)
+        self._flagged_group.setVisible(bool(self._flagged_report))
+        self._update_flagged_buttons()
+
+    def _update_flagged_buttons(self):
+        # Only actionable when idle (no run in progress) and something is
+        # flagged.
+        enabled = self._worker is None and bool(self._flagged_report)
+        self._btn_discard_flagged.setEnabled(enabled)
+        self._btn_recal_flagged.setEnabled(enabled)
+
+    def _checked_flagged(self):
+        """Return the ticked flagged points as ``[(laser, lpwr), ...]``."""
+        out = []
+        for i in range(self._flagged_list.count()):
+            item = self._flagged_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                out.append(item.data(Qt.ItemDataRole.UserRole))
+        return out
+
+    def _flagged_to_records(self, targets):
+        """Map ``(laser, lpwr)`` targets to this run's DB index records."""
+
+        def _fnum(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        want = {(str(las), _fnum(lpwr)) for las, lpwr in targets}
+        saved = list(getattr(self._pc, "saved_calibrations", None) or [])
+        matched = []
+        for rec in saved:
+            key = (str(rec.get(LASER_TAG)), _fnum(rec.get(POWER_TAG)))
+            if key in want:
+                matched.append(rec)
+        return matched
+
+    def _on_discard_flagged(self):
+        targets = self._checked_flagged()
+        if not targets:
+            QMessageBox.information(
+                self, "Nothing ticked", "Tick the point(s) to discard."
+            )
+            return
+        records = self._flagged_to_records(targets)
+        if not records:
+            QMessageBox.information(
+                self,
+                "No records",
+                "Could not match the flagged points to records from the "
+                "last run. They may already have been removed.",
+            )
+            return
+        reply = QMessageBox.question(
+            self,
+            "Discard flagged",
+            f"Delete {len(records)} flagged calibration record(s) from the "
+            "database?\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._delete_records_async(records, targets, then_recalibrate=None)
+
+    def _on_recalibrate_flagged(self):
+        targets = self._checked_flagged()
+        if not targets:
+            QMessageBox.information(
+                self, "Nothing ticked", "Tick the point(s) to recalibrate."
+            )
+            return
+        records = self._flagged_to_records(targets)
+        reply = QMessageBox.question(
+            self,
+            "Recalibrate flagged",
+            "Delete {} old record(s) and re-measure {} point(s)?".format(
+                len(records), len(targets)
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Delete the bad records first, then re-run just those points.
+        self._delete_records_async(records, targets, then_recalibrate=targets)
+
+    def _delete_records_async(self, records, targets, then_recalibrate=None):
+        """Delete ``records`` in the background, optionally recalibrating."""
+        db_fname = self._pc.instrument.config["database"]
+
+        def _do():
+            deleted = 0
+            for index in records:
+                deleted += io.delete_calibration(db_fname, index) or 0
+            return deleted
+
+        def _on_result(deleted):
+            self._log.append(f"Discarded {deleted} flagged record(s).")
+            self._emit_status(f"Discarded {deleted} flagged record(s).", 5000)
+            # Drop the deleted records from this run's undo list.
+            remaining = [
+                r
+                for r in (self._pc.saved_calibrations or [])
+                if r not in records
+            ]
+            self._pc.saved_calibrations = remaining
+
+        def _on_err(msg):
+            self._log.append(f"ERROR discarding flagged: {msg}")
+            QMessageBox.critical(self, "Discard error", msg)
+
+        def _on_done():
+            self._discard_worker = None
+            self._update_discard_enabled()
+            if then_recalibrate:
+                self._recalibrate_points(then_recalibrate)
+            else:
+                # Drop the discarded points from the plot so they no longer
+                # show as stale flags.
+                self._plots.remove_points(targets)
+                self._btn_start.setEnabled(True)
+                self._update_flagged_buttons()
+
+        self._btn_start.setEnabled(False)
+        self._btn_discard_flagged.setEnabled(False)
+        self._btn_recal_flagged.setEnabled(False)
+
+        worker = GenericWorker(_do)
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_err)
+        worker.finished.connect(_on_done)
+        self._discard_worker = worker
+        worker.start()
+
+    def _recalibrate_points(self, targets):
+        """Re-measure the given ``(laser, lpwr)`` points in place."""
+        power_filter = {}
+        for laser, lpwr in targets:
+            power_filter.setdefault(laser, []).append(lpwr)
+        lasers = list(power_filter.keys())
+        self._log.append(
+            "Recalibrating: "
+            + ", ".join(
+                "{} nm @ {} mW".format(las, ", ".join(str(p) for p in ps))
+                for las, ps in power_filter.items()
+            )
+        )
+        self._progress.setValue(0)
+        self._progress.setFormat("Recalibrating…")
+        self._btn_start.setEnabled(False)
+        self._btn_cancel.setEnabled(True)
+        self._btn_discard.setEnabled(False)
+        self._emit_status("Recalibrating flagged points…")
+        self.calibration_started.emit()
+        self._launch_calibration(lasers, power_filter=power_filter)
 
     def _on_discard(self):
         """Delete the records written by the last calibration run."""
@@ -1254,7 +1697,9 @@ class SetPowerTab(QWidget):
         pwr_row.addStretch()
         adj_layout.addLayout(pwr_row)
 
-        layout.addWidget(adj_group)
+        # The "Power adjustment" box is built here but added to the layout
+        # further down, below the power-meter / beam-path setup controls, so
+        # the physical setup sits on top and power adjustment sits lower.
         # ─────────────────────────────────────────────────────────────────
 
         # ── Powermeter position ───────────────────────────────────────────
@@ -1325,6 +1770,9 @@ class SetPowerTab(QWidget):
             "turret, ...) as read from the hardware."
         )
         layout.addWidget(self._bp_state_label)
+
+        # ── Power adjustment (built above, placed below the setup controls) ─
+        layout.addWidget(adj_group)
 
         # Measure + All off
         misc_row = QHBoxLayout()
@@ -2472,6 +2920,9 @@ class DatabaseTab(QWidget):
         self._pc = None
         self._db_fname = None
         self._active_worker = None
+        self._factor_worker = None  # keep alive to prevent GC
+        self._factor_canvas = None
+        self._factor_ax = None
         self._build_ui()
 
     def _emit_status(self, msg, timeout_ms=0):
@@ -2558,6 +3009,25 @@ class DatabaseTab(QWidget):
         self._factors_table.setMaximumHeight(150)
         layout.addWidget(self._factors_table)
 
+        # Transmission-factor plot: one point per (date, wavelength, laser
+        # power), so drift and per-input outliers are visible at a glance.
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+
+            self._factor_fig = Figure(figsize=(5, 2.6), tight_layout=True)
+            self._factor_ax = self._factor_fig.add_subplot(111)
+            self._factor_canvas = FigureCanvasQTAgg(self._factor_fig)
+            self._factor_canvas.setMinimumHeight(200)
+            layout.addWidget(self._factor_canvas)
+        except Exception:
+            self._factor_canvas = None
+            layout.addWidget(
+                QLabel(
+                    "matplotlib not available — no transmission-factor plot."
+                )
+            )
+
     def set_pc(self, pc):
         self._pc = pc
         if pc is not None:
@@ -2566,7 +3036,26 @@ class DatabaseTab(QWidget):
             self._db_fname = None
         self._btn_compute_transmission.setEnabled(pc is not None)
         self._update_db_link()
+        # Pre-filter to the connected microscope: the other scopes are not of
+        # interest here (the web dashboard link covers cross-scope browsing).
+        self._preselect_current_scope()
         self._on_refresh()
+
+    def _preselect_current_scope(self):
+        """Select the connected microscope in the scope filter, if known."""
+        scope = None
+        if self._pc is not None:
+            try:
+                scope = self._pc.instrument.config["index"].get("name")
+            except Exception:
+                scope = None
+        if not scope:
+            return
+        idx = self._scope_combo.findData(scope)
+        if idx < 0:
+            self._scope_combo.addItem(str(scope), scope)
+            idx = self._scope_combo.findData(scope)
+        self._scope_combo.setCurrentIndex(idx)
 
     def _update_db_link(self):
         db = self._db_fname or ""
@@ -2690,6 +3179,109 @@ class DatabaseTab(QWidget):
                             )
             except Exception:
                 pass
+
+        self._refresh_factor_plot()
+
+    def _refresh_factor_plot(self):
+        """Recompute and redraw the per-input transmission-factor plot."""
+        if self._factor_canvas is None or self._db_fname is None:
+            return
+        device = self._scope_combo.currentData()
+        ana_config = None
+        if self._pc is not None:
+            try:
+                ana_config = self._pc.instrument.config["analysis"]
+            except Exception:
+                ana_config = None
+        # A specific microscope and its analysis config are needed to rebuild
+        # the models the factor is sampled from.
+        if not device or ana_config is None:
+            self._draw_factor_plot(None)
+            return
+        db_fname = self._db_fname
+
+        def _do():
+            return io.compute_factor_breakdown(db_fname, device, ana_config)
+
+        def _on_result(df):
+            self._draw_factor_plot(df)
+            self._factor_worker = None
+
+        def _on_error(msg):
+            logger.debug("transmission breakdown failed: %s", msg)
+            self._factor_worker = None
+
+        worker = GenericWorker(_do)
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_error)
+        self._factor_worker = worker
+        worker.start()
+
+    # tab10 palette, inlined (no pyplot import for this embedded canvas).
+    _FACTOR_COLORS = [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+        "#bcbd22",
+        "#17becf",
+    ]
+
+    def _draw_factor_plot(self, df):
+        """Draw factor vs date, colored by wavelength, a point per power."""
+        if self._factor_canvas is None:
+            return
+        ax = self._factor_ax
+        ax.clear()
+        if df is None or not hasattr(df, "empty") or df.empty:
+            ax.text(
+                0.5,
+                0.5,
+                "No paired sample/BFP calibrations to plot",
+                ha="center",
+                va="center",
+                fontsize=8,
+                transform=ax.transAxes,
+            )
+            ax.set_axis_off()
+            self._factor_canvas.draw_idle()
+            return
+        ax.set_axis_on()
+        from datetime import datetime as _dt
+
+        wavelengths = sorted(df["wavelength"].unique())
+        for i, wl in enumerate(wavelengths):
+            sub = df[df["wavelength"] == wl]
+            try:
+                xs = [
+                    _dt.strptime(str(d)[:10], "%Y-%m-%d") for d in sub["date"]
+                ]
+            except Exception:
+                xs = list(range(len(sub)))
+            ax.scatter(
+                xs,
+                sub["factor"],
+                s=28,
+                color=self._FACTOR_COLORS[i % len(self._FACTOR_COLORS)],
+                label="{:g} nm".format(wl),
+                alpha=0.8,
+            )
+        ax.set_ylabel("T_obj = P_sample / P_bfp", fontsize=8)
+        ax.set_xlabel("date", fontsize=8)
+        ax.set_title(
+            "objective transmission by date / wavelength / power",
+            fontsize=9,
+        )
+        ax.tick_params(labelsize=7)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=7)
+        for label in ax.get_xticklabels():
+            label.set(rotation=30, horizontalalignment="right")
+        self._factor_canvas.draw_idle()
 
     def _selected_row_indices(self):
         rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
