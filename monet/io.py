@@ -1409,7 +1409,9 @@ FACTOR_PAIR_COLUMNS = [
     "laser_power",
     "factor",
     "n_points",
+    "sample_date",
     "sample_time",
+    "bfp_date",
     "bfp_time",
     "device",
 ]
@@ -1476,6 +1478,16 @@ def delete_factor_pair(db_fname, pair):
     pairs = _load_factor_pairs_raw(path)
     key = _pair_key(pair)
     kept = [p for p in pairs if _pair_key(p) != key]
+    if len(kept) != len(pairs):
+        _write_factor_pairs_raw(path, kept)
+    return len(pairs) - len(kept)
+
+
+def clear_factor_pairs(db_fname, device):
+    """Remove all stored pairs for ``device``. Returns count removed."""
+    path = _factor_pairs_path(db_fname)
+    pairs = _load_factor_pairs_raw(path)
+    kept = [p for p in pairs if p.get("device") != device]
     if len(kept) != len(pairs):
         _write_factor_pairs_raw(path, kept)
     return len(pairs) - len(kept)
@@ -1744,7 +1756,9 @@ def compute_run_pair_factors(db_fname, sample_run, bfp_run, ana_config):
             "wavelength": wl,
             "laser_power": power,
             "date": sample_run["date"],
+            "sample_date": s_map[(wl, power)][2],
             "sample_time": s_map[(wl, power)][3],
+            "bfp_date": b_map[(wl, power)][2],
             "bfp_time": b_map[(wl, power)][3],
             "factor": float(factor),
             "n_points": int(n),
@@ -1764,6 +1778,29 @@ def compute_run_pair_factors(db_fname, sample_run, bfp_run, ana_config):
             logger.debug("projection factor save failed: %s", exc)
         stored.append(pair)
     return stored
+
+
+def delete_calibration_run(db_fname, run):
+    """Delete every calibration belonging to ``run``. Returns rows deleted.
+
+    ``run`` is a run dict from :func:`list_calibration_runs`; each of its
+    members (wavelength, power, date, time) is removed from the database.
+    """
+    device = run.get("device")
+    deleted = 0
+    for wl, power, date, time_v in run.get("members", []):
+        index = {
+            DEVICE_TAG: device,
+            LASER_TAG: float(wl),
+            POWER_TAG: float(power),
+            "date": date,
+            "time": time_v,
+        }
+        try:
+            deleted += delete_calibration(db_fname, index) or 0
+        except Exception as exc:
+            logger.debug("delete_calibration_run: %s", exc)
+    return deleted
 
 
 def _save_factor_http(

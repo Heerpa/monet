@@ -2016,11 +2016,13 @@ class SetPowerTab(QWidget):
         measure_row.addStretch()
         layout.addLayout(measure_row)
 
-        # ── Power adjustment (built above, placed below the setup controls) ─
-        layout.addWidget(adj_group)
-
+        # Status label sits above the power-adjustment box so action feedback
+        # is visible next to the controls, not buried between the boxes.
         self._status = QLabel("")
         layout.addWidget(self._status)
+
+        # ── Power adjustment (built above, placed below the setup controls) ─
+        layout.addWidget(adj_group)
 
         # ── Separator ────────────────────────────────────────────────────────
         sep = QFrame()
@@ -3214,43 +3216,56 @@ def _plot_run_amplitudes(ax, runs, title=""):
 
 
 class RunPairDialog(QDialog):
-    """Pick one sample-plane run and one BFP run to pair for T_obj.
+    """Curate which calibration runs define the objective transmission factor.
 
-    Runs (as returned by :func:`monet.io.list_calibration_runs`) are grouped by
-    power-meter position; the operator selects one of each, sees their
-    amplitude-vs-power curves side by side, and their single calibrations are
-    paired automatically by wavelength and power.
+    Runs (from :func:`monet.io.list_calibration_runs`) are grouped by
+    power-meter position. Each run has a **checkbox** marking whether it is used
+    for the transmission factor; **clicking** a run shows its amplitude-vs-power
+    curves in the graph (click/focus = view, checkbox = use). The tick state is
+    restored from the stored pairs, so the dialog can be reopened to review and
+    change which runs are in use. On accept, every ticked sample run is paired
+    with every ticked BFP run.
     """
 
-    def __init__(self, runs, parent=None):
+    def __init__(self, runs, used_sample=None, used_bfp=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Pair calibration runs — objective transmission")
-        self.selected_sample = None
-        self.selected_bfp = None
+        self.setWindowTitle("Transmission runs — select which to use")
+        self._used_sample = used_sample or set()
+        self._used_bfp = used_bfp or set()
+        self.checked_samples = []
+        self.checked_bfps = []
 
         layout = QVBoxLayout(self)
         layout.addWidget(
             QLabel(
-                "Select the sample-plane run and the BFP run to pair. Their "
-                "single calibrations are paired automatically by wavelength "
-                "and power."
+                "Tick the sample-plane and BFP runs to use for the objective "
+                "transmission factor; click a run to view its amplitude "
+                "curves below. Ticked sample and BFP runs are paired "
+                "automatically by wavelength and power, and remembered."
             )
         )
 
         lists_row = QHBoxLayout()
         self._sample_list = QListWidget()
         self._bfp_list = QListWidget()
-        for lst, pm in (
-            (self._sample_list, POWERMETER_SAMPLE),
-            (self._bfp_list, POWERMETER_BFP),
+        for lst, pm, used in (
+            (self._sample_list, POWERMETER_SAMPLE, self._used_sample),
+            (self._bfp_list, POWERMETER_BFP, self._used_bfp),
         ):
             for r in runs:
                 if r["powermeter_type"] != pm:
                     continue
                 item = QListWidgetItem(self._fmt_run(r))
                 item.setData(Qt.ItemDataRole.UserRole, r)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(
+                    Qt.CheckState.Checked
+                    if self._run_used(r, used)
+                    else Qt.CheckState.Unchecked
+                )
                 lst.addItem(item)
             lst.itemSelectionChanged.connect(self._update)
+            lst.itemChanged.connect(self._update)
 
         for title, lst in (
             ("Sample-plane runs", self._sample_list),
@@ -3262,7 +3277,7 @@ class RunPairDialog(QDialog):
             lists_row.addLayout(col)
         layout.addLayout(lists_row)
 
-        # Amplitude-vs-power graph of the two selected runs.
+        # Amplitude-vs-power graph of the clicked (focused) runs.
         self._canvas = None
         try:
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -3284,12 +3299,11 @@ class RunPairDialog(QDialog):
         btn_cancel = QPushButton("Cancel")
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel)
-        self._btn_ok = QPushButton("Compute && store")
-        self._btn_ok.setEnabled(False)
+        self._btn_ok = QPushButton("Save selection")
         self._btn_ok.clicked.connect(self.accept)
         btn_row.addWidget(self._btn_ok)
         layout.addLayout(btn_row)
-        self.resize(700, 560)
+        self.resize(720, 580)
         self._update()
 
     @staticmethod
@@ -3301,38 +3315,46 @@ class RunPairDialog(QDialog):
         )
 
     @staticmethod
-    def _selected(lst):
+    def _run_used(run, used):
+        for wl, power, date, time_v in run["members"]:
+            key = (float(wl), float(power), str(date)[:10], str(time_v)[:5])
+            if key in used:
+                return True
+        return False
+
+    @staticmethod
+    def _focused(lst):
         items = lst.selectedItems()
         return items[0].data(Qt.ItemDataRole.UserRole) if items else None
 
     @staticmethod
-    def _wp_set(run):
-        return {(float(w), float(p)) for w, p, _, _ in run["members"]}
+    def _checked(lst):
+        out = []
+        for i in range(lst.count()):
+            it = lst.item(i)
+            if it.checkState() == Qt.CheckState.Checked:
+                out.append(it.data(Qt.ItemDataRole.UserRole))
+        return out
 
-    def _update(self):
-        self.selected_sample = self._selected(self._sample_list)
-        self.selected_bfp = self._selected(self._bfp_list)
-        if self.selected_sample and self.selected_bfp:
-            common = self._wp_set(self.selected_sample) & self._wp_set(
-                self.selected_bfp
+    def _update(self, *args):
+        self.checked_samples = self._checked(self._sample_list)
+        self.checked_bfps = self._checked(self._bfp_list)
+        self._preview.setText(
+            "Using {} sample-plane and {} BFP run(s).".format(
+                len(self.checked_samples), len(self.checked_bfps)
             )
-            self._preview.setText(
-                "{} wavelength/power pair(s) will be computed.".format(
-                    len(common)
-                )
-            )
-            self._btn_ok.setEnabled(len(common) > 0)
-        else:
-            self._preview.setText("")
-            self._btn_ok.setEnabled(False)
+        )
         if self._canvas is not None:
             chosen = [
                 r
-                for r in (self.selected_sample, self.selected_bfp)
+                for r in (
+                    self._focused(self._sample_list),
+                    self._focused(self._bfp_list),
+                )
                 if r is not None
             ]
             _plot_run_amplitudes(
-                self._ax, chosen, "selected runs — amplitude vs laser power"
+                self._ax, chosen, "clicked runs — amplitude vs laser power"
             )
             self._canvas.draw_idle()
 
@@ -3382,6 +3404,14 @@ class DatabaseTab(QWidget):
         btn_refresh = QPushButton("Refresh")
         btn_refresh.clicked.connect(self._on_refresh)
         ctrl_row.addWidget(btn_refresh)
+        self._btn_delete_run = QPushButton("Delete run")
+        self._btn_delete_run.setEnabled(False)
+        self._btn_delete_run.setToolTip(
+            "Delete every calibration belonging to the selected run(s) from "
+            "the database."
+        )
+        self._btn_delete_run.clicked.connect(self._on_delete_run)
+        ctrl_row.addWidget(self._btn_delete_run)
         ctrl_row.addStretch()
         layout.addLayout(ctrl_row)
 
@@ -3594,10 +3624,8 @@ class DatabaseTab(QWidget):
         self._refresh_factors_table()
         self._refresh_factor_plot()
 
-    def _plot_selected_runs(self):
-        """Plot amplitude vs laser power for the selected runs."""
-        if self._runs_canvas is None:
-            return
+    def _selected_runs(self):
+        """Run dicts for the currently-selected rows."""
         rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
         runs = []
         for r in rows:
@@ -3605,8 +3633,58 @@ class DatabaseTab(QWidget):
             run = item.data(Qt.ItemDataRole.UserRole) if item else None
             if run:
                 runs.append(run)
+        return runs
+
+    def _plot_selected_runs(self):
+        """Plot amplitude vs laser power for the selected runs."""
+        runs = self._selected_runs()
+        self._btn_delete_run.setEnabled(bool(runs) and self._pc is not None)
+        if self._runs_canvas is None:
+            return
         _plot_run_amplitudes(self._runs_ax, runs, "amplitude vs laser power")
         self._runs_canvas.draw_idle()
+
+    def _on_delete_run(self):
+        runs = self._selected_runs()
+        if not runs or self._db_fname is None:
+            return
+        n_cals = sum(r.get("n_cals", 0) for r in runs)
+        reply = QMessageBox.question(
+            self,
+            "Delete run(s)",
+            "Delete {} run(s) — {} calibration record(s) — from the "
+            "database?\nThis cannot be undone.".format(len(runs), n_cals),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        db_fname = self._db_fname
+        self._btn_delete_run.setEnabled(False)
+        self._emit_status("Deleting run(s)…")
+
+        def _do():
+            deleted = 0
+            for run in runs:
+                deleted += io.delete_calibration_run(db_fname, run)
+            return deleted
+
+        def _on_result(deleted):
+            self._active_worker = None
+            self._emit_status(
+                "Deleted {} calibration record(s).".format(deleted), 5000
+            )
+            self._on_refresh()
+
+        def _on_error(msg):
+            self._active_worker = None
+            QMessageBox.critical(self, "Delete error", msg)
+            self._on_refresh()
+
+        worker = GenericWorker(_do)
+        worker.result.connect(_on_result)
+        worker.error.connect(_on_error)
+        self._active_worker = worker
+        worker.start()
 
     def _refresh_factors_table(self):
         """Show manually-selected pairs if any exist, else the auto factors."""
@@ -3725,6 +3803,51 @@ class DatabaseTab(QWidget):
         self._active_worker = worker
         worker.start()
 
+    def _used_run_keys(self):
+        """(sample, bfp) sets of (wl, power, date, time) already used in pairs.
+
+        Lets the dialog restore its checkboxes to the runs currently in use.
+        """
+        us, ub = set(), set()
+        try:
+            df = io.load_factor_pairs(
+                self._db_fname, device=self._current_scope()
+            )
+        except Exception:
+            return us, ub
+        if not hasattr(df, "iterrows"):
+            return us, ub
+
+        def _v(row, key, fallback):
+            v = row.get(key)
+            if v is None or (isinstance(v, float) and v != v):
+                v = row.get(fallback)
+            return v
+
+        for _, row in df.iterrows():
+            try:
+                wl = float(row["wavelength"])
+                p = float(row["laser_power"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            us.add(
+                (
+                    wl,
+                    p,
+                    str(_v(row, "sample_date", "date"))[:10],
+                    str(row.get("sample_time"))[:5],
+                )
+            )
+            ub.add(
+                (
+                    wl,
+                    p,
+                    str(_v(row, "bfp_date", "date"))[:10],
+                    str(row.get("bfp_time"))[:5],
+                )
+            )
+        return us, ub
+
     def _show_run_dialog(self, runs, ana_config):
         samples = [
             r for r in runs if r["powermeter_type"] == POWERMETER_SAMPLE
@@ -3738,31 +3861,39 @@ class DatabaseTab(QWidget):
                 "microscope. Calibrate at both power-meter positions first.",
             )
             return
-        dlg = RunPairDialog(runs, self)
+        used_sample, used_bfp = self._used_run_keys()
+        dlg = RunPairDialog(runs, used_sample, used_bfp, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        s_run, b_run = dlg.selected_sample, dlg.selected_bfp
-        if not s_run or not b_run:
-            return
+        checked_s = list(dlg.checked_samples)
+        checked_b = list(dlg.checked_bfps)
         db_fname = self._db_fname
-        self._emit_status("Computing transmission factors…")
+        device = self._current_scope()
+        self._emit_status("Storing transmission selection…")
 
         def _do():
-            return io.compute_run_pair_factors(
-                db_fname, s_run, b_run, ana_config
-            )
+            # The ticked runs are authoritative: clear the device's pairs and
+            # recompute from every ticked sample × ticked BFP run.
+            io.clear_factor_pairs(db_fname, device)
+            total = 0
+            for s in checked_s:
+                for b in checked_b:
+                    total += len(
+                        io.compute_run_pair_factors(db_fname, s, b, ana_config)
+                    )
+            return total
 
-        def _on_result(stored):
+        def _on_result(total):
             self._active_worker = None
             self._emit_status(
-                "Stored {} transmission pair(s).".format(len(stored or [])),
-                5000,
+                "Stored {} transmission pair(s).".format(total), 5000
             )
             self._on_refresh()
 
         def _on_error(msg):
             self._active_worker = None
             QMessageBox.critical(self, "Error", msg)
+            self._on_refresh()
 
         worker = GenericWorker(_do)
         worker.result.connect(_on_result)
@@ -4263,7 +4394,7 @@ class MonetMainWindow(QMainWindow):
     def __init__(self, initial_microscope=None):
         super().__init__()
         self.setWindowTitle("{} — Laser Power Calibration".format(_TITLE_BASE))
-        self.resize(900, 650)
+        self.resize(1200, 850)
         self._widget = MonetWidget(self, initial_microscope=initial_microscope)
         self.setCentralWidget(self._widget)
         self._widget.status_changed.connect(self.statusBar().showMessage)

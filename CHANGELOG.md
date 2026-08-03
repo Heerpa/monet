@@ -20,8 +20,21 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
   database stored the wavelength as a float (or in any form differing from the
   protocol's laser key) — history was matched by string and silently dropped.
   It is now matched by numeric wavelength.
+- Database tab: three calibration runs done back-to-back merged into one entry —
+  run clustering only split on a >60-min time gap. It now also starts a new run
+  whenever a (wavelength, power) combination repeats (a 2D run measures each
+  exactly once), so consecutive runs are separated regardless of timing.
 
 ### Added
+- Database tab: "Delete run" removes every calibration belonging to the
+  selected run(s) (`io.delete_calibration_run`).
+- The transmission "Pair runs…" dialog now uses checkboxes to select *which*
+  sample and BFP runs to use (click a run to view its curves, tick it to use
+  it); every ticked sample run is paired with every ticked BFP run. The tick
+  state is restored from the stored pairs, so the dialog can be reopened to
+  review and change which runs are in use (`io.clear_factor_pairs`; pairs now
+  record the sample/BFP dates and times).
+- Larger default main-window size (1200×850).
 - Calibrate tab: per-wavelength show/hide toggle buttons above the plots, so a
   wavelength with very low powers can be viewed on its own rescaled axes.
 - Calibrate tab: the attenuation-curve plot now overlays the same conditions'
@@ -43,16 +56,14 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
 - Database tab: build objective transmission factors by pairing whole
   calibration **runs** — "Pair runs…" lists the sample-plane and BFP runs
   (clustered from the database by power-meter position and time,
-  `io.list_calibration_runs`); pick one of each and their single calibrations
-  are paired automatically by wavelength and power
-  (`io.compute_run_pair_factors`). "Remove pair" deletes a stored pair. Pairs
+  `io.list_calibration_runs`); tick the runs to use and their single
+  calibrations are paired automatically by wavelength and power
+  (`io.compute_run_pair_factors`), graphing the ticked runs' curves. Pairs
   persist in a local JSON sidecar (`io.save_factor_pair` / `load_factor_pairs`
   / `compute_pair_factor`), drive the transmission plot, and update the factor
   used for BFP→sample power projection.
 - Calibrate tab: a free-text **Comment** field (e.g. "laser status orange
   today") saved with every calibration of a run.
-- The "Pair runs…" dialog now graphs the amplitude-vs-laser-power curves of the
-  two selected runs so they can be compared before pairing.
 
 ### Changed
 - Database tab: the record list now shows 2D calibration **runs** (grouped by
@@ -61,6 +72,8 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
   table (`io.list_calibration_runs` now regenerates per-run amplitudes from the
   stored fit parameters when given the analysis config). Runs carry their
   free-text comment.
+- Set Power tab: the status label moved above the power-adjustment box (it was
+  between that box and the hardware-settings box).
 - Calibrate tab: off-linear flagging now uses a simple 2 % relative-deviation
   threshold against the robust line (was a MAD z-score), matching how operators
   reason about it (`io.flag_amplitude_outliers`).

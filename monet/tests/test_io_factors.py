@@ -754,6 +754,51 @@ class TestCalibrationRuns(unittest.TestCase):
         )
         self.assertEqual(mio.list_calibration_runs(self.db, "TestScope"), [])
 
+    def test_pair_records_carry_dates(self):
+        rows = [
+            self._cal(488, 100, "2024-06-01", "10:00", "sample", 40),
+            self._cal(488, 100, "2024-06-02", "11:00", "bfp", 20),
+        ]
+        _write_calib_db(self.db, rows)
+        runs = mio.list_calibration_runs(self.db, "TestScope")
+        s = [r for r in runs if r["powermeter_type"] == "sample"][0]
+        b = [r for r in runs if r["powermeter_type"] == "bfp"][0]
+        stored = mio.compute_run_pair_factors(self.db, s, b, self.ana_config)
+        self.assertEqual(stored[0]["sample_date"], "2024-06-01")
+        self.assertEqual(stored[0]["sample_time"], "10:00")
+        self.assertEqual(stored[0]["bfp_date"], "2024-06-02")
+        self.assertEqual(stored[0]["bfp_time"], "11:00")
+
+    def test_clear_factor_pairs(self):
+        rows = [
+            self._cal(488, 100, "2024-06-01", "10:00", "sample", 40),
+            self._cal(488, 100, "2024-06-01", "10:20", "bfp", 20),
+        ]
+        _write_calib_db(self.db, rows)
+        runs = mio.list_calibration_runs(self.db, "TestScope")
+        s = [r for r in runs if r["powermeter_type"] == "sample"][0]
+        b = [r for r in runs if r["powermeter_type"] == "bfp"][0]
+        mio.compute_run_pair_factors(self.db, s, b, self.ana_config)
+        self.assertEqual(len(mio.load_factor_pairs(self.db)), 1)
+        self.assertEqual(mio.clear_factor_pairs(self.db, "TestScope"), 1)
+        self.assertTrue(mio.load_factor_pairs(self.db).empty)
+
+    def test_delete_calibration_run(self):
+        rows = [
+            self._cal(488, 100, "2024-06-01", "10:00", "sample", 40),
+            self._cal(488, 200, "2024-06-01", "10:05", "sample", 80),
+            # a second (bfp) run that must survive
+            self._cal(488, 100, "2024-06-01", "10:30", "bfp", 20),
+        ]
+        _write_calib_db(self.db, rows)
+        runs = mio.list_calibration_runs(self.db, "TestScope")
+        s = [r for r in runs if r["powermeter_type"] == "sample"][0]
+        deleted = mio.delete_calibration_run(self.db, s)
+        self.assertEqual(deleted, 2)
+        remaining = mio.list_calibration_runs(self.db, "TestScope")
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0]["powermeter_type"], "bfp")
+
 
 if __name__ == "__main__":
     unittest.main()
