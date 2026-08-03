@@ -858,8 +858,18 @@ class IlluminationLaserControl(IlluminationControl):
         except Exception as exc:
             logger.debug("Could not load powermeter factors: %s", exc)
 
-        self.laser = self.curr_laser  # to populate the analyzers
-        self.laserpower = self.curr_laserpower
+        # Populate the analyzers for the current laser, but do NOT switch any
+        # laser on: loading the calibration (e.g. on GUI connect) must never
+        # start emission — the operator enables lasers explicitly. The
+        # auto-enable setting is preserved so intentional set-power actions
+        # still turn the laser on.
+        prev_auto = self.auto_enable_lasers
+        self.auto_enable_lasers = False
+        try:
+            self.laser = self.curr_laser  # to populate the analyzers
+            self.laserpower = self.curr_laserpower
+        finally:
+            self.auto_enable_lasers = prev_auto
 
     def record_state(self, laser=None):
         """Persist the current laser power set-point and attenuator position.

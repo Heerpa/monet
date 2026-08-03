@@ -11,6 +11,11 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
 ## [Unreleased]
 
 ### Fixed
+- Connecting in the GUI no longer switches a laser on: loading the calibration
+  database populated the analyzers via the ``laser`` setter, which auto-enabled
+  the current laser. It now populates them without enabling, so no laser starts
+  until the operator switches it on (or a calibration/set-power action does so
+  explicitly).
 - A completed calibration no longer leaves the shared instrument reporting "no
   calibration available": `CalibrationProtocol2D.run_protocol` reloads the
   calibration database at the end (each 1D step toggles `is_calibrated` off),

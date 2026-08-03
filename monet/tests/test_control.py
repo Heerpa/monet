@@ -232,6 +232,20 @@ class TestControl(unittest.TestCase):
         ctrl.laserpower = 50
         return ctrl
 
+    def test_load_calibration_database_does_not_enable_lasers(self):
+        """Reloading the calibration (e.g. on GUI connect) must not switch a
+        laser on, even with auto_enable_lasers left at its default."""
+        ctrl = self._build_laser_control()
+        # start from all-off, as at a fresh connection
+        for las in ctrl.lasers.values():
+            las.enabled = False
+        self.assertTrue(ctrl.auto_enable_lasers)  # default preserved
+        ctrl.load_calibration_database()
+        self.assertFalse(
+            any(las.enabled for las in ctrl.lasers.values()),
+            "load_calibration_database must not enable any laser",
+        )
+
     @mock.patch("time.sleep")
     def test_run_power_feedback_fixed_attenuator(self, _sleep):
         """Feedback in fixed_attenuator mode scales the laser power until the
