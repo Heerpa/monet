@@ -1928,8 +1928,13 @@ class SetPowerTab(QWidget):
         # ── Powermeter position ───────────────────────────────────────────
         # Where the meter is physically placed. Drives whether raw readings are
         # projected to the sample plane via the objective transmission factor.
+        # A shared label-column width left-aligns the controls of the three
+        # setup rows (power-meter position, shutters & filters, turret).
+        setup_label_w = 150
         pm_row = QHBoxLayout()
-        pm_row.addWidget(QLabel("Powermeter position:"))
+        pm_label = QLabel("Powermeter position:")
+        pm_label.setFixedWidth(setup_label_w)
+        pm_row.addWidget(pm_label)
         self._pm_pos_combo = QComboBox()
         self._pm_pos_combo.addItem("Back focal plane (BFP)", POWERMETER_BFP)
         self._pm_pos_combo.addItem("Sample plane", POWERMETER_SAMPLE)
@@ -1949,6 +1954,9 @@ class SetPowerTab(QWidget):
 
         # ── Beam-path controls ────────────────────────────────────────────
         bp_row = QHBoxLayout()
+        bp_label = QLabel("Shutters & Filters:")
+        bp_label.setFixedWidth(setup_label_w)
+        bp_row.addWidget(bp_label)
         self._btn_open_sf = QPushButton("Open shutters && set filter")
         self._btn_open_sf.setToolTip(
             "Open the shutter and set the dichroic/filter for the selected "
@@ -1968,7 +1976,9 @@ class SetPowerTab(QWidget):
 
         # ── Objective turret ──────────────────────────────────────────────
         turret_row = QHBoxLayout()
-        turret_row.addWidget(QLabel("Objective turret:"))
+        turret_label = QLabel("Objective turret:")
+        turret_label.setFixedWidth(setup_label_w)
+        turret_row.addWidget(turret_label)
         self._btn_turret_obj = QPushButton("→ Objective")
         self._btn_turret_obj.setToolTip(
             "Move the objective turret (nosepiece) to the imaging objective "
@@ -1987,7 +1997,7 @@ class SetPowerTab(QWidget):
         layout.addLayout(turret_row)
 
         # Beam-path state label
-        self._bp_state_label = QLabel("Beampath: unknown")
+        self._bp_state_label = QLabel("current beampath settings: unknown")
         self._bp_state_label.setToolTip(
             "Current position of each beam-path element (shutter, filter "
             "turret, ...) as read from the hardware."
@@ -2062,6 +2072,18 @@ class SetPowerTab(QWidget):
 
         # Autoshutter
         self._autoshutter_cb = QCheckBox("Autoshutter")
+        self._autoshutter_cb.setToolTip(
+            "Hands shutter control to the microscope's acquisition software "
+            "(e.g. MicroManager), which then opens the shutter only during "
+            "image exposures and closes it otherwise.\n\n"
+            "• Enabled: normal imaging — the shutter follows acquisitions, and "
+            "monet's manual open/close is overridden by the microscope.\n"
+            "• Disabled: monet (or you) drive the shutter directly and it "
+            "stays exactly as set — needed while calibrating or setting power "
+            "so the beam stays on between measurements. Note that other "
+            "software will then not auto-close the shutter, so the sample "
+            "keeps being illuminated until it is closed manually."
+        )
         self._autoshutter_cb.stateChanged.connect(self._on_autoshutter)
         layout.addWidget(self._autoshutter_cb)
 
@@ -2199,7 +2221,7 @@ class SetPowerTab(QWidget):
     def _set_bp_label(self, positions):
         """Show the beam-path element positions next to the buttons."""
         if not positions:
-            self._bp_state_label.setText("Beampath: unknown")
+            self._bp_state_label.setText("current beampath settings: unknown")
             return
 
         def _fmt(val):
@@ -2208,7 +2230,7 @@ class SetPowerTab(QWidget):
             return str(val)
 
         self._bp_state_label.setText(
-            "Beampath: "
+            "current beampath settings: "
             + ", ".join(
                 "{}: {}".format(obid, _fmt(pos))
                 for obid, pos in positions.items()
