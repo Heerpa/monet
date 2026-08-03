@@ -66,6 +66,18 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
   today") saved with every calibration of a run.
 
 ### Changed
+- Plot lines are now coloured by the wavelength's approximate visible-spectrum
+  colour (`monet.util.wavelength_to_rgb`) instead of an arbitrary palette, with
+  a luminance cap so light colours (yellow/green/cyan) stay legible on white.
+- Calibrate tab: the per-wavelength show/hide toggles are drawn white with a
+  coloured outline (coloured when shown, greyed when hidden) rather than the
+  platform's filled/blue checked style.
+- Database tab: the transmission plot now draws the **median** factor per
+  wavelength connected over time (temporal evolution), with the individual
+  per-date/per-power factors as faint points behind it.
+- Pairing dialog / runs plot: each run now has a distinct marker as well as
+  line style, and the legend uses longer handles, so solid vs. dashed lines of
+  the same colour are told apart.
 - Database tab: the record list now shows 2D calibration **runs** (grouped by
   power-meter position and time) instead of single-calibration rows; selecting
   one or more runs plots their amplitude-vs-laser-power curves alongside the

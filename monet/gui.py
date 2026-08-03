@@ -56,7 +56,7 @@ from monet import (
 from monet import __version__ as _monet_version
 from monet.beampath import NikonNosepiece
 from monet.control import run_power_feedback
-from monet.util import update_mm_acquisition_comment
+from monet.util import update_mm_acquisition_comment, wavelength_to_rgb
 
 # Window-title prefix, e.g. 'Monet v0.3.3'. Falls back to plain 'Monet' when
 # the package metadata is unavailable (running from an uninstalled source
@@ -362,21 +362,6 @@ class CalibrationPlots(QWidget):
     # than this fraction (see io.flag_amplitude_outliers).
     OUTLIER_REL_THRESH = 0.02
 
-    # Matplotlib's default (tab10) categorical palette, inlined so no pyplot
-    # import is needed in this Qt-embedded canvas.
-    _COLORS = [
-        "#1f77b4",
-        "#ff7f0e",
-        "#2ca02c",
-        "#d62728",
-        "#9467bd",
-        "#8c564b",
-        "#e377c2",
-        "#7f7f7f",
-        "#bcbd22",
-        "#17becf",
-    ]
-
     def __init__(self, parent=None):
         super().__init__(parent)
         # {laser (original protocol key): {laser power: max measured power}}
@@ -389,8 +374,6 @@ class CalibrationPlots(QWidget):
         self._flagged = {}
         self._ana_config = None
         self._analyzer = None
-        # stable color per canonical wavelength
-        self._color_map = {}
         # {wavelength (float): checkable QPushButton}
         self._wl_toggles = {}
         # (laser, lpwr) of the curve currently being acquired, or None
@@ -450,13 +433,8 @@ class CalibrationPlots(QWidget):
             return wl
 
     def _laser_color(self, laser):
-        """Stable color per canonical wavelength across the session."""
-        key = self._canon(laser)
-        if key not in self._color_map:
-            self._color_map[key] = self._COLORS[
-                len(self._color_map) % len(self._COLORS)
-            ]
-        return self._color_map[key]
+        """Approximate visible-spectrum color for this wavelength."""
+        return wavelength_to_rgb(self._canon(laser))
 
     def _all_wavelengths(self):
         """Sorted union of live and history wavelengths (canonical floats)."""
@@ -474,9 +452,6 @@ class CalibrationPlots(QWidget):
 
     def _rebuild_toggles(self):
         wls = self._all_wavelengths()
-        # Assign colors in a stable sorted order before creating buttons.
-        for wl in wls:
-            self._laser_color(wl)
         for wl in wls:
             if wl in self._wl_toggles:
                 continue
@@ -485,8 +460,19 @@ class CalibrationPlots(QWidget):
             btn.setChecked(True)
             btn.setMaximumWidth(90)
             btn.setToolTip("Show/hide this wavelength in the plots")
+            # White fill with a coloured outline when shown; greyed out when
+            # hidden — never the platform's default filled/blue checked look.
+            color = self._laser_color(wl)
             btn.setStyleSheet(
-                "QPushButton {{ color: {}; }}".format(self._laser_color(wl))
+                "QPushButton {{"
+                " background-color: white; color: #999;"
+                " border: 1px solid #ccc; border-radius: 4px;"
+                " padding: 2px 8px;"
+                " }}"
+                "QPushButton:checked {{"
+                " background-color: white; color: {c};"
+                " border: 2px solid {c};"
+                " }}".format(c=color)
             )
             btn.toggled.connect(self._on_toggle_changed)
             self._toggle_layout.insertWidget(
@@ -506,7 +492,7 @@ class CalibrationPlots(QWidget):
         # toggle as well.
         if self._curve_key is not None:
             laser, lpwr = self._curve_key
-            self._draw_curve(laser, lpwr, self._curve_x, self._curve_y, False)
+            self._draw_curve(laser, lpwr, self._curve_x, self._curve_y)
 
     # ── history model regeneration ────────────────────────────────────────
     def _get_analyzer(self):
@@ -628,7 +614,7 @@ class CalibrationPlots(QWidget):
         self._redraw_amplitudes()
         if self._curve_key is not None:
             laser, lpwr = self._curve_key
-            self._draw_curve(laser, lpwr, self._curve_x, self._curve_y, False)
+            self._draw_curve(laser, lpwr, self._curve_x, self._curve_y)
 
     def flagged_points(self):
         """Return the currently-flagged points as ``[(laser, lpwr), ...]``."""
@@ -3165,18 +3151,19 @@ def _run_span(run):
 def _plot_run_amplitudes(ax, runs, title=""):
     """Plot amplitude vs laser power for each run.
 
-    Colour is per wavelength (shared across runs); line style per run. Each
-    ``run`` is a dict with an ``amplitudes`` map ``{wavelength: {power: max}}``
-    (see :func:`monet.io.list_calibration_runs` with ``ana_config``).
+    Colour approximates each wavelength's visible-spectrum colour (shared
+    across runs); each run gets a distinct line style *and* marker so its
+    legend entries are told apart even at the same colour. Each ``run`` is a
+    dict with an ``amplitudes`` map ``{wavelength: {power: max}}`` (see
+    :func:`monet.io.list_calibration_runs` with ``ana_config``).
     """
     ax.clear()
-    palette = CalibrationPlots._COLORS
-    wls = sorted({float(w) for r in runs for w in (r.get("amplitudes") or {})})
-    cmap = {wl: palette[i % len(palette)] for i, wl in enumerate(wls)}
     styles = ["-", "--", ":", "-."]
+    markers = ["o", "s", "^", "D"]
     plotted = False
     for ri, run in enumerate(runs):
         style = styles[ri % len(styles)]
+        marker = markers[ri % len(markers)]
         amps = run.get("amplitudes") or {}
         tag = "{} {}".format(
             run.get("powermeter_type", ""), run.get("date", "")
@@ -3189,9 +3176,9 @@ def _plot_run_amplitudes(ax, runs, title=""):
             ax.plot(
                 powers,
                 [pts[p] for p in powers],
-                marker="o",
+                marker=marker,
                 linestyle=style,
-                color=cmap[float(wl)],
+                color=wavelength_to_rgb(wl),
                 label="{:g} nm · {}".format(float(wl), tag),
             )
             plotted = True
@@ -3202,7 +3189,8 @@ def _plot_run_amplitudes(ax, runs, title=""):
     ax.tick_params(labelsize=7)
     ax.grid(True, alpha=0.3)
     if plotted:
-        ax.legend(fontsize=6)
+        # A longer handle makes the dash pattern visible in the legend.
+        ax.legend(fontsize=6, handlelength=3)
     else:
         ax.text(
             0.5,
@@ -3972,20 +3960,6 @@ class DatabaseTab(QWidget):
         self._factor_worker = worker
         worker.start()
 
-    # tab10 palette, inlined (no pyplot import for this embedded canvas).
-    _FACTOR_COLORS = [
-        "#1f77b4",
-        "#ff7f0e",
-        "#2ca02c",
-        "#d62728",
-        "#9467bd",
-        "#8c564b",
-        "#e377c2",
-        "#7f7f7f",
-        "#bcbd22",
-        "#17becf",
-    ]
-
     def _draw_factor_plot(self, df, source=""):
         """Draw factor vs date, colored by wavelength, a point per power."""
         if self._factor_canvas is None:
@@ -3997,7 +3971,7 @@ class DatabaseTab(QWidget):
                 0.5,
                 0.5,
                 "No transmission pairs to plot\n"
-                "(select two calibrations and 'Add pair from selected')",
+                "(use 'Pair runs…' to select runs)",
                 ha="center",
                 va="center",
                 fontsize=8,
@@ -4009,26 +3983,40 @@ class DatabaseTab(QWidget):
         ax.set_axis_on()
         from datetime import datetime as _dt
 
-        wavelengths = sorted(df["wavelength"].unique())
-        for i, wl in enumerate(wavelengths):
-            sub = df[df["wavelength"] == wl]
+        def _parse(d):
             try:
-                xs = [
-                    _dt.strptime(str(d)[:10], "%Y-%m-%d") for d in sub["date"]
-                ]
+                return _dt.strptime(str(d)[:10], "%Y-%m-%d")
             except Exception:
+                return None
+
+        wavelengths = sorted(df["wavelength"].unique())
+        for wl in wavelengths:
+            sub = df[df["wavelength"] == wl]
+            color = wavelength_to_rgb(wl)
+            # Individual factors (one per date / power) as faint points.
+            xs = [_parse(d) for d in sub["date"]]
+            if any(x is None for x in xs):
                 xs = list(range(len(sub)))
-            ax.scatter(
-                xs,
-                sub["factor"],
-                s=28,
-                color=self._FACTOR_COLORS[i % len(self._FACTOR_COLORS)],
-                label="{:g} nm".format(wl),
-                alpha=0.8,
-            )
+            ax.scatter(xs, sub["factor"], s=22, color=color, alpha=0.35)
+            # Temporal evolution: median factor per date, connected over time.
+            med = sub.groupby("date")["factor"].median()
+            mxs = [_parse(d) for d in med.index]
+            if all(x is not None for x in mxs) and len(med):
+                order = sorted(range(len(mxs)), key=lambda k: mxs[k])
+                ax.plot(
+                    [mxs[k] for k in order],
+                    [med.values[k] for k in order],
+                    color=color,
+                    marker="o",
+                    linewidth=1.6,
+                    label="{:g} nm (median)".format(wl),
+                )
+            else:
+                # Undated fallback: still label the wavelength via the points.
+                ax.scatter([], [], color=color, label="{:g} nm".format(wl))
         ax.set_ylabel("T_obj = P_sample / P_bfp", fontsize=8)
         ax.set_xlabel("date", fontsize=8)
-        title = "objective transmission by date / wavelength / power"
+        title = "objective transmission over time (median per wavelength)"
         if source:
             title += "  —  {}".format(source)
         ax.set_title(title, fontsize=9)

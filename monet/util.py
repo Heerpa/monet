@@ -196,3 +196,78 @@ def refresh_mm_gui():
     except Exception as exc:
         logger.debug("Could not refresh MicroManager GUI: %s", exc)
         return str(exc)
+
+
+def wavelength_to_rgb(wavelength):
+    """Approximate sRGB hex colour of a light wavelength (nm).
+
+    Uses Dan Bruton's piecewise approximation of the visible spectrum
+    (~380-780 nm), so a line for e.g. 488 nm renders cyan-blue, 561 nm
+    yellow-green and 640 nm red — far more intuitive than an arbitrary palette.
+    Wavelengths below 380 are treated as violet and above 780 as deep red so
+    UV / IR laser lines still get a sensible, visible colour rather than fading
+    to black. Light colours (yellow, green, cyan) are darkened via a luminance
+    cap so they stay legible as lines on a white background. Non-numeric input
+    falls back to a neutral grey.
+
+    Parameters
+    ----------
+    wavelength : float
+        Wavelength in nanometres.
+
+    Returns
+    -------
+    str
+        ``"#rrggbb"`` colour string.
+    """
+    try:
+        w = float(wavelength)
+    except (TypeError, ValueError):
+        return "#808080"
+
+    w = min(max(w, 380.0), 780.0)
+
+    if w < 440:
+        r, g, b = -(w - 440) / (440 - 380), 0.0, 1.0
+    elif w < 490:
+        r, g, b = 0.0, (w - 440) / (490 - 440), 1.0
+    elif w < 510:
+        r, g, b = 0.0, 1.0, -(w - 510) / (510 - 490)
+    elif w < 580:
+        r, g, b = (w - 510) / (580 - 510), 1.0, 0.0
+    elif w < 645:
+        r, g, b = 1.0, -(w - 645) / (645 - 580), 0.0
+    else:
+        r, g, b = 1.0, 0.0, 0.0
+
+    # Dim the extreme violet / red ends where the eye's response falls off.
+    if w < 420:
+        factor = 0.3 + 0.7 * (w - 380) / (420 - 380)
+    elif w > 700:
+        factor = 0.3 + 0.7 * (780 - w) / (780 - 700)
+    else:
+        factor = 1.0
+
+    gamma = 0.8
+
+    def _lin(c):
+        if c <= 0:
+            return 0.0
+        return min(1.0, (c * factor) ** gamma)
+
+    r, g, b = _lin(r), _lin(g), _lin(b)
+
+    # Darken light colours (high perceived luminance) so lines stay legible on
+    # a white background — this rescues yellow / yellow-green / cyan, which are
+    # otherwise almost invisible, while leaving the already-dark blues, reds and
+    # violets untouched.
+    max_lum = 0.62
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    if lum > max_lum:
+        scale = max_lum / lum
+        r, g, b = r * scale, g * scale, b * scale
+
+    def _byte(c):
+        return max(0, min(255, int(round(c * 255))))
+
+    return "#{:02x}{:02x}{:02x}".format(_byte(r), _byte(g), _byte(b))

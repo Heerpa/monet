@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 from monet.gui import (  # noqa: E402
     AdjustTab,
     CalibrateTab,
+    CalibrationPlots,
     DatabaseTab,
     MonetWidget,
     SetPowerTab,
@@ -68,6 +69,49 @@ class TestMonetWidget(unittest.TestCase):
             tab.status.connect(lambda msg, t: received.append((msg, t)))
             tab._emit_status("ping", 500)
             self.assertEqual(received, [("ping", 500)])
+
+
+class TestCalibrationPlots(unittest.TestCase):
+    """Regression tests for the live calibration plots / wavelength toggles."""
+
+    _ANA = {
+        "classpath": "monet.analysis.LinearCurveAnalyzer",
+        "init_kwargs": {"min": 0.0, "max": 180.0},
+    }
+
+    def test_toggle_wavelength_during_active_curve(self):
+        """Toggling the wavelength being calibrated must not crash.
+
+        Regression: a stale extra argument to ``_draw_curve`` raised a
+        TypeError when the wavelength of the in-progress curve was toggled off.
+        """
+        if not getattr(CalibrationPlots, "_has_mpl", True):
+            self.skipTest("matplotlib not available")
+        plots = CalibrationPlots()
+        if not plots._has_mpl:
+            self.skipTest("matplotlib not available")
+        plots.set_history({}, self._ANA)
+        plots.add_curve(488, 50, [0, 90, 180], [1.0, 20.0, 40.0])
+        plots.add_curve(561, 50, [0, 90, 180], [1.0, 15.0, 30.0])
+        # an active (in-progress) curve for 488 nm
+        for i, (c, p) in enumerate([(0, 0.5), (90, 25.0), (180, 50.0)]):
+            plots.add_point(488, 100, i, 3, c, p)
+        self.assertEqual(plots._curve_key, (488, 100))
+        # toggling the active wavelength off (and back on) must not raise
+        plots._wl_toggles[488.0].setChecked(False)
+        plots._wl_toggles[488.0].setChecked(True)
+        # a history update while a curve is active must not raise either
+        plots.set_history(
+            {
+                488.0: [
+                    {
+                        "date": "2024-06-01",
+                        "powers": {100.0: {"bkg": 0.0, "amp": 45.0}},
+                    }
+                ]
+            },
+            self._ANA,
+        )
 
 
 if __name__ == "__main__":
