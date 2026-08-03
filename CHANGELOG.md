@@ -50,10 +50,17 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
   / `compute_pair_factor`), drive the transmission plot, and update the factor
   used for BFP→sample power projection.
 - Calibrate tab: a free-text **Comment** field (e.g. "laser status orange
-  today") saved with every calibration of a run and shown in its own Database
-  tab column.
+  today") saved with every calibration of a run.
+- The "Pair runs…" dialog now graphs the amplitude-vs-laser-power curves of the
+  two selected runs so they can be compared before pairing.
 
 ### Changed
+- Database tab: the record list now shows 2D calibration **runs** (grouped by
+  power-meter position and time) instead of single-calibration rows; selecting
+  one or more runs plots their amplitude-vs-laser-power curves alongside the
+  table (`io.list_calibration_runs` now regenerates per-run amplitudes from the
+  stored fit parameters when given the analysis config). Runs carry their
+  free-text comment.
 - Calibrate tab: off-linear flagging now uses a simple 2 % relative-deviation
   threshold against the robust line (was a MAD z-score), matching how operators
   reason about it (`io.flag_amplitude_outliers`).

@@ -10,7 +10,6 @@ laser/attenuator adjustment, power setting, and database management.
 :copyright: Copyright (c) 2024 Jungmann Lab, MPI of Biochemistry
 """
 
-import json
 import logging
 
 import numpy as np
@@ -3153,12 +3152,74 @@ class SetPowerTab(QWidget):
 # ---------------------------------------------------------------------------
 
 
+def _run_span(run):
+    """Short 'HH:MM' or 'HH:MM–HH:MM' time span of a run."""
+    span = run["start"][11:]
+    if run["end"] != run["start"]:
+        span += "–" + run["end"][11:]
+    return span
+
+
+def _plot_run_amplitudes(ax, runs, title=""):
+    """Plot amplitude vs laser power for each run.
+
+    Colour is per wavelength (shared across runs); line style per run. Each
+    ``run`` is a dict with an ``amplitudes`` map ``{wavelength: {power: max}}``
+    (see :func:`monet.io.list_calibration_runs` with ``ana_config``).
+    """
+    ax.clear()
+    palette = CalibrationPlots._COLORS
+    wls = sorted({float(w) for r in runs for w in (r.get("amplitudes") or {})})
+    cmap = {wl: palette[i % len(palette)] for i, wl in enumerate(wls)}
+    styles = ["-", "--", ":", "-."]
+    plotted = False
+    for ri, run in enumerate(runs):
+        style = styles[ri % len(styles)]
+        amps = run.get("amplitudes") or {}
+        tag = "{} {}".format(
+            run.get("powermeter_type", ""), run.get("date", "")
+        )
+        for wl in sorted(amps, key=float):
+            pts = amps[wl]
+            if not pts:
+                continue
+            powers = sorted(pts, key=float)
+            ax.plot(
+                powers,
+                [pts[p] for p in powers],
+                marker="o",
+                linestyle=style,
+                color=cmap[float(wl)],
+                label="{:g} nm · {}".format(float(wl), tag),
+            )
+            plotted = True
+    ax.set_xlabel("laser power set-point [mW]", fontsize=8)
+    ax.set_ylabel("max power [mW]", fontsize=8)
+    if title:
+        ax.set_title(title, fontsize=9)
+    ax.tick_params(labelsize=7)
+    ax.grid(True, alpha=0.3)
+    if plotted:
+        ax.legend(fontsize=6)
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "select run(s) to plot",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=8,
+        )
+
+
 class RunPairDialog(QDialog):
     """Pick one sample-plane run and one BFP run to pair for T_obj.
 
     Runs (as returned by :func:`monet.io.list_calibration_runs`) are grouped by
-    power-meter position; the operator selects one of each and their single
-    calibrations are paired automatically by wavelength and power.
+    power-meter position; the operator selects one of each, sees their
+    amplitude-vs-power curves side by side, and their single calibrations are
+    paired automatically by wavelength and power.
     """
 
     def __init__(self, runs, parent=None):
@@ -3201,6 +3262,20 @@ class RunPairDialog(QDialog):
             lists_row.addLayout(col)
         layout.addLayout(lists_row)
 
+        # Amplitude-vs-power graph of the two selected runs.
+        self._canvas = None
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+
+            self._fig = Figure(figsize=(5, 2.6), tight_layout=True)
+            self._ax = self._fig.add_subplot(111)
+            self._canvas = FigureCanvasQTAgg(self._fig)
+            self._canvas.setMinimumHeight(220)
+            layout.addWidget(self._canvas)
+        except Exception:
+            self._canvas = None
+
         self._preview = QLabel("")
         layout.addWidget(self._preview)
 
@@ -3214,17 +3289,15 @@ class RunPairDialog(QDialog):
         self._btn_ok.clicked.connect(self.accept)
         btn_row.addWidget(self._btn_ok)
         layout.addLayout(btn_row)
-        self.resize(640, 360)
+        self.resize(700, 560)
+        self._update()
 
     @staticmethod
     def _fmt_run(r):
         wls = "/".join("{:g}".format(w) for w in r["wavelengths"])
         pwrs = "/".join("{:g}".format(p) for p in r["powers"])
-        span = r["start"][11:]
-        if r["end"] != r["start"]:
-            span += "–" + r["end"][11:]
         return "{} {}  ·  {} cals  ·  {} nm  ·  {} mW".format(
-            r["date"], span, r["n_cals"], wls, pwrs
+            r["date"], _run_span(r), r["n_cals"], wls, pwrs
         )
 
     @staticmethod
@@ -3252,32 +3325,49 @@ class RunPairDialog(QDialog):
         else:
             self._preview.setText("")
             self._btn_ok.setEnabled(False)
+        if self._canvas is not None:
+            chosen = [
+                r
+                for r in (self.selected_sample, self.selected_bfp)
+                if r is not None
+            ]
+            _plot_run_amplitudes(
+                self._ax, chosen, "selected runs — amplitude vs laser power"
+            )
+            self._canvas.draw_idle()
 
 
 class DatabaseTab(QWidget):
-    """Tab for viewing and managing calibration records."""
+    """Tab for exploring calibration runs and objective transmission factors.
+
+    The left table lists 2D calibration *runs* (grouped from the database by
+    power-meter position and time); selecting one or more plots their
+    amplitude-vs-laser-power curves on the right.
+    """
 
     status = pyqtSignal(str, int)
 
-    COLUMNS = [
-        "Microscope",
-        "Wavelength (nm)",
-        "Power (mW)",
+    RUN_COLUMNS = [
         "Date",
         "Time",
-        "Model",
+        "Position",
+        "Wavelengths (nm)",
+        "Powers (mW)",
+        "#",
         "Comment",
-        "Parameters",
     ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pc = None
         self._db_fname = None
+        self._runs = []
         self._active_worker = None
         self._factor_worker = None  # keep alive to prevent GC
         self._factor_canvas = None
         self._factor_ax = None
+        self._runs_canvas = None
+        self._runs_ax = None
         self._build_ui()
 
     def _emit_status(self, msg, timeout_ms=0):
@@ -3301,11 +3391,15 @@ class DatabaseTab(QWidget):
         self._db_link_label.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(self._db_link_label)
 
-        # Table
-        self._table = QTableWidget(0, len(self.COLUMNS))
-        self._table.setHorizontalHeaderLabels(self.COLUMNS)
+        # Runs table (left) + amplitude-vs-power plot (right).
+        split = QSplitter(Qt.Orientation.Horizontal)
+        self._table = QTableWidget(0, len(self.RUN_COLUMNS))
+        self._table.setHorizontalHeaderLabels(self.RUN_COLUMNS)
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
         )
         self._table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
@@ -3314,7 +3408,24 @@ class DatabaseTab(QWidget):
             QHeaderView.ResizeMode.ResizeToContents
         )
         self._table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self._table)
+        self._table.itemSelectionChanged.connect(self._plot_selected_runs)
+        self._table.setMinimumWidth(340)
+        split.addWidget(self._table)
+
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+
+            self._runs_fig = Figure(figsize=(4.5, 3.0), tight_layout=True)
+            self._runs_ax = self._runs_fig.add_subplot(111)
+            self._runs_canvas = FigureCanvasQTAgg(self._runs_fig)
+            self._runs_canvas.setMinimumWidth(340)
+            split.addWidget(self._runs_canvas)
+            split.setSizes([420, 520])
+        except Exception:
+            self._runs_canvas = None
+            split.addWidget(QLabel("matplotlib not available — no plot."))
+        layout.addWidget(split, 1)
 
         # Status
         self._status = QLabel("")
@@ -3434,80 +3545,68 @@ class DatabaseTab(QWidget):
         else:
             self._db_link_label.setText(f"File: {db}" if db else "")
 
+    def _ana_config(self):
+        if self._pc is None:
+            return None
+        try:
+            return self._pc.instrument.config["analysis"]
+        except Exception:
+            return None
+
     def _on_refresh(self):
         if self._db_fname is None:
             self._status.setText("No database configured.")
             return
         try:
-            scope_filter = self._current_scope()
-            index = {}
-            if scope_filter:
-                index["name"] = scope_filter
-            records_df = io.load_database(
-                self._db_fname, index, time_idx="all"
+            self._runs = io.list_calibration_runs(
+                self._db_fname, self._current_scope(), self._ana_config()
             )
         except Exception as exc:
             self._status.setText(f"Error loading database: {exc}")
-            self._table.setRowCount(0)
-            return
-
+            self._runs = []
         self._table.setRowCount(0)
-        if hasattr(records_df, "iterrows"):
-            # DataFrame with MultiIndex
-            for idx, row in records_df.iterrows():
-                if not isinstance(idx, tuple):
-                    idx = (idx,)
-                row_pos = self._table.rowCount()
-                self._table.insertRow(row_pos)
-                # idx = (name, wavelength, power, date, time)
-                scope = idx[0] if len(idx) > 0 else ""
-                wl = idx[1] if len(idx) > 1 else ""
-                pwr = idx[2] if len(idx) > 2 else ""
-                date = idx[3] if len(idx) > 3 else ""
-                time_val = idx[4] if len(idx) > 4 else ""
 
-                params = {col: row[col] for col in row.index}
-                # Pull the free-text comment into its own column (NaN when the
-                # record predates the feature or had no note).
-                comment_val = params.pop("comment", None)
-                comment_str = (
-                    ""
-                    if comment_val is None or comment_val != comment_val
-                    else str(comment_val)
-                )
-                params_str = json.dumps(
-                    {
-                        k: round(v, 4) if isinstance(v, float) else v
-                        for k, v in params.items()
-                    }
-                )
-                params_short = params_str[:40] + (
-                    "…" if len(params_str) > 40 else ""
-                )
+        _pos_label = {POWERMETER_SAMPLE: "sample plane", POWERMETER_BFP: "BFP"}
+        for run in self._runs:
+            r = self._table.rowCount()
+            self._table.insertRow(r)
+            wls = "/".join("{:g}".format(w) for w in run["wavelengths"])
+            pwrs = "/".join("{:g}".format(p) for p in run["powers"])
+            comment = run.get("comment", "")
+            values = [
+                run["date"],
+                _run_span(run),
+                _pos_label.get(run["powermeter_type"], run["powermeter_type"]),
+                wls,
+                pwrs,
+                str(run["n_cals"]),
+                comment,
+            ]
+            for col, val in enumerate(values):
+                item = QTableWidgetItem(val)
+                if self.RUN_COLUMNS[col] == "Comment" and comment:
+                    item.setToolTip(comment)
+                self._table.setItem(r, col, item)
+            self._table.item(r, 0).setData(Qt.ItemDataRole.UserRole, run)
 
-                values = [
-                    str(scope),
-                    str(wl),
-                    str(pwr),
-                    str(date),
-                    str(time_val),
-                    "",
-                    comment_str,
-                    params_short,
-                ]
-                for col, val in enumerate(values):
-                    item = QTableWidgetItem(val)
-                    if col == len(values) - 1:
-                        item.setToolTip(params_str)
-                    elif self.COLUMNS[col] == "Comment" and comment_str:
-                        item.setToolTip(comment_str)
-                    self._table.setItem(row_pos, col, item)
-
-        total = self._table.rowCount()
-        self._status.setText(f"{total} record(s)")
-
+        self._status.setText("{} run(s)".format(len(self._runs)))
+        self._plot_selected_runs()
         self._refresh_factors_table()
         self._refresh_factor_plot()
+
+    def _plot_selected_runs(self):
+        """Plot amplitude vs laser power for the selected runs."""
+        if self._runs_canvas is None:
+            return
+        rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        runs = []
+        for r in rows:
+            item = self._table.item(r, 0)
+            run = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if run:
+                runs.append(run)
+        _plot_run_amplitudes(self._runs_ax, runs, "amplitude vs laser power")
+        self._runs_canvas.draw_idle()
 
     def _refresh_factors_table(self):
         """Show manually-selected pairs if any exist, else the auto factors."""
@@ -3607,7 +3706,7 @@ class DatabaseTab(QWidget):
         self._emit_status("Scanning calibration runs…")
 
         def _do():
-            return io.list_calibration_runs(db_fname, device)
+            return io.list_calibration_runs(db_fname, device, ana_config)
 
         def _on_result(runs):
             self._active_worker = None
@@ -3808,51 +3907,6 @@ class DatabaseTab(QWidget):
         for label in ax.get_xticklabels():
             label.set(rotation=30, horizontalalignment="right")
         self._factor_canvas.draw_idle()
-
-    def _selected_row_indices(self):
-        rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
-        return rows
-
-    def _row_to_index(self, row):
-        return {
-            "name": self._table.item(row, 0).text(),
-            "wavelength [nm]": self._table.item(row, 1).text(),
-            "laser_power [mW]": self._table.item(row, 2).text(),
-            "date": self._table.item(row, 3).text(),
-            "time": self._table.item(row, 4).text(),
-        }
-
-    def _on_delete(self):
-        rows = self._selected_row_indices()
-        if not rows:
-            QMessageBox.information(
-                self, "Nothing selected", "Select row(s) to delete."
-            )
-            return
-        reply = QMessageBox.question(
-            self,
-            "Confirm delete",
-            f"Delete {len(rows)} record(s)? This cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        if self._db_fname is None:
-            QMessageBox.warning(self, "No database", "No database configured.")
-            return
-
-        errors = []
-        for row in rows:
-            index = self._row_to_index(row)
-            try:
-                io.delete_calibration(self._db_fname, index)
-            except Exception as exc:
-                errors.append(str(exc))
-
-        if errors:
-            QMessageBox.critical(self, "Errors", "\n".join(errors))
-        self._on_refresh()
 
     def _on_compute_transmission(self):
         if self._pc is None or self._db_fname is None:

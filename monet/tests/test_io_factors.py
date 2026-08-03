@@ -680,6 +680,49 @@ class TestCalibrationRuns(unittest.TestCase):
         self.assertEqual(len(bfps), 1)
         self.assertEqual(bfps[0]["n_cals"], 2)
 
+    def test_back_to_back_identical_runs_split(self):
+        # Three full runs done in a row (same wavelengths/powers, only minutes
+        # apart) must be three separate runs, not merged into one.
+        rows = []
+        t = 0
+        for _run in range(3):
+            for wl in (488, 561):
+                for pwr in (100, 200):
+                    hh, mm = divmod(t, 60)
+                    rows.append(
+                        self._cal(
+                            wl,
+                            pwr,
+                            "2024-06-01",
+                            "{:02d}:{:02d}".format(10 + hh, mm),
+                            "sample",
+                            40,
+                        )
+                    )
+                    t += 2  # 2 minutes between calibrations
+        _write_calib_db(self.db, rows)
+        runs = mio.list_calibration_runs(self.db, "TestScope")
+        self.assertEqual(len(runs), 3)
+        for r in runs:
+            self.assertEqual(r["n_cals"], 4)
+            self.assertEqual(r["wavelengths"], [488.0, 561.0])
+            self.assertEqual(r["powers"], [100.0, 200.0])
+
+    def test_amplitudes_regenerated_with_ana_config(self):
+        rows = [
+            self._cal(488, 100, "2024-06-01", "10:00", "sample", 40),
+            self._cal(561, 200, "2024-06-01", "10:05", "sample", 80),
+        ]
+        _write_calib_db(self.db, rows)
+        # Without ana_config, amplitudes are empty.
+        runs = mio.list_calibration_runs(self.db, "TestScope")
+        self.assertEqual(runs[0]["amplitudes"], {})
+        # With ana_config, amplitudes = bkg + amp*max (max=180).
+        runs = mio.list_calibration_runs(self.db, "TestScope", self.ana_config)
+        amps = runs[0]["amplitudes"]
+        self.assertAlmostEqual(amps[488.0][100.0], 40.0 * 180.0, places=2)
+        self.assertAlmostEqual(amps[561.0][200.0], 80.0 * 180.0, places=2)
+
     def test_compute_run_pair_factors(self):
         rows = [
             self._cal(488, 100, "2024-06-01", "10:00", "sample", 40),

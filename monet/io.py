@@ -1513,8 +1513,13 @@ def save_transmission_factor(
         )
 
 
-def _make_run(cluster):
-    """Build a run dict from a time-clustered list of calibration records."""
+def _make_run(cluster, analyzer=None):
+    """Build a run dict from a time-clustered list of calibration records.
+
+    When ``analyzer`` is given, an ``amplitudes`` map
+    ``{wavelength: {power: max power}}`` is regenerated from each member's fit
+    parameters so the run's amplitude-vs-power curves can be plotted.
+    """
     dts = [c["dt"] for c in cluster]
     wls = sorted({float(c["wavelength"]) for c in cluster})
     powers = sorted({float(c["power"]) for c in cluster})
@@ -1522,6 +1527,24 @@ def _make_run(cluster):
         [float(c["wavelength"]), float(c["power"]), c["date"], c["time"]]
         for c in cluster
     ]
+    comment = ""
+    for c in cluster:
+        if c.get("comment"):
+            comment = c["comment"]
+            break
+
+    amplitudes = {}
+    if analyzer is not None:
+        for c in cluster:
+            try:
+                analyzer.load_model(c.get("pars") or {})
+                amp = float(np.real(analyzer.output_range()[1]))
+            except Exception:
+                continue
+            amplitudes.setdefault(float(c["wavelength"]), {})[
+                float(c["power"])
+            ] = amp
+
     return {
         "device": str(cluster[0]["device"]),
         "powermeter_type": cluster[0]["pm"],
@@ -1531,19 +1554,29 @@ def _make_run(cluster):
         "wavelengths": wls,
         "powers": powers,
         "n_cals": len(cluster),
+        "comment": comment,
         "members": members,
+        "amplitudes": amplitudes,
     }
 
 
-def list_calibration_runs(db_fname, device=None, gap_minutes=60):
+def list_calibration_runs(
+    db_fname, device=None, ana_config=None, gap_minutes=60
+):
     """Group a device's calibrations into runs by power-meter position + time.
 
     A 2D calibration run writes many single calibrations (one per wavelength /
     power) close together in time at one power-meter position. This clusters
     them: consecutive calibrations of the same device and ``powermeter_type``
     belong to the same run unless they are more than ``gap_minutes`` apart. Lets
-    the operator pick a whole sample-plane run and a whole BFP run to pair for
-    the objective transmission factor instead of pairing single calibrations.
+    the operator explore/pair whole runs instead of single calibrations.
+
+    Parameters
+    ----------
+    ana_config : dict or None
+        Analysis ``classpath`` / ``init_kwargs``. When given, each run gets an
+        ``amplitudes`` map regenerated from the stored fit parameters so the
+        run's amplitude-vs-power curves can be plotted.
 
     Returns
     -------
@@ -1562,6 +1595,8 @@ def list_calibration_runs(db_fname, device=None, gap_minutes=60):
     if "powermeter_type" not in db.columns:
         return []
 
+    has_comment = "comment" in db.columns
+
     recs = []
     for idx, row in db.iterrows():
         if not isinstance(idx, tuple):
@@ -1575,6 +1610,13 @@ def list_calibration_runs(db_fname, device=None, gap_minutes=60):
             dt = datetime.strptime(date + " " + time_v, "%Y-%m-%d %H:%M")
         except Exception:
             continue
+        comment = ""
+        if has_comment:
+            cval = row.get("comment")
+            if cval is not None and not (
+                isinstance(cval, float) and cval != cval
+            ):
+                comment = str(cval)
         recs.append(
             {
                 "device": idx[0] if len(idx) > 0 else "",
@@ -1584,27 +1626,52 @@ def list_calibration_runs(db_fname, device=None, gap_minutes=60):
                 "time": time_v,
                 "pm": pm,
                 "dt": dt,
+                "comment": comment,
+                "pars": _row_model_pars(row),
             }
         )
     if not recs:
         return []
 
+    analyzer = None
+    if ana_config is not None:
+        try:
+            from monet.util import load_class
+
+            analyzer = load_class(
+                ana_config["classpath"], ana_config["init_kwargs"]
+            )
+        except Exception as exc:
+            logger.debug(
+                "list_calibration_runs: analyzer build failed: %s", exc
+            )
+
     recs.sort(key=lambda r: (str(r["device"]), r["pm"], r["dt"]))
+
+    def _combo(r):
+        return (float(r["wavelength"]), float(r["power"]))
+
     runs = []
     i = 0
     while i < len(recs):
         j = i
         cluster = [recs[i]]
+        seen = {_combo(recs[i])}
         while j + 1 < len(recs):
             a, b = recs[j], recs[j + 1]
             same = str(a["device"]) == str(b["device"]) and a["pm"] == b["pm"]
             gap = (b["dt"] - a["dt"]).total_seconds()
-            if same and gap <= gap_minutes * 60:
+            # A 2D run measures each (wavelength, power) exactly once, so a
+            # repeated combination means a new run has started — this splits
+            # back-to-back runs that a time gap alone would merge. A large time
+            # gap still splits runs whose contents do not overlap.
+            if same and gap <= gap_minutes * 60 and _combo(b) not in seen:
                 cluster.append(b)
+                seen.add(_combo(b))
                 j += 1
             else:
                 break
-        runs.append(_make_run(cluster))
+        runs.append(_make_run(cluster, analyzer))
         i = j + 1
 
     runs.sort(key=lambda r: r["start"], reverse=True)
