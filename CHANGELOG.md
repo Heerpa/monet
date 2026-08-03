@@ -31,6 +31,11 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
   exactly once), so consecutive runs are separated regardless of timing.
 
 ### Added
+- Set Power tab: setting a power (without measuring) now records it in the
+  MicroManager acquisition comment tagged ``[set]``; a subsequent Measure
+  supersedes that line with a ``[measured]`` entry for the same laser
+  (`util.update_mm_acquisition_comment` gained a ``kind`` argument and now keys
+  the comment line on the wavelength alone).
 - Database tab: "Delete run" removes every calibration belonging to the
   selected run(s) (`io.delete_calibration_run`).
 - The transmission "Pair runs…" dialog now uses checkboxes to select *which*

@@ -162,23 +162,24 @@ class TestUpdateMMComment(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(
             self.mgr.settings.comment(),
-            "Power 488nm: 12.345 mW [no objective transmission factor]",
+            "Power 488nm [measured]: 12.345 mW "
+            "[no objective transmission factor]",
         )
 
     def test_replaces_existing_line_for_same_laser(self):
         util.update_mm_acquisition_comment(488, 10.0, "mW")
         util.update_mm_acquisition_comment(488, 20.0, "mW")
         comment = self.mgr.settings.comment()
-        self.assertIn("Power 488nm: 20.000 mW", comment)
+        self.assertIn("Power 488nm [measured]: 20.000 mW", comment)
         # Exactly one line for this laser — no duplicate appended.
-        self.assertEqual(comment.count("Power 488nm:"), 1)
+        self.assertEqual(comment.count("Power 488nm"), 1)
 
     def test_keeps_lines_for_other_lasers(self):
         util.update_mm_acquisition_comment(488, 10.0, "mW")
         util.update_mm_acquisition_comment(561, 5.0, "mW")
         comment = self.mgr.settings.comment()
-        self.assertIn("Power 488nm: 10.000 mW", comment)
-        self.assertIn("Power 561nm: 5.000 mW", comment)
+        self.assertIn("Power 488nm [measured]: 10.000 mW", comment)
+        self.assertIn("Power 561nm [measured]: 5.000 mW", comment)
 
     def test_optional_fields_in_line(self):
         util.update_mm_acquisition_comment(
@@ -188,12 +189,27 @@ class TestUpdateMMComment(unittest.TestCase):
         self.assertIn("@ att=12.3456", comment)
         self.assertIn("lp=100.0mW", comment)
 
+    def test_set_kind_tag(self):
+        util.update_mm_acquisition_comment(488, 15.0, "mW", kind="set")
+        self.assertIn(
+            "Power 488nm [set]: 15.000 mW", self.mgr.settings.comment()
+        )
+
+    def test_measurement_supersedes_set(self):
+        # A [set] line is overwritten by a later [measured] line (same laser).
+        util.update_mm_acquisition_comment(488, 15.0, "mW", kind="set")
+        util.update_mm_acquisition_comment(488, 14.2, "mW", kind="measured")
+        comment = self.mgr.settings.comment()
+        self.assertEqual(comment.count("Power 488nm"), 1)
+        self.assertIn("Power 488nm [measured]: 14.200 mW", comment)
+        self.assertNotIn("[set]", comment)
+
     def test_transmission_factor_annotated(self):
         util.update_mm_acquisition_comment(
             640, 3.5, "mW", raw_power=7.0, transmission=0.5
         )
         comment = self.mgr.settings.comment()
-        self.assertIn("Power 640nm: 3.500 mW", comment)
+        self.assertIn("Power 640nm [measured]: 3.500 mW", comment)
         self.assertIn("[BFP reading 7.000 mW x T_obj=0.5000]", comment)
 
     def test_unity_transmission_states_no_factor(self):

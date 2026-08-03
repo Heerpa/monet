@@ -2431,6 +2431,10 @@ class SetPowerTab(QWidget):
                 self._emit_status("Ready", 2000)
                 self._refresh_hw_state(laser)
                 self._update_range_label()
+                # Record the just-set power in the MicroManager acquisition
+                # comment, tagged [set]. A later Measure supersedes it with
+                # [measured].
+                self._write_set_comment(laser, pwr)
 
             self._run_hw(_do, status_msg, on_done=_done)
 
@@ -2765,10 +2769,13 @@ class SetPowerTab(QWidget):
         laser_pwr=None,
         raw_power=None,
         transmission=None,
+        kind="measured",
     ):
-        """Write measured power into the MicroManager acquisition comment.
+        """Write a power line into the MicroManager acquisition comment.
 
-        Thin wrapper around util.update_mm_acquisition_comment.
+        Thin wrapper around util.update_mm_acquisition_comment. ``kind`` is
+        ``"measured"`` when the power was measured or ``"set"`` when it was only
+        commanded; a later measurement supersedes an earlier set line.
         """
         return update_mm_acquisition_comment(
             laser,
@@ -2778,7 +2785,41 @@ class SetPowerTab(QWidget):
             laser_pwr,
             raw_power=raw_power,
             transmission=transmission,
+            kind=kind,
         )
+
+    def _write_set_comment(self, laser, pwr):
+        """Record a just-set (not measured) power in the MM comment as [set].
+
+        Best-effort: reads the attenuator position and laser power set-point to
+        include alongside, and never raises (a missing MicroManager /
+        pycromanager is simply a no-op).
+        """
+        if self._pc is None:
+            return
+        att_pos = None
+        laser_pwr = None
+        try:
+            att_pos = self._pc.instrument.attenuator.curr_pos()
+        except Exception:
+            pass
+        try:
+            laser_pwr = self._pc.instrument.lasers[laser].power
+        except Exception:
+            pass
+        try:
+            err = self._update_mm_comment(
+                laser,
+                pwr,
+                "mW",
+                att_pos=att_pos,
+                laser_pwr=laser_pwr,
+                kind="set",
+            )
+            if err:
+                logger.debug("Set-power MM comment update failed: %s", err)
+        except Exception as exc:
+            logger.debug("Could not write set-power MM comment: %s", exc)
 
     def _on_measure(self):
         if self._pc is None:

@@ -88,19 +88,24 @@ def update_mm_acquisition_comment(
     laser_pwr=None,
     raw_power=None,
     transmission=None,
+    kind="measured",
 ):
-    """Write a measured-power line into the MicroManager acquisition comment.
+    """Write a power line into the MicroManager acquisition comment.
 
-    Replaces an existing line for this laser so repeated measurements don't
-    keep appending. Requires the optional `pycromanager` package and a running
-    MicroManager instance; if `pycromanager` is not installed this is a no-op.
+    Replaces any existing line for this laser so repeated updates don't keep
+    appending — and, because the line is keyed only on the wavelength, a
+    ``kind="measured"`` update supersedes an earlier ``kind="set"`` line for the
+    same laser (and vice versa). Requires the optional `pycromanager` package
+    and a running MicroManager instance; if `pycromanager` is not installed this
+    is a no-op.
 
     Parameters
     ----------
     laser : int or str
         Laser wavelength, used to label the comment line.
     measured : float
-        Measured power.
+        The power value to record — the measured power for ``kind="measured"``
+        or the requested set-point for ``kind="set"``.
     unit : str
         Power unit string (e.g. 'mW').
     att_pos : float, optional
@@ -114,6 +119,10 @@ def update_mm_acquisition_comment(
         Objective transmission factor (P_sample / P_bfp) applied to
         `raw_power` to obtain `measured`. A value of 1 or None means no
         factor was used, which is stated explicitly in the comment.
+    kind : str, optional
+        ``"measured"`` (default) when the power was measured with the meter, or
+        ``"set"`` when it was only commanded (not measured). Shown as a
+        ``[measured]`` / ``[set]`` tag in the comment.
 
     Returns
     -------
@@ -138,7 +147,7 @@ def update_mm_acquisition_comment(
             )
         return result
 
-    pwr_str = "Power {}nm: {:.3f} {}".format(laser, measured, unit)
+    pwr_str = "Power {}nm [{}]: {:.3f} {}".format(laser, kind, measured, unit)
     if att_pos is not None:
         pwr_str += " @ att={:.4f}".format(att_pos)
     if laser_pwr is not None:
@@ -151,7 +160,9 @@ def update_mm_acquisition_comment(
         )
     else:
         pwr_str += " [no objective transmission factor]"
-    pattern = "Power {}nm:".format(laser)
+    # Key only on the wavelength (no colon / tag) so a measured line replaces a
+    # previous set line for the same laser, and vice versa.
+    pattern = "Power {}nm".format(laser)
 
     try:
         from pycromanager import Studio
