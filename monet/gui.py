@@ -13,6 +13,8 @@ laser/attenuator adjustment, power setting, and database management.
 import json
 import logging
 
+import numpy as np
+
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
@@ -339,12 +341,14 @@ class CalibrationPlots(QWidget):
     measured power — of every curve of the run, against the laser power
     set-point, with one series per wavelength.
 
-    Previous calibration runs (loaded via :meth:`set_history`) are drawn as
-    thin faded lines behind the live series so drift is visible at a glance.
-    The amplitude vs. laser-power relationship is expected to be roughly
-    linear; single points that stray from a robust line fit are flagged in red
-    and reported via the :attr:`flagged_changed` signal so they can be
-    discarded and re-measured.
+    Previous calibration runs (loaded via :meth:`set_history`) are overlaid as
+    thin faded lines in *both* plots — the amplitude-vs-power trend and, for the
+    conditions currently being measured, the attenuation curve — regenerated
+    from the stored fit parameters (the raw points are not kept). A row of
+    per-wavelength toggle buttons above the plots selects which wavelengths to
+    show, so a wavelength with very low powers can be viewed on its own
+    rescaled axes. Live amplitude points that stray from a robust linear fit are
+    flagged in red and reported via :attr:`flagged_changed`.
 
     The curve grows point by point via ``add_point``; ``add_curve`` closes it
     off at the end of a power step and records its amplitude. Both are
@@ -352,36 +356,68 @@ class CalibrationPlots(QWidget):
     """
 
     # Emits the list of currently-flagged points as
-    # [{"laser": str, "lpwr": float, "residual_frac": float}, ...].
+    # [{"laser": <orig>, "lpwr": float, "residual_frac": float}, ...].
     flagged_changed = pyqtSignal(object)
 
     # A point is flagged when it deviates from the robust linear fit by more
     # than this fraction (see io.flag_amplitude_outliers).
     OUTLIER_REL_THRESH = 0.02
 
+    # Matplotlib's default (tab10) categorical palette, inlined so no pyplot
+    # import is needed in this Qt-embedded canvas.
+    _COLORS = [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+        "#bcbd22",
+        "#17becf",
+    ]
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        # {laser: {laser power set-point: max measured power}}
+        # {laser (original protocol key): {laser power: max measured power}}
         self._amplitudes = {}
-        # {laser: [{"date": str, "amplitudes": {lpwr: maxpower}}]} — past runs
+        # {wavelength (float): [{"date": str, "powers": {power: fit params}}]}
         self._history = {}
+        # {wavelength (float): [{"date": str, "amplitudes": {power: max}}]}
+        self._history_amps = {}
         # {laser: set(lpwr)} flagged as outliers in the current run
         self._flagged = {}
+        self._ana_config = None
+        self._analyzer = None
+        # stable color per canonical wavelength
+        self._color_map = {}
+        # {wavelength (float): checkable QPushButton}
+        self._wl_toggles = {}
         # (laser, lpwr) of the curve currently being acquired, or None
         self._curve_key = None
         self._curve_line = None
         self._curve_x = []
         self._curve_y = []
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        # Per-wavelength show/hide toggles (populated as wavelengths appear).
+        self._toggle_bar = QWidget()
+        self._toggle_layout = QHBoxLayout(self._toggle_bar)
+        self._toggle_layout.setContentsMargins(0, 0, 0, 0)
+        self._toggle_layout.addWidget(QLabel("Show:"))
+        self._toggle_layout.addStretch()
+        self._toggle_bar.setVisible(False)
+        root.addWidget(self._toggle_bar)
 
         try:
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
             from matplotlib.figure import Figure
         except Exception:
             self._has_mpl = False
-            layout.addWidget(
+            root.addWidget(
                 QLabel("matplotlib not available — cannot show plots.")
             )
             return
@@ -395,14 +431,162 @@ class CalibrationPlots(QWidget):
         self._amp_ax = self._amp_fig.add_subplot(111)
         self._amp_canvas = FigureCanvasQTAgg(self._amp_fig)
 
+        canvas_row = QHBoxLayout()
         for canvas in (self._curve_canvas, self._amp_canvas):
             canvas.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
             )
-            layout.addWidget(canvas)
+            canvas_row.addWidget(canvas)
+        root.addLayout(canvas_row)
 
         self.clear()
 
+    # ── wavelength helpers ────────────────────────────────────────────────
+    @staticmethod
+    def _canon(wl):
+        """Canonical (float) wavelength key; original value if non-numeric."""
+        try:
+            return float(wl)
+        except (TypeError, ValueError):
+            return wl
+
+    def _laser_color(self, laser):
+        """Stable color per canonical wavelength across the session."""
+        key = self._canon(laser)
+        if key not in self._color_map:
+            self._color_map[key] = self._COLORS[
+                len(self._color_map) % len(self._COLORS)
+            ]
+        return self._color_map[key]
+
+    def _all_wavelengths(self):
+        """Sorted union of live and history wavelengths (canonical floats)."""
+        keys = set()
+        for k in self._amplitudes:
+            c = self._canon(k)
+            if isinstance(c, float):
+                keys.add(c)
+        keys |= set(self._history_amps) | set(self._history)
+        return sorted(keys)
+
+    def _is_visible(self, wl):
+        btn = self._wl_toggles.get(self._canon(wl))
+        return btn.isChecked() if btn is not None else True
+
+    def _rebuild_toggles(self):
+        wls = self._all_wavelengths()
+        # Assign colors in a stable sorted order before creating buttons.
+        for wl in wls:
+            self._laser_color(wl)
+        for wl in wls:
+            if wl in self._wl_toggles:
+                continue
+            btn = QPushButton("{:g} nm".format(wl))
+            btn.setCheckable(True)
+            btn.setChecked(True)
+            btn.setMaximumWidth(90)
+            btn.setToolTip("Show/hide this wavelength in the plots")
+            btn.setStyleSheet(
+                "QPushButton {{ color: {}; }}".format(self._laser_color(wl))
+            )
+            btn.toggled.connect(self._on_toggle_changed)
+            self._toggle_layout.insertWidget(
+                self._toggle_layout.count() - 1, btn
+            )
+            self._wl_toggles[wl] = btn
+        for wl in list(self._wl_toggles):
+            if wl not in wls:
+                btn = self._wl_toggles.pop(wl)
+                self._toggle_layout.removeWidget(btn)
+                btn.deleteLater()
+        self._toggle_bar.setVisible(bool(self._wl_toggles))
+
+    def _on_toggle_changed(self, _checked=False):
+        self._redraw_amplitudes()
+        # Redraw the current attenuation curve so its overlays follow the
+        # toggle as well.
+        if self._curve_key is not None:
+            laser, lpwr = self._curve_key
+            self._draw_curve(laser, lpwr, self._curve_x, self._curve_y, False)
+
+    # ── history model regeneration ────────────────────────────────────────
+    def _get_analyzer(self):
+        if self._analyzer is None and self._ana_config is not None:
+            try:
+                from monet.util import load_class
+
+                self._analyzer = load_class(
+                    self._ana_config["classpath"],
+                    self._ana_config["init_kwargs"],
+                )
+            except Exception:
+                self._analyzer = None
+        return self._analyzer
+
+    def _grid(self):
+        init = (self._ana_config or {}).get("init_kwargs", {})
+        lo = init.get("min", 0)
+        hi = init.get("max", 180)
+        try:
+            if lo is None or np.isnan(lo):
+                lo = 0
+        except (TypeError, ValueError):
+            lo = 0
+        return np.linspace(lo, hi, 200)
+
+    def _compute_history_amps(self):
+        """Regenerate {wl: [{date, amplitudes}]} from stored fit parameters."""
+        out = {}
+        analyzer = self._get_analyzer()
+        if analyzer is None:
+            return out
+        for wl, runs in self._history.items():
+            rlist = []
+            for run in runs:
+                amps = {}
+                for power, pars in run.get("powers", {}).items():
+                    try:
+                        analyzer.load_model(pars)
+                        amps[float(power)] = float(
+                            np.real(analyzer.output_range()[1])
+                        )
+                    except Exception:
+                        continue
+                if amps:
+                    rlist.append(
+                        {"date": run.get("date", ""), "amplitudes": amps}
+                    )
+            if rlist:
+                out[float(wl)] = rlist
+        return out
+
+    def _history_curves(self, laser, lpwr):
+        """Regenerated (grid, powers, date) curves for these conditions."""
+        analyzer = self._get_analyzer()
+        if analyzer is None:
+            return []
+        wl = self._canon(laser)
+        grid = self._grid()
+        out = []
+        for run in self._history.get(wl, []):
+            pars = None
+            for p, pr in run.get("powers", {}).items():
+                if float(p) == float(lpwr):
+                    pars = pr
+                    break
+            if pars is None:
+                continue
+            try:
+                analyzer.load_model(pars)
+                yvals = np.array(
+                    [np.real(analyzer.estimate_power(g)) for g in grid]
+                )
+            except Exception:
+                continue
+            out.append((grid, yvals, run.get("date", "")))
+        return out
+
+    # ── public API ────────────────────────────────────────────────────────
     def clear(self):
         """Drop the current run's data and reset both axes.
 
@@ -424,17 +608,28 @@ class CalibrationPlots(QWidget):
         self._curve_canvas.draw_idle()
         self._redraw_amplitudes()
 
-    def set_history(self, history):
-        """Set previous calibration runs to overlay as thin reference lines.
+    def set_history(self, history, ana_config=None):
+        """Overlay previous calibration runs, regenerated from fit parameters.
 
         Parameters
         ----------
         history : dict
-            As returned by :func:`monet.io.load_amplitude_history`:
-            ``{laser: [{"date": str, "amplitudes": {lpwr: maxpower}}]}``.
+            As returned by :func:`monet.io.load_calibration_history`:
+            ``{wavelength (float): [{"date": str, "powers": {power: params}}]}``.
+        ana_config : dict or None
+            Analysis ``classpath`` / ``init_kwargs`` used to rebuild the models
+            the overlays are regenerated from. Remembered across calls.
         """
         self._history = history or {}
+        if ana_config is not None:
+            self._ana_config = ana_config
+            self._analyzer = None
+        self._history_amps = self._compute_history_amps()
+        self._rebuild_toggles()
         self._redraw_amplitudes()
+        if self._curve_key is not None:
+            laser, lpwr = self._curve_key
+            self._draw_curve(laser, lpwr, self._curve_x, self._curve_y, False)
 
     def flagged_points(self):
         """Return the currently-flagged points as ``[(laser, lpwr), ...]``."""
@@ -443,36 +638,6 @@ class CalibrationPlots(QWidget):
             for laser, lpwrs in self._flagged.items()
             for lpwr in lpwrs
         ]
-
-    # Matplotlib's default (tab10) categorical palette, inlined so no pyplot
-    # import is needed in this Qt-embedded canvas.
-    _COLORS = [
-        "#1f77b4",
-        "#ff7f0e",
-        "#2ca02c",
-        "#d62728",
-        "#9467bd",
-        "#8c564b",
-        "#e377c2",
-        "#7f7f7f",
-        "#bcbd22",
-        "#17becf",
-    ]
-
-    def _laser_color(self, laser):
-        """Stable color per wavelength across history and live series."""
-        keys = {str(k) for k in self._amplitudes} | {
-            str(k) for k in self._history
-        }
-        try:
-            lasers = sorted(keys, key=float)
-        except ValueError:
-            lasers = sorted(keys)
-        try:
-            idx = lasers.index(str(laser))
-        except ValueError:
-            idx = 0
-        return self._COLORS[idx % len(self._COLORS)]
 
     def _style_curve_axes(self, title):
         ax = self._curve_ax
@@ -501,11 +666,12 @@ class CalibrationPlots(QWidget):
         ax.clear()
         self._flagged = {}
 
-        # Previous runs — thin, faded, drawn behind the live series so the
-        # user can see whether the system still tracks earlier calibrations.
-        # Each line is annotated at its right end with its acquisition date.
-        for laser, runs in self._history.items():
-            color = self._laser_color(laser)
+        # Previous runs — thin, faded, behind the live series; annotated with
+        # their acquisition date. Only for toggled-on wavelengths.
+        for wl, runs in self._history_amps.items():
+            if not self._is_visible(wl):
+                continue
+            color = self._laser_color(wl)
             for run in runs:
                 amps = run.get("amplitudes", {})
                 if not amps:
@@ -534,12 +700,27 @@ class CalibrationPlots(QWidget):
                     )
 
         # Live run — bold, one series per wavelength, outliers ringed in red.
+        # Flags are computed for every wavelength (so the flagged panel is
+        # complete) but only drawn for toggled-on ones.
         flagged_report = []
-        for laser in sorted(self._amplitudes, key=float):
-            color = self._laser_color(laser)
+        for laser in sorted(self._amplitudes, key=self._canon):
             points = self._amplitudes[laser]
             lpwrs = sorted(points, key=float)
             amps = [points[lp] for lp in lpwrs]
+            outliers = self._detect_outliers(lpwrs, amps)
+            if outliers:
+                self._flagged[laser] = {lpwrs[i] for i in outliers}
+                for i, frac in outliers.items():
+                    flagged_report.append(
+                        {
+                            "laser": laser,
+                            "lpwr": float(lpwrs[i]),
+                            "residual_frac": frac,
+                        }
+                    )
+            if not self._is_visible(laser):
+                continue
+            color = self._laser_color(laser)
             ax.plot(
                 lpwrs,
                 amps,
@@ -547,11 +728,9 @@ class CalibrationPlots(QWidget):
                 color=color,
                 linewidth=1.6,
                 zorder=3,
-                label="{} nm".format(laser),
+                label="{:g} nm".format(self._canon(laser)),
             )
-            outliers = self._detect_outliers(lpwrs, amps)
             if outliers:
-                self._flagged[laser] = {lpwrs[i] for i in outliers}
                 ax.plot(
                     [lpwrs[i] for i in outliers],
                     [amps[i] for i in outliers],
@@ -563,16 +742,6 @@ class CalibrationPlots(QWidget):
                     linestyle="none",
                     zorder=4,
                 )
-                for i, frac in outliers.items():
-                    flagged_report.append(
-                        {
-                            # keep the original laser key so recalibration
-                            # filters match the protocol's laser_sequence.
-                            "laser": laser,
-                            "lpwr": float(lpwrs[i]),
-                            "residual_frac": frac,
-                        }
-                    )
 
         ax.set_xlabel("laser power set-point [mW]", fontsize=8)
         ax.set_ylabel("max measured power [mW]", fontsize=8)
@@ -584,6 +753,48 @@ class CalibrationPlots(QWidget):
             ax.legend(fontsize=7)
         self._amp_canvas.draw_idle()
         self.flagged_changed.emit(flagged_report)
+
+    def _draw_curve(self, laser, lpwr, x, y):
+        """Draw the attenuation curve with regenerated history overlays."""
+        if not self._has_mpl:
+            return
+        ax = self._curve_ax
+        ax.clear()
+        color = self._laser_color(laser)
+
+        # Previous calibrations for the same conditions, regenerated from fit
+        # parameters (raw points are not stored), drawn thin behind the live
+        # curve and annotated with the acquisition date.
+        if self._is_visible(laser):
+            for grid, yvals, date in self._history_curves(laser, lpwr):
+                ax.plot(
+                    grid,
+                    yvals,
+                    color=color,
+                    linewidth=0.6,
+                    alpha=0.4,
+                    zorder=1,
+                )
+                if date and len(grid):
+                    ax.annotate(
+                        date,
+                        xy=(grid[-1], yvals[-1]),
+                        xytext=(2, 0),
+                        textcoords="offset points",
+                        fontsize=6,
+                        color=color,
+                        alpha=0.7,
+                        va="center",
+                        ha="left",
+                    )
+
+        (self._curve_line,) = ax.plot(x, y, marker="x", color=color, zorder=3)
+        self._style_curve_axes(
+            "current curve — {} nm, {} mW".format(laser, lpwr)
+        )
+        ax.relim()
+        ax.autoscale_view()
+        self._curve_canvas.draw_idle()
 
     def add_point(self, laser, lpwr, index, total, ctrl_val, power):
         """Extend the current curve by one freshly measured point.
@@ -597,44 +808,40 @@ class CalibrationPlots(QWidget):
             self._curve_key = (laser, lpwr)
             self._curve_x = []
             self._curve_y = []
-            self._curve_ax.clear()
-            (self._curve_line,) = self._curve_ax.plot([], [], marker="x")
-            self._style_curve_axes(
-                "current curve — {} nm, {} mW".format(laser, lpwr)
-            )
+            # Draw the history overlays once for this new curve; the live line
+            # is then extended in place below.
+            self._draw_curve(laser, lpwr, [], [])
 
         self._curve_x.append(ctrl_val)
         self._curve_y.append(power)
-        self._curve_line.set_data(self._curve_x, self._curve_y)
-        # The axes were built empty, so the limits have to follow the data.
-        self._curve_ax.relim()
-        self._curve_ax.autoscale_view()
-        self._curve_canvas.draw_idle()
+        if self._curve_line is not None:
+            self._curve_line.set_data(self._curve_x, self._curve_y)
+            self._curve_ax.relim()
+            self._curve_ax.autoscale_view()
+            self._curve_canvas.draw_idle()
 
     def add_curve(self, laser, lpwr, ctrl_vals, powers):
         """Close off a completed attenuation curve and record its amplitude.
 
         Redraws the curve from the values the protocol actually kept, so the
         plot is right even if no live points arrived (e.g. the 1D protocol).
+        Keeps ``_curve_key`` set so wavelength toggles can refresh this curve
+        until the next power step begins.
         """
         if not self._has_mpl:
             return
 
-        self._curve_ax.clear()
-        self._curve_ax.plot(ctrl_vals, powers, marker="x")
-        self._style_curve_axes(
-            "current curve — {} nm, {} mW".format(laser, lpwr)
-        )
-        self._curve_canvas.draw_idle()
-        # The next point belongs to a new curve.
-        self._curve_key = None
-        self._curve_line = None
+        self._curve_key = (laser, lpwr)
+        self._curve_x = list(ctrl_vals)
+        self._curve_y = list(powers)
+        self._draw_curve(laser, lpwr, ctrl_vals, powers)
 
         try:
             amplitude = float(max(powers))
         except (TypeError, ValueError):
             return
         self._amplitudes.setdefault(laser, {})[lpwr] = amplitude
+        self._rebuild_toggles()
         self._redraw_amplitudes()
 
 
@@ -978,19 +1185,27 @@ class CalibrateTab(QWidget):
             return
         if not device:
             return
-        keep = {str(las) for las in lasers}
+        # Match the selected lasers by numeric wavelength — the database may
+        # store the wavelength as int or float, so a string compare would miss.
+        keep = set()
+        for las in lasers:
+            try:
+                keep.add(float(las))
+            except (TypeError, ValueError):
+                pass
 
         def _do():
-            from monet.util import load_class
-
-            analyzer = load_class(ana_cfg["classpath"], ana_cfg["init_kwargs"])
-            all_hist = io.load_amplitude_history(
-                db_fname, device, analyzer, powermeter_type=powermeter_type
+            all_hist = io.load_calibration_history(
+                db_fname, device, powermeter_type=powermeter_type
             )
-            return {k: v for k, v in all_hist.items() if k in keep}
+            if keep:
+                return {
+                    wl: runs for wl, runs in all_hist.items() if wl in keep
+                }
+            return all_hist
 
         def _on_result(history):
-            self._plots.set_history(history or {})
+            self._plots.set_history(history or {}, ana_cfg)
             self._history_worker = None
 
         def _on_hist_error(msg):

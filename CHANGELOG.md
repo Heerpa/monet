@@ -16,12 +16,21 @@ move the `[Unreleased]` notes into a new `[x.y.z]` section dated today, then
   calibration database at the end (each 1D step toggles `is_calibrated` off),
   and the Set Power tab refreshes its range display when a run finishes. Power
   could not be set from the Set Power tab after calibrating until reconnecting.
+- Calibrate tab: previous-run overlay lines had stopped appearing when the
+  database stored the wavelength as a float (or in any form differing from the
+  protocol's laser key) — history was matched by string and silently dropped.
+  It is now matched by numeric wavelength.
 
 ### Added
-- Calibrate tab: the live "amplitude vs. laser power" plot now overlays the
-  most recent previous runs as thin faded reference lines (per wavelength,
-  matched to the current power-meter position), so drift is visible while a
-  calibration builds up (`io.load_amplitude_history`).
+- Calibrate tab: per-wavelength show/hide toggle buttons above the plots, so a
+  wavelength with very low powers can be viewed on its own rescaled axes.
+- Calibrate tab: the attenuation-curve plot now overlays the same conditions'
+  previous calibrations as thin dated lines, regenerated from the stored fit
+  parameters (`io.load_calibration_history`) since the raw points are not kept.
+- Calibrate tab: the live "amplitude vs. laser power" plot overlays the most
+  recent previous runs as thin faded reference lines (per wavelength, matched
+  to the current power-meter position), regenerated from fit parameters, so
+  drift is visible while a calibration builds up.
 - Calibrate tab: single calibrations whose amplitude strays from the (expected
   linear) amplitude-vs-power trend are flagged in red and listed in a new panel
   where they can be ticked and **discarded** or **recalibrated in place**.

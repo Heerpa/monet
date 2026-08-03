@@ -375,6 +375,57 @@ class TestLoadAmplitudeHistory(unittest.TestCase):
         self.assertEqual(hist, {})
 
 
+class TestLoadCalibrationHistory(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = os.path.join(self.tmpdir, "db.xlsx")
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _rows(self, dates, ptype=None):
+        rows = []
+        for d in dates:
+            for lpwr, amp in ((100.0, 40.0), (200.0, 60.0)):
+                params = {"bkg": 0.0, "amp": amp}
+                if ptype is not None:
+                    params["powermeter_type"] = ptype
+                rows.append(("TestScope", 488.0, lpwr, d, "10:00", params))
+        return rows
+
+    def test_returns_params_keyed_by_float_wavelength(self):
+        _write_calib_db(self.db, self._rows(["2024-01-01"]))
+        hist = mio.load_calibration_history(self.db, "TestScope")
+        # Key is a numeric wavelength, robust to str/float DB forms.
+        self.assertIn(488.0, hist)
+        runs = hist[488.0]
+        self.assertEqual(len(runs), 1)
+        powers = runs[0]["powers"]
+        self.assertIn(100.0, powers)
+        self.assertAlmostEqual(powers[100.0]["amp"], 40.0)
+        # powermeter_type is not a model parameter and must be dropped.
+        self.assertNotIn("powermeter_type", powers[100.0])
+
+    def test_max_runs_and_pm_filter(self):
+        rows = self._rows(["2024-01-01"], ptype="sample")
+        rows += self._rows(["2024-02-01"], ptype="bfp")
+        rows += self._rows(["2024-03-01"], ptype="bfp")
+        _write_calib_db(self.db, rows)
+        hist = mio.load_calibration_history(
+            self.db, "TestScope", powermeter_type="bfp", max_runs=1
+        )
+        self.assertEqual([r["date"] for r in hist[488.0]], ["2024-03-01"])
+
+    def test_missing_file_empty(self):
+        hist = mio.load_calibration_history(
+            os.path.join(self.tmpdir, "nope.xlsx"), "TestScope"
+        )
+        self.assertEqual(hist, {})
+
+
 class TestComputeFactorBreakdown(unittest.TestCase):
 
     def setUp(self):
@@ -623,9 +674,7 @@ class TestCalibrationRuns(unittest.TestCase):
         runs = mio.list_calibration_runs(self.db, "TestScope")
         # 2 sample runs + 1 bfp run
         self.assertEqual(len(runs), 3)
-        samples = [
-            r for r in runs if r["powermeter_type"] == "sample"
-        ]
+        samples = [r for r in runs if r["powermeter_type"] == "sample"]
         bfps = [r for r in runs if r["powermeter_type"] == "bfp"]
         self.assertEqual(len(samples), 2)
         self.assertEqual(len(bfps), 1)

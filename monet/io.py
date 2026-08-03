@@ -934,6 +934,86 @@ def load_amplitude_history(
     return history
 
 
+def load_calibration_history(
+    db_fname, device, powermeter_type=None, max_runs=3
+):
+    """Recent calibration runs' fit parameters, grouped by wavelength.
+
+    Groups a device's calibrations by date (one run per day), keeps the most
+    recent ``max_runs`` dates per wavelength, and returns the stored fit
+    parameters for each laser power. Both the amplitude-vs-power overlay and the
+    attenuation-curve overlay in the GUI are regenerated from these parameters
+    (the raw data points are not stored). Keys are numeric wavelengths so the
+    caller can match them to live lasers by value rather than string form.
+
+    Parameters
+    ----------
+    db_fname : str
+        Excel database path or server URL.
+    device : str
+        Device / microscope name.
+    powermeter_type : str or None
+        If given, restrict to this power-meter position ('sample' or 'bfp');
+        rows predating the ``powermeter_type`` column are always included.
+    max_runs : int
+        Number of most-recent dates to return per wavelength.
+
+    Returns
+    -------
+    history : dict
+        ``{wavelength (float): [{"date": str, "powers": {power (float):
+        params}}]}``, each list ordered oldest → newest with at most
+        ``max_runs`` entries. Empty dict on any load error.
+    """
+    try:
+        db = load_database(db_fname, {DEVICE_TAG: device}, time_idx="all")
+    except Exception as exc:
+        logger.debug("load_calibration_history: could not load db: %s", exc)
+        return {}
+    if not hasattr(db, "iterrows") or db.empty:
+        return {}
+
+    want_type = (
+        normalize_powermeter_type(powermeter_type)
+        if powermeter_type is not None
+        else None
+    )
+
+    history = {}
+    for las, laser_df in db.groupby(LASER_TAG):
+        if want_type is not None and "powermeter_type" in laser_df.columns:
+            pm_norm = laser_df["powermeter_type"].map(
+                lambda v: normalize_powermeter_type(v) if pd.notna(v) else None
+            )
+            laser_df = laser_df.loc[(pm_norm == want_type) | pm_norm.isna()]
+        if laser_df.empty:
+            continue
+        try:
+            wl = float(las)
+        except (TypeError, ValueError):
+            continue
+
+        dates = laser_df.index.get_level_values("date")
+        date_strs = np.array([str(d)[:10] for d in dates])
+        recent_dates = sorted(set(date_strs))[-max_runs:]
+
+        runs = []
+        for date in recent_dates:
+            date_df = laser_df.loc[date_strs == date]
+            powers = {}
+            for lpwr, lpwr_df in date_df.groupby(
+                date_df.index.get_level_values(POWER_TAG)
+            ):
+                pars = _row_model_pars(lpwr_df.iloc[-1])
+                if pars:
+                    powers[float(lpwr)] = pars
+            if powers:
+                runs.append({"date": date, "powers": powers})
+        if runs:
+            history[wl] = runs
+    return history
+
+
 # ──────────────────────────────────────────────
 # Powermeter correction factors
 # ──────────────────────────────────────────────
