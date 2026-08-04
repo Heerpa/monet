@@ -22,15 +22,19 @@ on:
       - master
       - main
       - develop
+  # No branch filter on pull_request: run the gate on PRs into every branch
+  # (feature/release branches too), matching the pre-split ci.yml behaviour.
   pull_request:
-    branches:
-      - master
-      - main
-      - develop
 
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
+    # Test the declared-supported Python range, not just the floor (3.10). Both
+    # matrix legs report their own status check ("unit-tests (3.10)" /
+    # "unit-tests (3.12)") -- add both to the required-checks list.
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.12']
     env:
       QT_QPA_PLATFORM: offscreen
 
@@ -43,7 +47,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install Qt runtime libraries (headless PyQt6 import)

@@ -14,11 +14,9 @@ on:
       - master
       - main
       - develop
+  # No branch filter on pull_request: lint every PR regardless of target branch
+  # (matches the pre-split ci.yml behaviour).
   pull_request:
-    branches:
-      - master
-      - main
-      - develop
 
 jobs:
   lint:
